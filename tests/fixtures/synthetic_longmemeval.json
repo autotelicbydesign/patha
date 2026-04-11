@@ -1,0 +1,107 @@
+[
+  {
+    "question_id": "q001",
+    "question": "What did Alice buy at the store?",
+    "question_type": "single-session-user",
+    "question_date": "2026-01-15",
+    "answer": "apples",
+    "answer_session_ids": ["sess_001"],
+    "haystack_session_ids": ["sess_001", "sess_002"],
+    "haystack_dates": ["2026-01-10", "2026-01-12"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I went to the store today and bought some apples.", "has_answer": true},
+        {"role": "assistant", "content": "That sounds nice! Do you like apples?"},
+        {"role": "user", "content": "Yes, they are my favorite fruit."}
+      ],
+      [
+        {"role": "user", "content": "I need to fix my car this weekend."},
+        {"role": "assistant", "content": "What's wrong with it?"},
+        {"role": "user", "content": "The brakes are squeaking."}
+      ]
+    ]
+  },
+  {
+    "question_id": "q002",
+    "question": "What programming languages does Bob use at work and at home?",
+    "question_type": "multi-session",
+    "question_date": "2026-02-01",
+    "answer": "Python at work, Rust at home",
+    "answer_session_ids": ["sess_003", "sess_004"],
+    "haystack_session_ids": ["sess_003", "sess_004", "sess_005"],
+    "haystack_dates": ["2026-01-20", "2026-01-25", "2026-01-28"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "At work we mostly use Python for data analysis.", "has_answer": true},
+        {"role": "assistant", "content": "Python is great for data work!"}
+      ],
+      [
+        {"role": "user", "content": "I have been learning Rust for my personal projects at home.", "has_answer": true},
+        {"role": "assistant", "content": "Rust is a fantastic language for systems programming."}
+      ],
+      [
+        {"role": "user", "content": "The weather has been really nice lately."},
+        {"role": "assistant", "content": "That's great to hear!"}
+      ]
+    ]
+  },
+  {
+    "question_id": "q003",
+    "question": "What is Alice's current address?",
+    "question_type": "knowledge-update",
+    "question_date": "2026-03-01",
+    "answer": "456 Oak Ave",
+    "answer_session_ids": ["sess_007"],
+    "haystack_session_ids": ["sess_006", "sess_007"],
+    "haystack_dates": ["2026-01-05", "2026-02-15"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I live at 123 Elm Street."},
+        {"role": "assistant", "content": "Got it, 123 Elm Street."}
+      ],
+      [
+        {"role": "user", "content": "I moved to a new place. My address is now 456 Oak Ave.", "has_answer": true},
+        {"role": "assistant", "content": "Congratulations on the move!"}
+      ]
+    ]
+  },
+  {
+    "question_id": "q004",
+    "question": "What did the user say about their job before they started freelancing?",
+    "question_type": "temporal-reasoning",
+    "question_date": "2026-03-15",
+    "answer": "They worked at a bank",
+    "answer_session_ids": ["sess_008"],
+    "haystack_session_ids": ["sess_008", "sess_009"],
+    "haystack_dates": ["2026-01-01", "2026-03-01"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I work at First National Bank as an analyst.", "has_answer": true},
+        {"role": "assistant", "content": "How do you like working at the bank?"},
+        {"role": "user", "content": "It is okay but I dream of freelancing."}
+      ],
+      [
+        {"role": "user", "content": "I finally quit my job and started freelancing!"},
+        {"role": "assistant", "content": "That's exciting! How is it going?"},
+        {"role": "user", "content": "Much better than the bank."}
+      ]
+    ]
+  },
+  {
+    "question_id": "q005_abs",
+    "question": "What is the user's favorite movie?",
+    "question_type": "abstention",
+    "question_date": "2026-03-20",
+    "answer": "unknown",
+    "answer_session_ids": [],
+    "haystack_session_ids": ["sess_010"],
+    "haystack_dates": ["2026-02-01"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I like reading science fiction books."},
+        {"role": "assistant", "content": "Any favorites?"},
+        {"role": "user", "content": "Dune is amazing."}
+      ]
+    ]
+  }
+]

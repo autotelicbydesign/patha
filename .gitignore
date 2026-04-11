@@ -1,0 +1,32 @@
+# python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# uv
+.uv/
+
+# project state
+data/index/
+runs/
+*.lance/
+*.bm25/
+*.colbert/
+
+# third_party is a submodule target; contents tracked via .gitmodules later
+third_party/long-mem-eval/
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# claude code workspace state
+.claude/
