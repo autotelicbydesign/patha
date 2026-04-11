@@ -234,17 +234,35 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--data", required=True, help="Path to LongMemEval JSON")
     parser.add_argument("--output", default="runs/latest/results.json")
     parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument("--embedder", default="stub",
+                        choices=["stub", "minilm", "stella"],
+                        help="Embedder to use (default: stub)")
+    parser.add_argument("--limit", type=int, default=0,
+                        help="Limit to first N questions (0 = all)")
     parser.add_argument("--no-songline", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
 
     print(f"Loading {args.data}...")
     data = load_longmemeval(args.data)
+    if args.limit > 0:
+        data = data[:args.limit]
     print(f"Loaded {len(data)} questions")
+
+    embedder: Embedder | None = None
+    if args.embedder == "minilm":
+        from patha.models.embedder_st import SentenceTransformerEmbedder
+        embedder = SentenceTransformerEmbedder("all-MiniLM-L6-v2")
+        print(f"Using MiniLM embedder (dim={embedder.dim})")
+    elif args.embedder == "stella":
+        from patha.models.embedder_st import SentenceTransformerEmbedder
+        embedder = SentenceTransformerEmbedder("dunzhang/stella_en_400M_v5")
+        print(f"Using Stella-400M embedder (dim={embedder.dim})")
 
     config = PipelineConfig(top_k=args.top_k)
     report = run_evaluation(
         data,
+        embedder=embedder,
         config=config,
         use_songline=not args.no_songline,
         verbose=args.verbose,

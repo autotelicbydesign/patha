@@ -15,7 +15,7 @@ def _make_row(chunk_id: str, vec: list[float]) -> dict:
         "chunk_id": chunk_id,
         "session_id": "s1",
         "turn_idx": 0,
-        "prop_idx": int(chunk_id.split("p")[-1]),
+        "prop_idx": 0,
         "text": chunk_id,
         "speaker": None,
         "timestamp": None,
