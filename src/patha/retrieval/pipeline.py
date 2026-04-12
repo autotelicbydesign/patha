@@ -48,6 +48,12 @@ class PipelineConfig:
     candidate_k: int = 2000
     rrf_k: int = 60
 
+    # PRF query expansion
+    prf_top_k: int = 10
+    prf_num_terms: int = 20
+    prf_weight: float = 0.3
+    use_prf: bool = False
+
     # Songline walks
     songline_anchors: int = 3
     songline_hops: int = 3
@@ -141,9 +147,22 @@ def retrieve(
 
     result = RetrievalResult(query=query)
 
+    # Stage 0 (optional): PRF query expansion over BM25
+    effective_query = query
+    if config.use_prf and bm25 is not None:
+        from patha.query.prf import prf_expand
+        effective_query = prf_expand(
+            query,
+            bm25=bm25,
+            store=store,
+            top_k=config.prf_top_k,
+            num_terms=config.prf_num_terms,
+            weight=config.prf_weight,
+        )
+
     # Stage 1: hybrid candidate generation (7 views + BM25, RRF)
     result.candidates = generate_candidates(
-        query,
+        effective_query,
         store=store,
         embedder=embedder,
         bm25=bm25,

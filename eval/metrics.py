@@ -46,9 +46,18 @@ RETRIEVAL_STRATA = frozenset({
 })
 
 
-def _classify_stratum(question_type: str) -> str:
-    """Map a LongMemEval question_type to a stratum name."""
+def _classify_stratum(question_type: str, question_id: str = "") -> str:
+    """Map a LongMemEval question_type to a stratum name.
+
+    LongMemEval S encodes abstention in two ways:
+    1. question_type contains "abstention" (synthetic fixtures)
+    2. question_id ends with "_abs" (real LongMemEval S dataset)
+
+    Both are handled here to support both formats.
+    """
     if "abstention" in question_type.lower() or "_abs" in question_type.lower():
+        return "abstention"
+    if "_abs" in question_id.lower():
         return "abstention"
     return QUESTION_TYPE_TO_STRATUM.get(question_type, "unknown")
 
@@ -63,18 +72,32 @@ class QuestionResult:
     gold_session_ids: list[str]
     retrieved_chunk_ids: list[str]  # top-K, in rank order
 
+    def _retrieved_sessions_at_k(self, k: int) -> set[str]:
+        """Extract the first K unique sessions from retrieved chunks.
+
+        Matches the official LongMemEval protocol: expand the chunk window
+        until K unique session IDs are found (or chunks are exhausted).
+        This compensates for multiple chunks from the same session appearing
+        consecutively in the ranked list.
+        """
+        sessions: set[str] = set()
+        for cid in self.retrieved_chunk_ids:
+            sid = cid.split("#")[0]
+            sessions.add(sid)
+            if len(sessions) >= k:
+                break
+        return sessions
+
     def recall_any_at_k(self, k: int) -> float:
         """1.0 if ANY gold session appears in top-K retrieved sessions, else 0.0.
 
-        Session is extracted from chunk_id by splitting on '#' and taking
-        the first segment (our chunk_id format: "{session_id}#t{turn}#p{prop}").
+        Uses the official LongMemEval protocol: expand the chunk window
+        until K unique sessions are found, then check if any gold session
+        is among them.
         """
         if not self.gold_session_ids:
             return 0.0
-        retrieved_sessions = set()
-        for cid in self.retrieved_chunk_ids[:k]:
-            sid = cid.split("#")[0]
-            retrieved_sessions.add(sid)
+        retrieved_sessions = self._retrieved_sessions_at_k(k)
         gold = set(self.gold_session_ids)
         return 1.0 if gold & retrieved_sessions else 0.0
 
@@ -82,10 +105,7 @@ class QuestionResult:
         """1.0 if ALL gold sessions appear in top-K retrieved sessions, else 0.0."""
         if not self.gold_session_ids:
             return 0.0
-        retrieved_sessions = set()
-        for cid in self.retrieved_chunk_ids[:k]:
-            sid = cid.split("#")[0]
-            retrieved_sessions.add(sid)
+        retrieved_sessions = self._retrieved_sessions_at_k(k)
         gold = set(self.gold_session_ids)
         return 1.0 if gold <= retrieved_sessions else 0.0
 

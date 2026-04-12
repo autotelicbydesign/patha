@@ -39,11 +39,19 @@ def ingest_turn(
     speaker: str | None = None,
     timestamp: str | None = None,
     entities_per_prop: list[list[str]] | None = None,
+    entity_enricher: object | None = None,
 ) -> list[str]:
     """Ingest a single turn into the store.
 
     Returns the list of ``chunk_id``s created for this turn. Empty list if
     the turn produced no propositions (e.g. empty or whitespace-only input).
+
+    Parameters
+    ----------
+    entity_enricher
+        Optional ``EntityEnricher`` instance. When provided and
+        ``entities_per_prop`` is ``None``, entities are extracted
+        automatically via spaCy NER.
     """
     props = propositionize(
         text,
@@ -60,6 +68,11 @@ def ingest_turn(
             f"entities_per_prop length {len(entities_per_prop)} "
             f"does not match proposition count {len(props)}"
         )
+
+    # Auto-extract entities if enricher provided and no manual entities
+    if entities_per_prop is None and entity_enricher is not None:
+        prop_texts = [p.text for p in props]
+        entities_per_prop = entity_enricher.extract_batch(prop_texts)
 
     timestamps = [timestamp] * len(props) if timestamp else None
     views_per_prop = build_views(
@@ -110,6 +123,7 @@ def ingest_session(
     session_id: str,
     store: Store,
     embedder: Embedder,
+    entity_enricher: object | None = None,
 ) -> list[str]:
     """Ingest a whole session.
 
@@ -117,6 +131,9 @@ def ingest_session(
     ``speaker``, ``timestamp``, ``entities_per_prop`` keys. ``turn_idx`` is
     assigned by position in the list. Returns the flat list of chunk_ids
     created across all turns.
+
+    When ``entity_enricher`` is provided, entities are automatically
+    extracted for each proposition via spaCy NER.
     """
     all_ids: list[str] = []
     for turn_idx, turn in enumerate(turns):
@@ -129,6 +146,7 @@ def ingest_session(
             speaker=turn.get("speaker"),
             timestamp=turn.get("timestamp"),
             entities_per_prop=turn.get("entities_per_prop"),
+            entity_enricher=entity_enricher,
         )
         all_ids.extend(ids)
     return all_ids
@@ -139,6 +157,7 @@ def ingest_sessions(
     *,
     store: Store,
     embedder: Embedder,
+    entity_enricher: object | None = None,
 ) -> dict[str, list[str]]:
     """Ingest multiple sessions.
 
@@ -154,5 +173,6 @@ def ingest_sessions(
             session_id=sid,
             store=store,
             embedder=embedder,
+            entity_enricher=entity_enricher,
         )
     return result
