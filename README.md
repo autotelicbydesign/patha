@@ -2,7 +2,7 @@
 
 > *The way. The recitation.*
 
-A memory system inspired by Vedic recitation and Aboriginal songlines. Achieves **100% Recall@5** on [LongMemEval](https://arxiv.org/abs/2407.15460) (raw mode, 100-question stratified sample) with **zero hosted-LLM API calls**. Everything runs locally.
+A memory system inspired by Vedic recitation and Aboriginal songlines. Targeting **≥99% Recall@5** on [LongMemEval](https://arxiv.org/abs/2407.15460) in raw mode with **zero hosted-LLM API calls**. Everything runs locally. Full 500-question evaluation in progress.
 
 ## Results
 
