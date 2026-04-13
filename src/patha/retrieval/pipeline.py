@@ -47,6 +47,7 @@ class PipelineConfig:
     bm25_k: int = 300
     candidate_k: int = 2000
     rrf_k: int = 60
+    views: list[str] | None = None  # None = all 7 views; e.g. ["v1"] for ablation
 
     # PRF query expansion
     prf_top_k: int = 10
@@ -170,6 +171,7 @@ def retrieve(
         bm25_k=config.bm25_k,
         total_k=config.candidate_k,
         rrf_k=config.rrf_k,
+        views=config.views,
     )
 
     # Stage 2: pointwise rerank (stub or real cross-encoder)

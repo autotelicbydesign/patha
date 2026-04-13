@@ -73,6 +73,7 @@ def generate_candidates(
     bm25_k: int = 300,
     total_k: int = 2000,
     rrf_k: int = 60,
+    views: Sequence[str] | None = None,
 ) -> list[tuple[str, float]]:
     """Generate the hybrid candidate pool for a single query.
 
@@ -101,6 +102,9 @@ def generate_candidates(
         Maximum number of candidates to return after fusion. Default 2000.
     rrf_k
         RRF smoothing constant. Default 60.
+    views
+        Subset of view names to search. Default ``None`` means all 7 views.
+        Pass e.g. ``["v1"]`` for single-view ablation.
 
     Returns
     -------
@@ -111,8 +115,9 @@ def generate_candidates(
 
     ranked_lists: list[list[tuple[str, float]]] = []
 
-    # Dense: one search per Patha view
-    for view_name in VIEW_NAMES:
+    # Dense: one search per Patha view (or a subset for ablation)
+    active_views = views if views is not None else VIEW_NAMES
+    for view_name in active_views:
         hits = store.search_view(view_name, query_vec, k=per_view_k)
         ranked_lists.append(hits)
 

@@ -419,6 +419,8 @@ def main(argv: list[str] | None = None) -> None:
                         help="Enable spaCy NER for entity-anchored views (v5/v6)")
     parser.add_argument("--pre-warm", action="store_true",
                         help="Pre-embed all unique sessions before eval (faster for large evals)")
+    parser.add_argument("--views", default=None,
+                        help="Comma-separated views to use (e.g. v1 or v1,v4). Default: all 7")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -479,7 +481,8 @@ def main(argv: list[str] | None = None) -> None:
             verbose=args.verbose,
         )
 
-    config = PipelineConfig(top_k=args.top_k)
+    views = args.views.split(",") if args.views else None
+    config = PipelineConfig(top_k=args.top_k, views=views)
     t_start = time.time()
     report = run_evaluation(
         data,
