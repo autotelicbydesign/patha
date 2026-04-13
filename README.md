@@ -152,7 +152,7 @@ eval/
 ## Reproduction
 
 ```bash
-git clone https://github.com/stefi/patha.git
+git clone https://github.com/autotelicbydesign/patha.git
 cd patha
 uv sync
 
@@ -177,6 +177,10 @@ make eval
 - [ ] Qwen3-Embedding / Qwen3-Reranker (heavier models, if needed)
 - [ ] ColBERT late-interaction verification
 - [ ] Neuroplasticity-inspired adaptive belief layer
+
+## Acknowledgments
+
+Built with [Claude Code](https://claude.ai/code) as a development partner.
 
 ## License
 
