@@ -1,4 +1,17 @@
-.PHONY: test eval eval-quick eval-32 lint typecheck clean
+.PHONY: test eval eval-quick eval-32 lint typecheck clean setup-data
+
+# ── Setup ────────────────────────────────────────────────────────────
+
+setup-data:
+	@mkdir -p data
+	@echo "Download LongMemEval S dataset from:"
+	@echo "  https://github.com/xiaowu0162/long-mem-eval"
+	@echo ""
+	@echo "Place the cleaned JSON at: data/longmemeval_s_cleaned.json"
+	@echo ""
+	@echo "Then download the spaCy model:"
+	@echo "  uv run python -m spacy download en_core_web_sm"
+	@test -f data/longmemeval_s_cleaned.json || (echo "ERROR: data/longmemeval_s_cleaned.json not found" && exit 1)
 
 # ── Testing ──────────────────────────────────────────────────────────
 

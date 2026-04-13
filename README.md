@@ -157,9 +157,17 @@ cd patha
 uv sync
 
 # Download the LongMemEval S dataset
-# See https://github.com/xiaowu0162/long-mem-eval for dataset access
-# Place at data/longmemeval_s_cleaned.json
+make setup-data
+# Or manually: download from https://github.com/xiaowu0162/long-mem-eval
+# and place at data/longmemeval_s_cleaned.json
 
+# Download spaCy model
+uv run python -m spacy download en_core_web_sm
+
+# Run tests
+make test
+
+# Run full eval
 make eval
 # Results saved to runs/full/results.json
 ```
@@ -173,10 +181,11 @@ make eval
 
 - [ ] Full 500-question LongMemEval S evaluation
 - [ ] Complete ablation matrix
+- [ ] **End-to-end answer accuracy eval** — generation layer over retrieved context, scored against gold answers
 - [ ] LanceDB persistent store
 - [ ] Qwen3-Embedding / Qwen3-Reranker (heavier models, if needed)
 - [ ] ColBERT late-interaction verification
-- [ ] Neuroplasticity-inspired adaptive belief layer
+- [ ] **Neuroplasticity-inspired adaptive belief layer** — contradiction detection, temporal reasoning, knowledge update tracking, abstention with confidence
 
 ## Acknowledgments
 
