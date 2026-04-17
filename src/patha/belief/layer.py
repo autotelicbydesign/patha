@@ -224,6 +224,9 @@ class BeliefLayer:
         auto_extract_validity: bool = True,
         validity_llm_generate=None,
         plasticity: PlasticityConfig | None = None,
+        ingest_window_days: int | None = None,
+        confidence_weighted_supersession: bool = False,
+        confidence_margin: float = 0.2,
     ) -> None:
         self.store = store if store is not None else BeliefStore()
         self.detector = detector if detector is not None else StubContradictionDetector()
@@ -231,6 +234,9 @@ class BeliefLayer:
         self._entailment_threshold = entailment_threshold
         self._auto_extract_validity = auto_extract_validity
         self._validity_llm_generate = validity_llm_generate
+        self._ingest_window_days = ingest_window_days
+        self._confidence_weighted = confidence_weighted_supersession
+        self._confidence_margin = confidence_margin
 
         # Plasticity mechanisms. Instantiated up-front so callers can
         # inspect state between queries (e.g., hebbian.related(belief_id)).
@@ -324,6 +330,18 @@ class BeliefLayer:
                 and b.id != new.id
             ]
 
+        # D2 hybrid: sliding-window scope. When ingest_window_days is
+        # set, only check against beliefs asserted within the window.
+        # Bounds contradiction-check cost at scale (O(window) instead
+        # of O(N)). Older beliefs still get checked at query time via
+        # the belief layer's retrieve path.
+        if self._ingest_window_days is not None:
+            from datetime import timedelta
+            window_start = asserted_at - timedelta(
+                days=self._ingest_window_days
+            )
+            candidates = [c for c in candidates if c.asserted_at >= window_start]
+
         if not candidates:
             self._run_scheduled_plasticity()
             return IngestEvent(action="added", new_belief=new)
@@ -345,8 +363,15 @@ class BeliefLayer:
             ):
                 # Pramāṇa-aware resolution: the store decides whether
                 # this is a temporal supersession or a sublation based
-                # on which belief carries stronger pramāṇa.
-                self.store.resolve_contradiction(candidate.id, new.id)
+                # on which belief carries stronger pramāṇa (and, when
+                # confidence_weighted_supersession is set, confidence
+                # scores too).
+                self.store.resolve_contradiction(
+                    candidate.id,
+                    new.id,
+                    confidence_weighted=self._confidence_weighted,
+                    confidence_margin=self._confidence_margin,
+                )
                 superseded_ids.append(candidate.id)
                 contradictions_detected += 1
             elif (

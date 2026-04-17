@@ -360,22 +360,45 @@ class BeliefStore:
         )
 
     def resolve_contradiction(
-        self, old_id: BeliefId, new_id: BeliefId
+        self, old_id: BeliefId, new_id: BeliefId,
+        *,
+        confidence_weighted: bool = False,
+        confidence_margin: float = 0.2,
     ) -> ResolutionStatus:
-        """Resolve a contradiction between two beliefs using pramāṇa hierarchy.
+        """Resolve a contradiction between two beliefs.
 
-        Picks between three outcomes based on pramāṇa strength:
+        Resolution proceeds in three tiers:
 
-          1. new has strictly stronger pramāṇa → new sublates old (BADHITA)
-          2. old has strictly stronger pramāṇa → new is sublated by old
-             (BADHITA on new, old stays CURRENT). Counter-intuitive but
-             correct: a weaker-pramāṇa claim cannot legitimately
-             supersede a stronger-pramāṇa one. The user is telling us
-             something weaker evidence says; we note it as bādhita.
-          3. equal pramāṇa → temporal supersession (new supersedes old)
+          1. Pramāṇa hierarchy (always applied first). If one belief's
+             pramāṇa is strictly stronger than the other's (after
+             source-reliability weighting for SHABDA), the weaker one
+             becomes BADHITA.
 
-        Returns the final status applied to the 'old' belief (or 'new'
-        if the hierarchy inverted) — useful for tests and logging.
+          2. Confidence-weighted (D3 advanced; opt-in via confidence_
+             weighted=True). When pramāṇas tie, if one belief's
+             confidence exceeds the other's by more than
+             confidence_margin, the higher-confidence belief wins (the
+             lower one is sublated). This captures the 'I'm quite sure
+             I saw X vs. I might have seen Y' case: both PRATYAKṢA but
+             one held with more certainty.
+
+          3. Temporal supersession (default). Pramāṇas tied, confidences
+             close → newer belief supersedes older.
+
+        Returns the resolution outcome as a ResolutionStatus:
+          - ResolutionStatus.BADHITA if a sublation happened
+          - ResolutionStatus.SUPERSEDED if temporal supersession happened
+
+        Parameters
+        ----------
+        confidence_weighted
+            Opt in to D3 advanced (Hansson's non-prioritised revision).
+            Default False preserves pure temporal-order behaviour.
+        confidence_margin
+            Minimum confidence delta required to trigger confidence-
+            weighted winner selection. Default 0.2 — prevents flip-
+            flopping from noise in confidence updates. Only used when
+            confidence_weighted=True.
         """
         old = self._require(old_id)
         new = self._require(new_id)
@@ -398,15 +421,25 @@ class BeliefStore:
         epsilon = 0.05  # Treat near-equal strengths as equal; avoids
                         # flip-flopping on tiny reliability-score shifts.
 
+        # Tier 1: pramāṇa hierarchy
         if new_strength > old_strength + epsilon:
-            # New stronger: new sublates old
             self.sublate(old_id, new_id)
             return ResolutionStatus.BADHITA
         if old_strength > new_strength + epsilon:
-            # Old stronger: new is the sublated one
             self.sublate(new_id, old_id)
             return ResolutionStatus.BADHITA
-        # Equal → temporal supersession (newer wins)
+
+        # Tier 2: confidence-weighted (D3 advanced, opt-in)
+        if confidence_weighted:
+            delta = new.confidence - old.confidence
+            if delta > confidence_margin:
+                self.sublate(old_id, new_id)
+                return ResolutionStatus.BADHITA
+            if delta < -confidence_margin:
+                self.sublate(new_id, old_id)
+                return ResolutionStatus.BADHITA
+
+        # Tier 3: temporal supersession (default)
         self.supersede(old_id, new_id)
         return ResolutionStatus.SUPERSEDED
 
