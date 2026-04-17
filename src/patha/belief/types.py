@@ -339,6 +339,13 @@ class Belief:
         Defaults to UNKNOWN when not specified. Auto-detection via
         linguistic cues is applied by BeliefLayer.ingest unless
         explicitly overridden.
+    context
+        Optional string labelling the conversational context this
+        belief belongs to (e.g., "work", "health", "family"). Two
+        beliefs with different contexts are NOT considered to
+        contradict by default — "I'm available" in work context vs.
+        personal context are both current. None = context-independent
+        (applies across all contexts). v0.4 addition.
     """
 
     id: BeliefId
@@ -352,6 +359,7 @@ class Belief:
     pramana: Pramana = Pramana.UNKNOWN
     observed_at: datetime | None = None
     source_id: str | None = None
+    context: str | None = None
     supersedes: list[BeliefId] = field(default_factory=list)
     superseded_by: list[BeliefId] = field(default_factory=list)
     coexists_with: list[BeliefId] = field(default_factory=list)

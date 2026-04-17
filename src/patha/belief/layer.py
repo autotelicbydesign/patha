@@ -272,6 +272,7 @@ class BeliefLayer:
         candidate_belief_ids: list[BeliefId] | None = None,
         pramana: Pramana | None = None,
         source_id: str | None = None,
+        context: str | None = None,
     ) -> IngestEvent:
         """Ingest a new proposition into the belief layer.
 
@@ -317,6 +318,7 @@ class BeliefLayer:
             confidence=confidence,
             pramana=pramana,
             source_id=source_id,
+            context=context,
         )
 
         # Candidate beliefs to check against
@@ -341,6 +343,17 @@ class BeliefLayer:
                 days=self._ingest_window_days
             )
             candidates = [c for c in candidates if c.asserted_at >= window_start]
+
+        # Contextuality (v0.4): beliefs in different contexts do not
+        # contradict by default. 'I'm available' in work context vs.
+        # personal context are both valid. A candidate belief's
+        # context must match the new belief's context, OR one of them
+        # must be context-independent (context=None, i.e., 'applies
+        # universally').
+        candidates = [
+            c for c in candidates
+            if c.context is None or context is None or c.context == context
+        ]
 
         if not candidates:
             self._run_scheduled_plasticity()
@@ -451,6 +464,7 @@ class BeliefLayer:
         *,
         at_time: datetime | None = None,
         include_history: bool = False,
+        context: str | None = None,
     ) -> BeliefQueryResult:
         """Filter a list of candidate beliefs to current-state view.
 
@@ -489,6 +503,11 @@ class BeliefLayer:
                 # surface instead if retrieval also picked them up.
                 continue
             if not b.validity.is_valid_at(t):
+                continue
+            # Context filter (v0.4): if a context is specified, the
+            # belief's context must match OR be None (context-
+            # independent beliefs surface in every context).
+            if context is not None and b.context is not None and b.context != context:
                 continue
             current.append(b)
 

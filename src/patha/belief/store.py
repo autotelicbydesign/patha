@@ -144,6 +144,7 @@ class BeliefStore:
         belief_id: BeliefId | None = None,
         pramana: Pramana | None = None,
         source_id: str | None = None,
+        context: str | None = None,
     ) -> Belief:
         """Record a new belief. Returns the created Belief.
 
@@ -198,6 +199,7 @@ class BeliefStore:
             validity=validity if validity is not None else Validity(),
             pramana=effective_pramana,
             source_id=effective_source_id,
+            context=context,
         )
         self._beliefs[bid] = belief
         self._by_session.setdefault(asserted_in_session, []).append(bid)
@@ -612,6 +614,14 @@ class BeliefStore:
         """All beliefs with the exact given status."""
         return [b for b in self._beliefs.values() if b.status == status]
 
+    def by_context(self, context: str | None) -> list[Belief]:
+        """All beliefs tagged with the given context.
+
+        Pass None to get only context-independent beliefs (those
+        never tagged with a specific context).
+        """
+        return [b for b in self._beliefs.values() if b.context == context]
+
     def lineage(self, belief_id: BeliefId) -> list[Belief]:
         """Walk from a belief back through its supersession ancestors.
 
@@ -842,6 +852,7 @@ def _belief_from_dict(d: dict) -> Belief:
             else None
         ),
         source_id=d.get("source_id"),
+        context=d.get("context"),
         supersedes=list(d.get("supersedes", [])),
         superseded_by=list(d.get("superseded_by", [])),
         coexists_with=list(d.get("coexists_with", [])),
