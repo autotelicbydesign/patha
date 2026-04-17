@@ -52,7 +52,10 @@ from patha.belief.types import (
     PropositionId,
     Validity,
 )
-from patha.belief.validity_extraction import extract_validity
+from patha.belief.validity_extraction import (
+    extract_validity,
+    extract_validity_with_fallback,
+)
 
 
 # ─── Ingest outcomes ─────────────────────────────────────────────────
@@ -219,6 +222,7 @@ class BeliefLayer:
         contradiction_threshold: float = 0.75,
         entailment_threshold: float = 0.70,
         auto_extract_validity: bool = True,
+        validity_llm_generate=None,
         plasticity: PlasticityConfig | None = None,
     ) -> None:
         self.store = store if store is not None else BeliefStore()
@@ -226,6 +230,7 @@ class BeliefLayer:
         self._contradiction_threshold = contradiction_threshold
         self._entailment_threshold = entailment_threshold
         self._auto_extract_validity = auto_extract_validity
+        self._validity_llm_generate = validity_llm_generate
 
         # Plasticity mechanisms. Instantiated up-front so callers can
         # inspect state between queries (e.g., hebbian.related(belief_id)).
@@ -277,11 +282,15 @@ class BeliefLayer:
         self._ingest_tick += 1
 
         # If no explicit validity was passed, try to extract one from
-        # the proposition text. Falls back to permanent default inside
-        # BeliefStore.add() when extraction returns None.
+        # the proposition text. Rule-based first; LLM fallback for
+        # implicit durations if a validity_llm_generate was configured.
+        # Falls back to permanent default inside BeliefStore.add() when
+        # extraction returns None.
         if validity is None and self._auto_extract_validity:
-            validity = extract_validity(
-                proposition, asserted_at=asserted_at
+            validity = extract_validity_with_fallback(
+                proposition,
+                asserted_at=asserted_at,
+                llm_generate=self._validity_llm_generate,
             )
 
         # Pramāṇa auto-detection unless explicitly provided.

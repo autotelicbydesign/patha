@@ -8,6 +8,8 @@ import pytest
 
 from patha.belief.validity_extraction import (
     extract_validity,
+    extract_validity_via_llm,
+    extract_validity_with_fallback,
     list_supported_patterns,
 )
 
@@ -166,6 +168,113 @@ class TestNoMatch:
 
 
 # ─── Structural / introspection ──────────────────────────────────────
+
+class TestLLMInferredValidity:
+    """Tests for D4 Option C: LLM-inferred validity for implicit durations."""
+
+    def test_days_response_parses_to_dated_range(self) -> None:
+        gen = lambda prompt: "DAYS: 120"  # noqa: E731
+        v = extract_validity_via_llm(
+            "I'm training for a marathon",
+            asserted_at=T0,
+            generate=gen,
+        )
+        assert v is not None
+        assert v.mode == "dated_range"
+        assert v.source == "inferred"
+        assert v.end == T0 + timedelta(days=120)
+
+    def test_permanent_response_parses(self) -> None:
+        gen = lambda prompt: "PERMANENT"  # noqa: E731
+        v = extract_validity_via_llm(
+            "I moved to Sofia",
+            asserted_at=T0,
+            generate=gen,
+        )
+        assert v is not None
+        assert v.mode == "permanent"
+        assert v.source == "inferred"
+
+    def test_unknown_response_returns_none(self) -> None:
+        gen = lambda prompt: "UNKNOWN"  # noqa: E731
+        v = extract_validity_via_llm("something", asserted_at=T0, generate=gen)
+        assert v is None
+
+    def test_bad_response_returns_none(self) -> None:
+        gen = lambda prompt: "i dunno lol"  # noqa: E731
+        v = extract_validity_via_llm("something", asserted_at=T0, generate=gen)
+        assert v is None
+
+    def test_non_integer_days_returns_none(self) -> None:
+        gen = lambda prompt: "DAYS: many"  # noqa: E731
+        v = extract_validity_via_llm("x", asserted_at=T0, generate=gen)
+        assert v is None
+
+    def test_zero_days_returns_none(self) -> None:
+        gen = lambda prompt: "DAYS: 0"  # noqa: E731
+        v = extract_validity_via_llm("x", asserted_at=T0, generate=gen)
+        assert v is None
+
+    def test_exception_in_llm_returns_none(self) -> None:
+        def fail(_):
+            raise RuntimeError("ollama is sleeping")
+        v = extract_validity_via_llm("x", asserted_at=T0, generate=fail)
+        assert v is None
+
+
+class TestFallbackPipeline:
+    """Tests for extract_validity_with_fallback: rule-based first, LLM second."""
+
+    def test_rule_based_wins_when_available(self) -> None:
+        """If a rule fires, don't call the LLM at all."""
+        calls = []
+        def gen(p):
+            calls.append(p)
+            return "DAYS: 999"
+        v = extract_validity_with_fallback(
+            "I'm avoiding raw fish for three weeks",
+            asserted_at=T0,
+            llm_generate=gen,
+        )
+        assert v is not None
+        # Rule-based: 3 weeks = 21 days, not the LLM's 999
+        assert v.end == T0 + timedelta(days=21)
+        assert v.source == "explicit"
+        assert calls == []  # LLM never called
+
+    def test_llm_fires_when_no_rule_matches(self) -> None:
+        gen = lambda p: "DAYS: 120"  # noqa: E731
+        v = extract_validity_with_fallback(
+            "I'm training for a marathon",  # no explicit 'for N weeks'
+            asserted_at=T0,
+            llm_generate=gen,
+        )
+        assert v is not None
+        assert v.source == "inferred"
+        assert v.end == T0 + timedelta(days=120)
+
+    def test_no_llm_when_no_temporal_marker(self) -> None:
+        """Bare statements like 'the coffee is hot' don't trigger LLM calls."""
+        calls = []
+        def gen(p):
+            calls.append(p)
+            return "DAYS: 999"
+        v = extract_validity_with_fallback(
+            "the coffee is hot",
+            asserted_at=T0,
+            llm_generate=gen,
+        )
+        assert v is None
+        assert calls == []
+
+    def test_no_llm_generator_means_rule_only(self) -> None:
+        v = extract_validity_with_fallback(
+            "I'm training for a marathon",
+            asserted_at=T0,
+            llm_generate=None,
+        )
+        assert v is None
+
 
 class TestStructure:
     def test_list_supported_patterns(self) -> None:

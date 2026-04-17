@@ -215,3 +215,146 @@ def extract_validity(
 def list_supported_patterns() -> list[str]:
     """Expose the pattern names for docs, debugging, and tests."""
     return [p.name for p in _PATTERNS]
+
+
+# ─── LLM-inferred validity (D4 Option C completion) ─────────────────
+
+_VALIDITY_INFERENCE_PROMPT = """You estimate the typical duration of a
+stated situation or activity. Given a short statement, return ONE LINE
+in this exact format:
+
+  DAYS: <integer>          if the situation has a typical duration
+  PERMANENT                if the situation has no natural end
+  UNKNOWN                  if you cannot estimate
+
+Examples:
+  "I'm training for a marathon" -> DAYS: 120
+  "I moved to Sofia last month" -> PERMANENT
+  "I had a meeting yesterday" -> UNKNOWN
+  "I'm on parental leave" -> DAYS: 180
+  "I'm in a relationship" -> PERMANENT
+
+Statement: {proposition}
+Answer:"""
+
+
+def extract_validity_via_llm(
+    proposition: str,
+    *,
+    asserted_at: datetime,
+    generate,
+) -> Validity | None:
+    """LLM-based fallback for implicit-duration beliefs.
+
+    Handles cases the rule-based extractor misses: "training for a
+    marathon" (no explicit 'for N weeks' marker but implies ~4 months),
+    "on parental leave" (no explicit end but typically 3-6 months),
+    "i'm on holiday" (days, not months).
+
+    Parameters
+    ----------
+    proposition
+        The text to analyse.
+    asserted_at
+        Reference time — computes the end as asserted_at + days.
+    generate
+        A (prompt: str) -> str callable. Wire to any backend
+        (OllamaLLMJudge._generate, a closure over transformers,
+        whatever). Bring-your-own-LLM.
+
+    Returns
+    -------
+    Validity | None
+        - Validity(mode='dated_range', source='inferred') when the LLM
+          returns DAYS: N
+        - Validity(mode='permanent', source='inferred') when the LLM
+          returns PERMANENT
+        - None when the LLM says UNKNOWN or fails to parse
+
+    Conservative by design: defers to None rather than guessing.
+    Callers should treat None as 'no inference; fall back to the
+    system default'.
+    """
+    prompt = _VALIDITY_INFERENCE_PROMPT.format(proposition=proposition)
+    try:
+        raw = generate(prompt).strip()
+    except Exception:
+        # Any backend failure → return None and let the caller fall back.
+        return None
+
+    first = raw.split("\n", 1)[0].strip().upper()
+
+    if "PERMANENT" in first:
+        return Validity(
+            mode="permanent",
+            start=asserted_at,
+            source="inferred",
+        )
+
+    if first.startswith("DAYS:"):
+        num_part = first.removeprefix("DAYS:").strip()
+        try:
+            days = int(num_part)
+        except ValueError:
+            return None
+        if days <= 0:
+            return None
+        from datetime import timedelta
+        return Validity(
+            mode="dated_range",
+            start=asserted_at,
+            end=asserted_at + timedelta(days=days),
+            source="inferred",
+        )
+
+    return None
+
+
+def extract_validity_with_fallback(
+    proposition: str,
+    *,
+    asserted_at: datetime,
+    llm_generate=None,
+) -> Validity | None:
+    """Two-step validity extraction: rule-based first, LLM fallback.
+
+    Matches the D4 Option C design: try the cheap rule-based patterns
+    first; escalate to LLM only when no rule fires AND an LLM backend
+    was provided AND the proposition contains at least one temporal-
+    marker word (avoids LLM calls on bare statements that clearly
+    have no duration).
+
+    Parameters
+    ----------
+    llm_generate
+        Optional (prompt: str) -> str callable. When None, LLM fallback
+        is disabled and behaviour is identical to extract_validity().
+
+    Returns
+    -------
+    Validity | None — same semantics as extract_validity().
+    """
+    # Rule-based first
+    rule_based = extract_validity(proposition, asserted_at=asserted_at)
+    if rule_based is not None:
+        return rule_based
+
+    if llm_generate is None:
+        return None
+
+    # Gate LLM calls: only escalate when there's a temporal-marker word
+    # suggesting duration is implicit. Avoids LLM on clearly-durationless
+    # statements like "the coffee is hot".
+    marker_words = (
+        "training", "learning", "working", "studying", "practising",
+        "practicing", "recovering", "leaving", "joining", "living",
+        "pregnant", "parental", "maternity", "paternity", "holiday",
+        "vacation", "sabbatical", "deployment", "tour", "project",
+        "course", "programme", "program", "season", "trial",
+    )
+    if not any(w in proposition.lower() for w in marker_words):
+        return None
+
+    return extract_validity_via_llm(
+        proposition, asserted_at=asserted_at, generate=llm_generate
+    )
