@@ -36,6 +36,12 @@ from patha.belief.contradiction import (
     ContradictionDetector,
     StubContradictionDetector,
 )
+from patha.belief.plasticity import (
+    HebbianAssociation,
+    HomeostaticRegulation,
+    LongTermDepression,
+    SynapticPruning,
+)
 from patha.belief.store import BeliefStore
 from patha.belief.types import (
     Belief,
@@ -105,6 +111,73 @@ class BeliefQueryResult:
     tokens_in_summary: int
 
 
+# ─── Plasticity configuration ────────────────────────────────────────
+
+@dataclass
+class PlasticityConfig:
+    """Configuration for the neuroplasticity mechanisms that fire during
+    normal BeliefLayer operation.
+
+    Each mechanism is opt-out, not opt-in, so the default v0.3 layer is
+    dynamic out of the box. Disable individually for ablations.
+
+    Attributes
+    ----------
+    enabled
+        Master switch. If False, no plasticity fires regardless of
+        sub-flags. Useful for exact-parity comparisons with v0.1/v0.2.
+    ltd_on_query
+        Apply LTD (time-based decay) to beliefs whose confidence hasn't
+        been updated recently. Fires once per query() call, scoped to
+        the candidate beliefs touched by that query.
+    ltd_half_life_days
+        Half-life for LTD decay. 365 days = confidence halves per year
+        of inactivity (toward the floor).
+    ltd_floor
+        Lower bound for decayed confidence. 0.1 prevents beliefs from
+        vanishing entirely; retrieval can still surface them, they're
+        just less confident.
+    hebbian_on_query
+        Record Hebbian co-retrieval edges between beliefs that surface
+        in the same query. Strengthens associations over time.
+    hebbian_learning_rate
+        Per-co-retrieval weight bump. 0.05 means 20 co-retrievals to
+        reach weight 1.0.
+    homeostasis_on_ingest
+        Apply homeostatic regulation every ``homeostasis_interval_ingests``
+        calls. Normalises current-belief confidences so no belief
+        dominates through reinforcement.
+    homeostasis_interval_ingests
+        How many ingests between homeostatic re-normalisations. Default
+        100 — frequent enough to prevent runaway, rare enough to keep
+        ingest cheap.
+    homeostasis_target_mean
+        Target mean confidence after normalisation. 0.75 keeps beliefs
+        reasonably confident while leaving headroom for new evidence.
+    pruning_on_ingest
+        Apply synaptic pruning every ``pruning_interval_ingests`` calls.
+    pruning_interval_ingests
+        How many ingests between pruning sweeps. Default 500 — rarer
+        than homeostasis because pruning is archival, less reversible.
+    pruning_max_depth
+        Archive superseded beliefs more than this many hops from a
+        current descendant. Default 10 (matches SynapticPruning default).
+    """
+
+    enabled: bool = True
+    ltd_on_query: bool = True
+    ltd_half_life_days: float = 365.0
+    ltd_floor: float = 0.1
+    hebbian_on_query: bool = True
+    hebbian_learning_rate: float = 0.05
+    homeostasis_on_ingest: bool = True
+    homeostasis_interval_ingests: int = 100
+    homeostasis_target_mean: float = 0.75
+    pruning_on_ingest: bool = True
+    pruning_interval_ingests: int = 500
+    pruning_max_depth: int = 10
+
+
 # ─── BeliefLayer ─────────────────────────────────────────────────────
 
 class BeliefLayer:
@@ -144,12 +217,33 @@ class BeliefLayer:
         contradiction_threshold: float = 0.75,
         entailment_threshold: float = 0.70,
         auto_extract_validity: bool = True,
+        plasticity: PlasticityConfig | None = None,
     ) -> None:
         self.store = store if store is not None else BeliefStore()
         self.detector = detector if detector is not None else StubContradictionDetector()
         self._contradiction_threshold = contradiction_threshold
         self._entailment_threshold = entailment_threshold
         self._auto_extract_validity = auto_extract_validity
+
+        # Plasticity mechanisms. Instantiated up-front so callers can
+        # inspect state between queries (e.g., hebbian.related(belief_id)).
+        self.plasticity = plasticity if plasticity is not None else PlasticityConfig()
+        self._ltd = LongTermDepression(
+            half_life_days=self.plasticity.ltd_half_life_days,
+            floor=self.plasticity.ltd_floor,
+        )
+        self.hebbian = HebbianAssociation(
+            learning_rate=self.plasticity.hebbian_learning_rate,
+        )
+        self._homeostasis = HomeostaticRegulation(
+            target_mean=self.plasticity.homeostasis_target_mean,
+        )
+        self._pruning = SynapticPruning(
+            max_depth=self.plasticity.pruning_max_depth,
+        )
+        # Ingest tick — advances every .ingest() call; used to schedule
+        # periodic homeostasis and pruning without running them on every ingest.
+        self._ingest_tick = 0
 
     # ── ingest ──────────────────────────────────────────────────────
 
@@ -173,6 +267,11 @@ class BeliefLayer:
 
         Returns an IngestEvent describing what the layer did.
         """
+        # Advance the ingest tick first — plasticity schedules depend
+        # on it, and we want them to fire even on early-return paths
+        # (e.g., the first-ever ingest with no candidates).
+        self._ingest_tick += 1
+
         # If no explicit validity was passed, try to extract one from
         # the proposition text. Falls back to permanent default inside
         # BeliefStore.add() when extraction returns None.
@@ -204,6 +303,7 @@ class BeliefLayer:
             ]
 
         if not candidates:
+            self._run_scheduled_plasticity()
             return IngestEvent(action="added", new_belief=new)
 
         # Batch contradiction check.
@@ -234,6 +334,9 @@ class BeliefLayer:
                 self.store.reinforce(candidate.id, new.id)
                 reinforced_id = candidate.id
 
+        # Plasticity: scheduled maintenance (homeostasis, pruning)
+        self._run_scheduled_plasticity()
+
         if superseded_ids:
             return IngestEvent(
                 action="superseded",
@@ -249,6 +352,46 @@ class BeliefLayer:
                 contradictions_detected=0,
             )
         return IngestEvent(action="added", new_belief=new)
+
+    # ── plasticity hooks ────────────────────────────────────────────
+
+    def _run_scheduled_plasticity(self) -> None:
+        """Fire homeostasis and pruning on their configured intervals.
+
+        Called once per ingest. No-op if plasticity is disabled.
+        """
+        if not self.plasticity.enabled:
+            return
+        if (
+            self.plasticity.homeostasis_on_ingest
+            and self._ingest_tick % self.plasticity.homeostasis_interval_ingests == 0
+        ):
+            self._homeostasis.apply(self.store)
+        if (
+            self.plasticity.pruning_on_ingest
+            and self._ingest_tick % self.plasticity.pruning_interval_ingests == 0
+        ):
+            self._pruning.prune(self.store)
+
+    def _apply_query_plasticity(
+        self,
+        touched_beliefs: list[Belief],
+        at_time: datetime,
+    ) -> None:
+        """Apply query-time plasticity: LTD decay + Hebbian co-retrieval.
+
+        Called by query() on the beliefs it actually surfaces.
+        """
+        if not self.plasticity.enabled:
+            return
+        if self.plasticity.ltd_on_query and touched_beliefs:
+            self._ltd.apply_to_store(
+                self.store, now=at_time, beliefs=touched_beliefs
+            )
+        if self.plasticity.hebbian_on_query and len(touched_beliefs) >= 2:
+            self.hebbian.record_coretrieval(
+                [b.id for b in touched_beliefs]
+            )
 
     # ── query ───────────────────────────────────────────────────────
 
@@ -298,6 +441,11 @@ class BeliefLayer:
             if not b.validity.is_valid_at(t):
                 continue
             current.append(b)
+
+        # Plasticity: LTD decay on surfaced beliefs, Hebbian co-retrieval
+        # edges. Applied before history walk so decayed confidences flow
+        # through to the summary.
+        self._apply_query_plasticity(current, t)
 
         history: list[Belief] = []
         if include_history:

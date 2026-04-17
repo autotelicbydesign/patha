@@ -183,14 +183,21 @@ class SynapticPruning:
     def prune(self, store: BeliefStore) -> list[BeliefId]:
         """Archive beliefs whose supersession depth exceeds max_depth.
 
+        Uses store.archive() which sets ResolutionStatus.ARCHIVED on the
+        belief AND zeros its confidence. Non-destructive — archived
+        beliefs remain stored, they're just filtered out of default
+        surfaces (is_current returns False, not in store.current()).
+
         Returns the list of belief ids that were archived.
         """
         archived: list[BeliefId] = []
         for b in store.all():
+            # Skip already-archived and current beliefs
             if not b.is_superseded:
                 continue
             depth = self._depth_from_current(store, b.id)
             if depth is not None and depth > self._max_depth:
+                store.archive(b.id)
                 store.set_confidence(b.id, 0.0)
                 archived.append(b.id)
         return archived
