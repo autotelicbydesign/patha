@@ -45,6 +45,7 @@ from patha.belief.store import BeliefStore
 from patha.belief.validity_extraction import extract_validity
 from patha.belief.pramana import detect_pramana
 from patha.belief.raw_archive import RawArchive, RawTurn
+from patha.belief.vritti import VrittiClass, vritti_label, vritti_of
 from patha.belief.types import (
     Belief,
     BeliefId,
@@ -73,6 +74,10 @@ __all__ = [
     # Raw archive (provenance substrate)
     "RawArchive",
     "RawTurn",
+    # Vṛtti classification (Patañjali's cognitive-mode taxonomy)
+    "VrittiClass",
+    "vritti_of",
+    "vritti_label",
     # Contradiction detection
     "ContradictionDetector",
     "NLIContradictionDetector",
