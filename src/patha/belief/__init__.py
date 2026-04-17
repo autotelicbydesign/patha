@@ -16,6 +16,11 @@ from patha.belief.contradiction import (
     NLIContradictionDetector,
     StubContradictionDetector,
 )
+from patha.belief.direct_answer import (
+    DirectAnswer,
+    DirectAnswerer,
+    is_belief_lookup,
+)
 from patha.belief.llm_judge import (
     HybridContradictionDetector,
     LLMJudge,
@@ -77,6 +82,10 @@ __all__ = [
     "HebbianAssociation",
     # Validity extraction
     "extract_validity",
+    # Direct-answer compression (D7 Option C)
+    "DirectAnswer",
+    "DirectAnswerer",
+    "is_belief_lookup",
     # Top-level layer
     "BeliefLayer",
     "BeliefQueryResult",
