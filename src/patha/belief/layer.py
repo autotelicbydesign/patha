@@ -44,6 +44,7 @@ from patha.belief.types import (
     PropositionId,
     Validity,
 )
+from patha.belief.validity_extraction import extract_validity
 
 
 # ─── Ingest outcomes ─────────────────────────────────────────────────
@@ -142,11 +143,13 @@ class BeliefLayer:
         *,
         contradiction_threshold: float = 0.75,
         entailment_threshold: float = 0.70,
+        auto_extract_validity: bool = True,
     ) -> None:
         self.store = store if store is not None else BeliefStore()
         self.detector = detector if detector is not None else StubContradictionDetector()
         self._contradiction_threshold = contradiction_threshold
         self._entailment_threshold = entailment_threshold
+        self._auto_extract_validity = auto_extract_validity
 
     # ── ingest ──────────────────────────────────────────────────────
 
@@ -170,6 +173,14 @@ class BeliefLayer:
 
         Returns an IngestEvent describing what the layer did.
         """
+        # If no explicit validity was passed, try to extract one from
+        # the proposition text. Falls back to permanent default inside
+        # BeliefStore.add() when extraction returns None.
+        if validity is None and self._auto_extract_validity:
+            validity = extract_validity(
+                proposition, asserted_at=asserted_at
+            )
+
         # Create the new belief first so it has an id we can reference
         # in supersede/reinforce relations.
         new = self.store.add(

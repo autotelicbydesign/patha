@@ -296,6 +296,57 @@ class TestQuery:
 
 # ─── rendering ───────────────────────────────────────────────────────
 
+class TestAutoValidityExtraction:
+    def test_validity_extracted_from_proposition(
+        self, stub_layer: BeliefLayer
+    ) -> None:
+        ev = _ingest(
+            stub_layer,
+            "I'm avoiding raw fish for three weeks",
+            at=datetime(2024, 3, 1),
+        )
+        assert ev.new_belief.validity.mode == "dated_range"
+        assert ev.new_belief.validity.source == "explicit"
+
+    def test_explicit_validity_overrides_extraction(
+        self, stub_layer: BeliefLayer
+    ) -> None:
+        explicit = Validity(
+            mode="dated_range",
+            start=datetime(2024, 1, 1),
+            end=datetime(2024, 12, 31),
+            source="explicit",
+        )
+        ev = _ingest(
+            stub_layer,
+            "I'm avoiding raw fish for three weeks",  # would extract
+            at=datetime(2024, 3, 1),
+            validity=explicit,
+        )
+        # Explicit kwarg wins over extracted
+        assert ev.new_belief.validity.end == datetime(2024, 12, 31)
+
+    def test_no_marker_no_validity_means_permanent(
+        self, stub_layer: BeliefLayer
+    ) -> None:
+        ev = _ingest(stub_layer, "I love sushi")
+        assert ev.new_belief.validity.mode == "permanent"
+
+    def test_auto_extraction_can_be_disabled(self) -> None:
+        from patha.belief.layer import BeliefLayer
+        layer = BeliefLayer(
+            detector=StubContradictionDetector(),
+            auto_extract_validity=False,
+        )
+        ev = layer.ingest(
+            proposition="I'm out for three weeks",
+            asserted_at=datetime(2024, 3, 1),
+            asserted_in_session="s1",
+            source_proposition_id="p1",
+        )
+        assert ev.new_belief.validity.mode == "permanent"
+
+
 class TestRenderSummary:
     def test_empty_result(self, stub_layer: BeliefLayer) -> None:
         result = BeliefQueryResult(current=[], history=[], tokens_in_summary=1)

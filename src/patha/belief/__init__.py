@@ -23,6 +23,7 @@ from patha.belief.layer import (
     IngestEvent,
 )
 from patha.belief.store import BeliefStore
+from patha.belief.validity_extraction import extract_validity
 from patha.belief.types import (
     Belief,
     BeliefId,
@@ -48,6 +49,8 @@ __all__ = [
     "StubContradictionDetector",
     # Store
     "BeliefStore",
+    # Validity extraction
+    "extract_validity",
     # Top-level layer
     "BeliefLayer",
     "BeliefQueryResult",
