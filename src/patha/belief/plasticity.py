@@ -140,10 +140,17 @@ class LongTermDepression:
         store's event log contains reinforcement times; as a lightweight
         proxy we use the asserted_at of any reinforcing belief.
 
+        Saṁskāra → Vāsanā (v0.4): if a belief has an established deep
+        confidence (vāsanā), the deep layer decays at 1/10 the surface
+        rate. This prevents long-held beliefs from vanishing between
+        reinforcements the way surface confidence can.
+
         Returns the number of beliefs whose confidence was updated.
         """
         targets = list(beliefs) if beliefs is not None else store.all()
         updated = 0
+        deep_ltd_half_life = self._half_life_days * 10  # 10x slower
+
         for b in targets:
             last_access = b.asserted_at
             for rid in b.reinforced_by:
@@ -151,10 +158,24 @@ class LongTermDepression:
                 if r is not None and r.asserted_at > last_access:
                     last_access = r.asserted_at
             age_days = (now - last_access).total_seconds() / 86400.0
+
+            # Surface confidence
             new_conf = self.decayed(b.confidence, age_days)
             if abs(new_conf - b.confidence) > 1e-9:
                 store.set_confidence(b.id, new_conf)
                 updated += 1
+
+            # Deep (vāsanā) confidence, if established — decays 10x slower
+            if b.deep_confidence is not None:
+                import math
+                factor = math.pow(0.5, age_days / deep_ltd_half_life)
+                new_deep = max(
+                    self._floor,
+                    b.deep_confidence * factor + self._floor * (1 - factor),
+                )
+                if abs(new_deep - b.deep_confidence) > 1e-9:
+                    b.deep_confidence = new_deep
+
         return updated
 
 

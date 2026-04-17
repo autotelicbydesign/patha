@@ -360,6 +360,16 @@ class Belief:
     observed_at: datetime | None = None
     source_id: str | None = None
     context: str | None = None
+    # Saṁskāra → Vāsanā layered confidence (v0.4).
+    # samskara_count: number of distinct-source reinforcements this
+    # belief has received. Used to decide when to crystallise surface
+    # confidence into deep (vāsanā) confidence.
+    # deep_confidence: slow-moving layer below surface .confidence.
+    # Rises when samskara_count crosses the establishment threshold;
+    # decays at 1/10 the surface decay rate. Defaults to None until
+    # established.
+    samskara_count: int = 0
+    deep_confidence: float | None = None
     supersedes: list[BeliefId] = field(default_factory=list)
     superseded_by: list[BeliefId] = field(default_factory=list)
     coexists_with: list[BeliefId] = field(default_factory=list)
@@ -398,3 +408,22 @@ class Belief:
     def is_coexisting(self) -> bool:
         """This belief holds alongside related non-contradictory beliefs."""
         return len(self.coexists_with) > 0
+
+    @property
+    def is_vasana_established(self) -> bool:
+        """True iff this belief's samskāra chain has crystallised into
+        a deep (vāsanā) confidence. Surface confidence can now swing
+        without losing the user's long-held position entirely."""
+        return self.deep_confidence is not None
+
+    @property
+    def effective_confidence(self) -> float:
+        """The confidence to report in most UIs: the deep confidence
+        when established, otherwise the surface confidence.
+
+        Surface confidence can dip below deep during decay and recover
+        through reinforcement — the deep layer prevents the belief
+        from vanishing between reinforcements."""
+        if self.deep_confidence is not None:
+            return max(self.confidence, self.deep_confidence)
+        return self.confidence

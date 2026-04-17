@@ -301,6 +301,35 @@ class BeliefStore:
 
         gap = 1.0 - existing.confidence
         existing.confidence = min(1.0, existing.confidence + rate * gap)
+
+        # Saṁskāra → Vāsanā (v0.4): track reinforcement count and
+        # crystallise deep confidence once the chain is long enough.
+        # A distinct-source or distinct-pramāṇa reinforcement counts
+        # as a real saṁskāra. Same-source same-pramāṇa pure echoes
+        # do NOT deepen the vāsanā (matches the Yoga tradition —
+        # habit formation requires repetition across occasions, not
+        # rapid restatement).
+        if distinct_source or distinct_pramana:
+            existing.samskara_count += 1
+
+        # Establishment threshold: once a belief has been reinforced
+        # 5 times from distinct samskaras, crystallise deep confidence
+        # to the current surface confidence. Deep confidence then
+        # decays 10x more slowly than surface in LongTermDepression.
+        SAMSKARA_THRESHOLD = 5
+        if (
+            existing.deep_confidence is None
+            and existing.samskara_count >= SAMSKARA_THRESHOLD
+        ):
+            existing.deep_confidence = existing.confidence
+        # Once vāsanā is established, a new reinforcement also
+        # pulls deep confidence upward (at 1/5 the rate of surface).
+        elif existing.deep_confidence is not None:
+            deep_gap = 1.0 - existing.deep_confidence
+            existing.deep_confidence = min(
+                1.0, existing.deep_confidence + (rate / 5.0) * deep_gap
+            )
+
         self._append_event(
             EVENT_REINFORCE,
             existing=existing_id,
@@ -722,11 +751,45 @@ class BeliefStore:
             if new is not None and record["old"] not in new.supersedes:
                 new.supersedes.append(record["old"])
         elif t == EVENT_REINFORCE:
+            # Replay the full reinforce() mutation from the event record,
+            # including the source/pramāṇa diversity bump rate and the
+            # saṁskāra → vāsanā accumulation. Re-derived here rather
+            # than calling reinforce() because that would re-emit the
+            # event and double-log it.
             existing = self._beliefs.get(record["existing"])
-            if existing is not None and record["new"] not in existing.reinforced_by:
+            new_b = self._beliefs.get(record["new"])
+            if existing is None or new_b is None:
+                return
+            if record["new"] not in existing.reinforced_by:
                 existing.reinforced_by.append(record["new"])
-                gap = 1.0 - existing.confidence
-                existing.confidence = min(1.0, existing.confidence + 0.3 * gap)
+
+            distinct_source = bool(record.get("distinct_source", False))
+            distinct_pramana = bool(record.get("distinct_pramana", False))
+            if distinct_source and distinct_pramana:
+                rate = 0.40
+            elif distinct_source:
+                rate = 0.30
+            elif distinct_pramana:
+                rate = 0.20
+            else:
+                rate = 0.10
+            gap = 1.0 - existing.confidence
+            existing.confidence = min(1.0, existing.confidence + rate * gap)
+
+            # Saṁskāra → Vāsanā
+            if distinct_source or distinct_pramana:
+                existing.samskara_count += 1
+            SAMSKARA_THRESHOLD = 5
+            if (
+                existing.deep_confidence is None
+                and existing.samskara_count >= SAMSKARA_THRESHOLD
+            ):
+                existing.deep_confidence = existing.confidence
+            elif existing.deep_confidence is not None:
+                deep_gap = 1.0 - existing.deep_confidence
+                existing.deep_confidence = min(
+                    1.0, existing.deep_confidence + (rate / 5.0) * deep_gap
+                )
         elif t == EVENT_CONFIDENCE_SET:
             b = self._beliefs.get(record["belief"])
             if b is not None:
@@ -853,6 +916,8 @@ def _belief_from_dict(d: dict) -> Belief:
         ),
         source_id=d.get("source_id"),
         context=d.get("context"),
+        samskara_count=int(d.get("samskara_count", 0)),
+        deep_confidence=d.get("deep_confidence"),
         supersedes=list(d.get("supersedes", [])),
         superseded_by=list(d.get("superseded_by", [])),
         coexists_with=list(d.get("coexists_with", [])),
