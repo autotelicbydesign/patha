@@ -1,6 +1,6 @@
 # Patha Phase 2 — Belief Layer Specification
 
-**Status:** DRAFT — decisions pending
+**Status:** v0.1 SHIPPED — further decisions locked in code; v0.2 scoped below
 **Owner:** Stefi (architecture) + Claude Code (implementation)
 **Last updated:** 2026-04-17
 
@@ -237,23 +237,69 @@ This version makes none of the bolder architectural choices. It is a baseline. I
 
 These are all interesting. None of them are Phase 2.
 
-## 9. Decisions to make before coding
+## 9. Decisions — v0.1 locked, v0.2 pending
 
-This document is incomplete until the following are answered:
+v0.1 decisions (shipped on branch `phase-2-belief-layer`):
 
-- [ ] **D1:** Contradiction detection mechanism (A / B / C / D)
-- [ ] **D2:** Ingest-time vs. query-time detection (ingest / query / hybrid)
-- [ ] **D3:** Supersession opinionation (aggressive / neutral / confidence-weighted)
-- [ ] **D4:** Validity assignment (explicit / LLM-inferred / rule+fallback)
-- [ ] **D5:** The capability demo for Phase 2 — what's the single visible outcome that earns the writeup?
-- [ ] **D6:** BeliefEval initial scope — 50 scenarios? 200? Hand-built or LLM-generated with human QA?
-- [ ] **D7:** Compression architecture — how do retrieved beliefs reach the downstream LLM?
-  - **Option A — Raw propositions to LLM.** Send retrieved propositions verbatim. Current default. Highest tokens, highest fidelity.
-  - **Option B — Structured belief summary.** Send belief state as structured object (current belief, supersedes list, confidence, validity). ~10x compression, may lose nuance.
-  - **Option C — Direct answer for lookups, raw for generation.** If the query is a factual lookup ("what do I currently believe about X?"), Patha answers directly from belief state without invoking LLM. Only generation-heavy queries get LLM + context. Maximum compression, requires robust query-type detection.
-  - **Option D — Tiered.** Direct answer for lookups, structured summary for reasoning, raw propositions for open-ended generation. Most flexible, most complex.
+- [x] **D1:** Contradiction detection = NLI (DeBERTa-v3-large-mnli-fever-anli-ling-wanli).
+      LLM fallback scaffolded but not wired.
+- [x] **D2:** Query-time only. O(N) scan against current beliefs in the store
+      when ingest runs a contradiction pass. Ingest-time sliding-window
+      scoping is a v0.2 optimisation.
+- [x] **D3:** Neutral supersession, non-destructive. Nothing is ever deleted.
+      Superseded beliefs remain queryable as `history`. Confidence-weighted
+      variant deferred.
+- [x] **D4:** Explicit rule-based extraction (HeidelTime-style patterns)
+      with `Validity(source="explicit")`. Returns None when no marker
+      fires; caller falls back to permanent default. LLM inference of
+      implicit durations is v0.2.
+- [x] **D5:** Capability demo = *"What do you currently believe about X,
+      and when did that change?"* — implemented as BeliefLayer.query()
+      with `include_history=True`. Renders current belief + visible
+      supersession lineage with timestamps.
+- [x] **D6:** BeliefEval v0.1 = 20 hand-crafted scenarios across three
+      families (preference supersession, factual supersession,
+      temporally bounded). Hand-curated; LLM-assisted expansion is the
+      v0.2 path toward the ~150-scenario target.
+- [x] **D7:** Option B for v0.1 — structured belief summary rendered by
+      `BeliefLayer.render_summary()`. Option C (direct answer for
+      lookups, no LLM) is v0.2.
 
-Each of these has downstream implications on architecture, timeline, and claim strength. Work through them deliberately, don't default.
+## 10. v0.2 scope
+
+v0.1 proved the data model and benchmarked the mechanism. v0.2 addresses
+the specific failure modes that surface in v0.1 BeliefEval:
+
+- **LLM fallback for contradiction detection (D1 Option D).** Pairs where
+  NLI is NEUTRAL but shares entity + obvious commonsense contradiction
+  (e.g., "I love sushi" vs. "I'm avoiding raw fish") need LLM judgment.
+  Cost scaffolded: gate LLM calls behind an uncertainty band around the
+  NLI output, not unconditionally.
+- **Ingest-time sliding window (D2 hybrid).** Scope contradiction checks
+  to beliefs within a trailing window (default 30 days) at ingest,
+  then full-scan at query time only for older matches. Bounds cost.
+- **Inferred validity (D4 LLM-path).** "Training for a marathon" ≈ 4
+  months; "on holiday next week" ≈ 7 days. Small local LLM with
+  structured output. Rule-based remains the primary; LLM is fallback.
+- **Direct-answer compression (D7 Option C).** For queries typed as
+  belief lookups, answer directly from belief state — skip the LLM
+  entirely. Requires a query classifier or explicit API separation.
+- **BeliefEval expansion to ~150 scenarios.** LLM-assisted scenario
+  generation with human QA. Submit to a peer-reviewed benchmark track.
+- **Token-economy curves.** Measure tokens-per-correct-answer as memory
+  grows (100 → 1000 → 10000 beliefs) and publish the curve against
+  naive-RAG baselines.
+
+## 11. Beyond v0.2
+
+- Confidence-weighted supersession (Hansson's non-prioritised revision)
+- Probabilistic confidence (Bayesian) if the scalar proves insufficient
+- Multi-user belief attribution (whose belief is it?)
+- Plasticity mechanisms as structural primitives: LTP, LTD, pruning,
+  homeostasis, Hebbian association. Each is implementable; each needs
+  its own measurement story.
+- Integration of the belief layer with Phase 1 retrieval as the default
+  end-to-end system (today they are decoupled).
 
 ---
 
