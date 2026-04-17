@@ -126,15 +126,16 @@ store.reinforce(a="doctor's claim", b="blood test")
 | NLI (DeBERTa-v3-large) | 0.833 (20/24) |
 | Hybrid NLI + LLM judge | **0.958 (23/24)** |
 
-### BeliefEval — 150-scenario v0.3 set, stub baseline
+### BeliefEval — 150-scenario v0.3 set
 
 180 total questions (150 scenarios, some with multiple questions).
 
-| Detector | Accuracy |
-|---|:---:|
-| Stub heuristic | 0.333 (60/180) |
+| Detector | Accuracy | Breakdown |
+|---|:---:|:---|
+| Stub heuristic | 0.333 (60/180) | validity 60/60, current_belief 0/120 |
+| **NLI (DeBERTa-v3-large)** | **0.933 (168/180)** | validity 60/60, current_belief 108/120 |
 
-Validity questions pass 100% (60/60) even on stub; current-belief questions fail 0% (0/120) because the stub can't detect paraphrased contradictions. NLI + hybrid runs with the real LLM judge are the v0.4 headline run; they need Ollama wired for the 150-scenario scale (unscripted pairs).
+The 12 NLI failures are all in `preference_supersession` (84.0% there) — the family that stresses commonsense reasoning (e.g., 'love X' vs 'avoid X'). `temporally_bounded` and `factual_supersession` both scored 100%. Hybrid with a real LLM judge is expected to close the preference-supersession gap; that run is held for the v0.3 publication moment once Ollama is wired to the 150-scenario benchmark.
 
 ### Token economy (carried from v0.2)
 
