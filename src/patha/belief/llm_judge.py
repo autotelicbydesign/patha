@@ -179,11 +179,15 @@ class HybridContradictionDetector:
         *,
         min_overlap: int = 1,
         uncertainty_band: tuple[float, float] = (0.0, 0.95),
+        escalate_low_confidence_verdicts: bool = False,
+        low_confidence_threshold: float = 0.6,
     ) -> None:
         self._primary = primary
         self._llm = llm
         self._min_overlap = min_overlap
         self._uncertainty_band = uncertainty_band
+        self._escalate_low_conf = escalate_low_confidence_verdicts
+        self._low_conf_threshold = low_confidence_threshold
         # Metrics a caller can inspect after a run
         self.llm_calls = 0
         self.primary_calls = 0
@@ -205,16 +209,30 @@ class HybridContradictionDetector:
         lo, hi = self._uncertainty_band
         final: list[ContradictionResult] = []
         for (p1, p2), r in zip(pairs, primary_results):
-            if r.label != ContradictionLabel.NEUTRAL:
+            # Low-confidence CONTRADICTS/ENTAILS also escalate when
+            # enabled. This catches cases where NLI has a weak signal
+            # that the LLM judge can either confirm or retract.
+            is_low_conf_verdict = (
+                self._escalate_low_conf
+                and r.label != ContradictionLabel.NEUTRAL
+                and r.confidence < self._low_conf_threshold
+            )
+
+            if r.label != ContradictionLabel.NEUTRAL and not is_low_conf_verdict:
+                # High-confidence non-neutral: trust primary.
                 final.append(r)
                 continue
-            if not (lo <= r.confidence <= hi):
-                final.append(r)
-                continue
-            overlap = _content_words(p1) & _content_words(p2)
-            if len(overlap) < self._min_overlap:
-                final.append(r)
-                continue
+
+            if r.label == ContradictionLabel.NEUTRAL:
+                # NEUTRAL escalation gates
+                if not (lo <= r.confidence <= hi):
+                    final.append(r)
+                    continue
+                overlap = _content_words(p1) & _content_words(p2)
+                if len(overlap) < self._min_overlap:
+                    final.append(r)
+                    continue
+
             # Escalate
             self.llm_calls += 1
             llm_result = self._llm.judge(p1, p2)
