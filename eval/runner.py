@@ -21,11 +21,30 @@ env (uv sync, GPU, Qwen3 models).
 from __future__ import annotations
 
 import json
+import os
+import pickle
 import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
+
+
+def _atomic_pickle_dump(obj: Any, path: Path) -> None:
+    """Write a pickle file atomically.
+
+    Writes to a .tmp sibling file, fsyncs the data to disk, then renames.
+    If the process crashes mid-write, the target file either still has
+    its previous valid contents or doesn't exist yet — it can never be
+    left in a half-written / truncated state.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp_path, "wb") as f:
+        pickle.dump(obj, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, path)
 
 from patha.chunking.views import VIEW_NAMES
 from patha.indexing.bm25_index import SimpleBM25
@@ -193,6 +212,7 @@ def pre_warm_session_cache(
     *,
     embedder: Embedder,
     entity_enricher: object | None = None,
+    checkpoint_path: str | Path | None = None,
     verbose: bool = False,
 ) -> SessionCache:
     """Pre-embed all unique sessions across all questions.
@@ -204,9 +224,13 @@ def pre_warm_session_cache(
 
     For LongMemEval S (500 questions, ~24K session slots), this typically
     reduces ~24K embeddings to ~5K unique sessions, saving 5-15x wall time.
+
+    When ``checkpoint_path`` is provided, saves progress every 25 sessions
+    so a crashed run can resume instead of restarting from zero.
     """
     cache = SessionCache()
     seen_sessions: dict[str, list[dict]] = {}
+    completed_sids: set[str] = set()
 
     # Phase 1: Collect unique sessions across all questions
     for entry in data:
@@ -218,17 +242,33 @@ def pre_warm_session_cache(
                 seen_sessions[sid] = session_turns
 
     total = len(seen_sessions)
+
+    # Try to resume from checkpoint
+    if checkpoint_path is not None:
+        checkpoint_path = Path(checkpoint_path)
+        if checkpoint_path.exists():
+            with open(checkpoint_path, "rb") as f:
+                saved = pickle.load(f)
+            cache._cache = saved["cache"]
+            completed_sids = saved["completed"]
+            cache.hits = saved.get("hits", 0)
+            cache.misses = saved.get("misses", 0)
+            if verbose:
+                print(f"  Resumed from checkpoint: {len(completed_sids)}/{total} sessions already done", flush=True)
+
+    remaining = [(sid, turns) for sid, turns in seen_sessions.items() if sid not in completed_sids]
+
     if verbose:
-        print(f"  Pre-warming cache: {total} unique sessions to embed...", flush=True)
+        print(f"  Pre-warming cache: {len(remaining)} sessions to embed ({len(completed_sids)} cached)...", flush=True)
 
     # Phase 2: Embed each unique session once
     t0 = time.time()
-    for i, (sid, session_turns) in enumerate(seen_sessions.items()):
+    for i, (sid, session_turns) in enumerate(remaining):
         if verbose and (i + 1) % 50 == 0:
             elapsed = time.time() - t0
             rate = elapsed / (i + 1)
-            eta = rate * (total - i - 1)
-            print(f"    [{i+1}/{total}] {elapsed:.0f}s elapsed, ETA {eta:.0f}s", flush=True)
+            eta = rate * (len(remaining) - i - 1)
+            print(f"    [{len(completed_sids) + i + 1}/{total}] {elapsed:.0f}s elapsed, ETA {eta:.0f}s", flush=True)
 
         store = InMemoryStore()
         turns = []
@@ -247,6 +287,27 @@ def pre_warm_session_cache(
         # Extract and cache the rows
         rows = list(store.all_rows())
         cache.put(sid, rows)
+        completed_sids.add(sid)
+
+        # Checkpoint every 25 sessions
+        if checkpoint_path is not None and (i + 1) % 25 == 0:
+            _atomic_pickle_dump({
+                "cache": cache._cache,
+                "completed": completed_sids,
+                "hits": cache.hits,
+                "misses": cache.misses,
+            }, checkpoint_path)
+            if verbose:
+                print(f"    Checkpoint saved: {len(completed_sids)}/{total}", flush=True)
+
+    # Final checkpoint
+    if checkpoint_path is not None:
+        _atomic_pickle_dump({
+            "cache": cache._cache,
+            "completed": completed_sids,
+            "hits": cache.hits,
+            "misses": cache.misses,
+        }, checkpoint_path)
 
     if verbose:
         elapsed = time.time() - t0
@@ -266,6 +327,7 @@ def run_evaluation(
     use_session_cache: bool = True,
     use_ner: bool = False,
     pre_warmed_cache: SessionCache | None = None,
+    eval_checkpoint_path: str | Path | None = None,
     verbose: bool = False,
 ) -> EvalReport:
     """Run the full LongMemEval evaluation.
@@ -291,6 +353,9 @@ def run_evaluation(
     use_session_cache
         Whether to cache session embeddings across questions for speed.
         Default True. Disable for strict per-question isolation testing.
+    eval_checkpoint_path
+        Path to save/resume per-question checkpoint. When provided,
+        saves after every question so crashes don't lose progress.
     verbose
         Print per-question progress. Default False.
 
@@ -318,17 +383,36 @@ def run_evaluation(
     total = len(data)
     t0 = time.time()
 
+    # Resume from checkpoint if available
+    completed_qids: set[str] = set()
+    if eval_checkpoint_path is not None:
+        eval_checkpoint_path = Path(eval_checkpoint_path)
+        if eval_checkpoint_path.exists():
+            with open(eval_checkpoint_path, "rb") as f:
+                saved = pickle.load(f)
+            report.results = saved["results"]
+            completed_qids = saved["completed_qids"]
+            if verbose:
+                print(f"  Resumed eval checkpoint: {len(completed_qids)}/{total} questions done", flush=True)
+
     for i, entry in enumerate(data):
         qid = entry["question_id"]
         qt = entry["question_type"]
+
+        # Skip already-completed questions
+        if qid in completed_qids:
+            continue
+
         if verbose:
             elapsed = time.time() - t0
-            rate = elapsed / (i + 1) if i > 0 else 0
-            eta = rate * (total - i - 1) if i > 0 else 0
+            done = len(completed_qids) + 1
+            rate = elapsed / done if done > 1 else 0
+            remaining = total - len(completed_qids) - 1
+            eta = rate * remaining if done > 1 else 0
             cache_info = ""
             if session_cache is not None:
                 cache_info = f" [cache: {len(session_cache)} sessions, {session_cache.hits}H/{session_cache.misses}M]"
-            print(f"  [{i + 1}/{total}] {qid} ({qt}) {elapsed:.0f}s elapsed, ETA {eta:.0f}s{cache_info}", flush=True)
+            print(f"  [{len(completed_qids) + 1}/{total}] {qid} ({qt}) {elapsed:.0f}s elapsed, ETA {eta:.0f}s{cache_info}", flush=True)
 
         # Fresh store per question (per LongMemEval protocol)
         store = InMemoryStore()
@@ -348,6 +432,14 @@ def run_evaluation(
             reranker=reranker,
         )
         report.results.append(qr)
+        completed_qids.add(qid)
+
+        # Save checkpoint after every question (atomic write)
+        if eval_checkpoint_path is not None:
+            _atomic_pickle_dump({
+                "results": report.results,
+                "completed_qids": completed_qids,
+            }, eval_checkpoint_path)
 
     if verbose and session_cache is not None:
         print(f"  Session cache final: {len(session_cache)} unique sessions, "
@@ -419,6 +511,10 @@ def main(argv: list[str] | None = None) -> None:
                         help="Enable spaCy NER for entity-anchored views (v5/v6)")
     parser.add_argument("--pre-warm", action="store_true",
                         help="Pre-embed all unique sessions before eval (faster for large evals)")
+    parser.add_argument("--checkpoint", default=None,
+                        help="Path for pre-warm checkpoint file (enables resume on crash)")
+    parser.add_argument("--eval-checkpoint", default=None,
+                        help="Path for per-question eval checkpoint file (enables resume mid-eval)")
     parser.add_argument("--views", default=None,
                         help="Comma-separated views to use (e.g. v1 or v1,v4). Default: all 7")
     parser.add_argument("--verbose", action="store_true")
@@ -454,15 +550,17 @@ def main(argv: list[str] | None = None) -> None:
         reranker_fn = CrossEncoderReranker(
             "cross-encoder/ms-marco-MiniLM-L-6-v2",
             device=args.device,
+            rrf_blend=0.2,
         )
-        print("Using cross-encoder reranker: ms-marco-MiniLM-L-6-v2")
+        print("Using cross-encoder reranker: ms-marco-MiniLM-L-6-v2 (rrf_blend=0.2)")
     elif args.reranker == "ce-12":
         from patha.retrieval.reranker import CrossEncoderReranker
         reranker_fn = CrossEncoderReranker(
             "cross-encoder/ms-marco-MiniLM-L-12-v2",
             device=args.device,
+            rrf_blend=0.2,
         )
-        print("Using cross-encoder reranker: ms-marco-MiniLM-L-12-v2")
+        print("Using cross-encoder reranker: ms-marco-MiniLM-L-12-v2 (rrf_blend=0.2)")
 
     # Resolve embedder for pre-warming
     actual_embedder = embedder if embedder is not None else StubEmbedder(dim=64)
@@ -478,6 +576,7 @@ def main(argv: list[str] | None = None) -> None:
             data,
             embedder=actual_embedder,
             entity_enricher=entity_enricher,
+            checkpoint_path=args.checkpoint,
             verbose=args.verbose,
         )
 
@@ -493,6 +592,7 @@ def main(argv: list[str] | None = None) -> None:
         use_session_cache=not args.no_cache,
         use_ner=args.ner,
         pre_warmed_cache=pre_warmed,
+        eval_checkpoint_path=args.eval_checkpoint,
         verbose=args.verbose,
     )
     elapsed = time.time() - t_start

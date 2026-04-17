@@ -88,6 +88,7 @@ def run_ablation(
     data: list[dict],
     *,
     device: str | None = None,
+    output_dir: str = "runs",
     verbose: bool = False,
 ) -> EvalReport:
     """Run a single ablation experiment."""
@@ -102,9 +103,13 @@ def run_ablation(
         reranker_fn = CrossEncoderReranker(
             "cross-encoder/ms-marco-MiniLM-L-6-v2",
             device=device,
+            rrf_blend=0.2,
         )
 
     config = PipelineConfig(views=ab.views)
+
+    # Per-question checkpoint so crashes don't lose progress
+    checkpoint_path = Path(output_dir) / f"ablation_{ab.name}" / "eval_checkpoint.pkl"
 
     return run_evaluation(
         data,
@@ -112,6 +117,7 @@ def run_ablation(
         config=config,
         reranker=reranker_fn,
         use_songline=ab.use_songline,
+        eval_checkpoint_path=checkpoint_path,
         verbose=verbose,
     )
 
@@ -169,21 +175,36 @@ def main(argv: list[str] | None = None) -> None:
     all_results: list[tuple[AblationConfig, dict, float]] = []
 
     for ab in ablations:
+        output_path = Path(args.output_dir) / f"ablation_{ab.name}" / "results.json"
+
+        # Skip ablations that already have saved results
+        if output_path.exists():
+            existing = json.load(open(output_path))
+            existing_n = existing.get("summary", {}).get("total_questions", 0)
+            if existing_n >= len(data):
+                print(f"Skipping {ab.name}: already have {existing_n}q results at {output_path}")
+                all_results.append((ab, existing["summary"], 0.0))
+                continue
+
         print(f"{'=' * 60}")
         print(f"Ablation: {ab.name}")
         print(f"  {ab.description}")
         print(f"{'=' * 60}")
 
         t0 = time.time()
-        report = run_ablation(ab, data, device=args.device, verbose=args.verbose)
+        report = run_ablation(ab, data, device=args.device, output_dir=args.output_dir, verbose=args.verbose)
         elapsed = time.time() - t0
 
         summary = report.summary()
         all_results.append((ab, summary, elapsed))
 
-        # Save per-ablation results
-        output_path = Path(args.output_dir) / f"ablation_{ab.name}" / "results.json"
+        # Save per-ablation results immediately
         save_results(report, output_path)
+        # Clean up checkpoint now that full results are saved
+        ckpt = Path(args.output_dir) / f"ablation_{ab.name}" / "eval_checkpoint.pkl"
+        if ckpt.exists():
+            ckpt.unlink()
+        print(f"  Saved to {output_path}")
 
         r5 = summary.get("recall_any@5", 0.0)
         print(f"\n  R@5: {r5:.3f}  ({elapsed:.0f}s)")
