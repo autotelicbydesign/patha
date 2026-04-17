@@ -39,6 +39,7 @@ from typing import Iterator
 from patha.belief.types import (
     Belief,
     BeliefId,
+    Pramana,
     PropositionId,
     ResolutionStatus,
     Validity,
@@ -97,11 +98,15 @@ class BeliefStore:
         validity: Validity | None = None,
         confidence: float = 1.0,
         belief_id: BeliefId | None = None,
+        pramana: Pramana | None = None,
     ) -> Belief:
         """Record a new belief. Returns the created Belief.
 
         If ``belief_id`` is None, a UUID is generated. Raises if the id
         already exists.
+
+        ``pramana`` is the source-of-valid-knowledge tag (Pramana enum).
+        Defaults to Pramana.UNKNOWN when not provided.
         """
         bid = belief_id if belief_id is not None else str(uuid.uuid4())
         if bid in self._beliefs:
@@ -114,6 +119,7 @@ class BeliefStore:
             source_proposition_id=source_proposition_id,
             confidence=confidence,
             validity=validity if validity is not None else Validity(),
+            pramana=pramana if pramana is not None else Pramana.UNKNOWN,
         )
         self._beliefs[bid] = belief
         self._by_session.setdefault(asserted_in_session, []).append(bid)
@@ -148,17 +154,33 @@ class BeliefStore:
     def reinforce(self, existing_id: BeliefId, new_id: BeliefId) -> None:
         """Record that ``new_id`` reinforces ``existing_id``.
 
-        Reinforcement means the user restated a belief consistent with an
-        existing one — no contradiction, no supersession. Effect:
+        Effect:
         - existing.reinforced_by += [new_id]
         - existing.reinforcement_sources += [new.source_id] if distinct
+        - existing.reinforcement_pramanas += [new.pramana] if distinct
         - existing.confidence bumped toward 1.0 (capped)
 
-        Source-independence weighting: confidence is bumped by the full
-        gap-closure rate only if the reinforcing source is distinct from
-        existing sources. Repeated reinforcements from the same source
-        get a discounted bump (10% of gap) to avoid "ten echoes from one
-        rumour mill" overpowering other signals.
+        Two dimensions of epistemic diversity contribute to the bump:
+
+        * Source independence — distinct source_id (i.e., different
+          session cluster) means we're not just hearing the same
+          utterance echoed.
+        * Pramāṇa diversity — distinct pramāṇa means the reinforcement
+          comes from a different kind of knowledge (e.g., perception
+          confirming what was earlier heard via testimony). A belief
+          held via perception AND testimony is more robust than one
+          held via repeated perception alone.
+
+        Bump rate (closes this fraction of the gap to 1.0):
+
+          both source and pramāṇa distinct:    0.40  (full cross-corroboration)
+          source distinct, pramāṇa same:       0.30  (v0.2 default)
+          pramāṇa distinct, source same:       0.20  (same person, different mode of knowing)
+          both same:                           0.10  (pure repetition)
+
+        This makes "a doctor told me I have diabetes" + "I checked my
+        own blood sugar" a stronger joint signal than two echoes of the
+        doctor's statement, which is the point.
         """
         if existing_id == new_id:
             raise ValueError("a belief cannot reinforce itself")
@@ -175,16 +197,36 @@ class BeliefStore:
         if distinct_source and new_source not in existing.reinforcement_sources:
             existing.reinforcement_sources.append(new_source)
 
-        # Distinct source → full bump (close 30% of gap).
-        # Same source → discounted bump (close 10% of gap).
+        # Pramāṇa-diversity tracking
+        new_pramana = new.pramana.value if new.pramana else Pramana.UNKNOWN.value
+        existing_pramanas = set(existing.reinforcement_pramanas)
+        if existing.pramana:
+            existing_pramanas.add(existing.pramana.value)
+        distinct_pramana = (
+            new_pramana != Pramana.UNKNOWN.value
+            and new_pramana not in existing_pramanas
+        )
+        if distinct_pramana and new_pramana not in existing.reinforcement_pramanas:
+            existing.reinforcement_pramanas.append(new_pramana)
+
+        # Bump rate: combine both dimensions of diversity.
+        if distinct_source and distinct_pramana:
+            rate = 0.40
+        elif distinct_source:
+            rate = 0.30
+        elif distinct_pramana:
+            rate = 0.20
+        else:
+            rate = 0.10
+
         gap = 1.0 - existing.confidence
-        rate = 0.3 if distinct_source else 0.1
         existing.confidence = min(1.0, existing.confidence + rate * gap)
         self._append_event(
             EVENT_REINFORCE,
             existing=existing_id,
             new=new_id,
             distinct_source=distinct_source,
+            distinct_pramana=distinct_pramana,
         )
 
     def coexist(self, a_id: BeliefId, b_id: BeliefId) -> None:
@@ -521,6 +563,7 @@ def _belief_to_dict(b: Belief) -> dict:
     if b.observed_at is not None:
         d["observed_at"] = b.observed_at.isoformat()
     d["status"] = b.status.value
+    d["pramana"] = b.pramana.value
     if b.validity.start is not None:
         d["validity"]["start"] = b.validity.start.isoformat()
     if b.validity.end is not None:
@@ -541,6 +584,10 @@ def _belief_from_dict(d: dict) -> Belief:
         status = ResolutionStatus(d.get("status", "current"))
     except ValueError:
         status = ResolutionStatus.CURRENT
+    try:
+        pramana = Pramana(d.get("pramana", "unknown"))
+    except ValueError:
+        pramana = Pramana.UNKNOWN
     return Belief(
         id=d["id"],
         proposition=d["proposition"],
@@ -550,6 +597,7 @@ def _belief_from_dict(d: dict) -> Belief:
         confidence=d.get("confidence", 1.0),
         status=status,
         validity=validity,
+        pramana=pramana,
         observed_at=(
             datetime.fromisoformat(d["observed_at"])
             if d.get("observed_at")
@@ -562,4 +610,5 @@ def _belief_from_dict(d: dict) -> Belief:
         disputed_with=list(d.get("disputed_with", [])),
         reinforced_by=list(d.get("reinforced_by", [])),
         reinforcement_sources=list(d.get("reinforcement_sources", [])),
+        reinforcement_pramanas=list(d.get("reinforcement_pramanas", [])),
     )

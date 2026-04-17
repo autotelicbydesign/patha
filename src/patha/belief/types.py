@@ -164,6 +164,45 @@ class Validity:
 
 # ─── Belief (the main object) ────────────────────────────────────────
 
+class Pramana(str, Enum):
+    """Source of valid knowledge, per the Nyāya and Mīmāṃsā traditions.
+
+    Patha uses pramāṇa as a first-class property of every belief: it
+    records *how* the claim came to be known, not just *that* it was
+    asserted. Source-independence weighting (see BeliefStore.reinforce)
+    uses pramāṇa diversity — two reinforcements via the same pramāṇa
+    count less than reinforcements via different ones, because epistemic
+    robustness comes from cross-corroboration across kinds of evidence,
+    not from repetition of one kind.
+
+    The six classical pramāṇas:
+
+      PRATYAKṢA   — direct perception ("I saw it happen")
+      ANUMANA     — inference ("if A, then B; A, so B")
+      UPAMANA     — comparison / analogy ("like X but smaller")
+      SHABDA      — testimony ("the doctor told me")
+      ARTHAPATTI  — postulation / inference from circumstance
+                    ("he's alive and not here, so he must be elsewhere")
+      ANUPALABDHI — absence-based inference ("I don't see it, so it
+                    isn't there")
+      UNKNOWN     — fallback when the layer can't infer the pramāṇa
+                    (e.g., bare assertions without linguistic markers).
+
+    These are tagged onto beliefs at ingest. Auto-detection is
+    rule-based and deliberately conservative; callers can override
+    with an explicit pramana= argument when higher confidence is
+    available.
+    """
+
+    PRATYAKSA = "pratyaksa"
+    ANUMANA = "anumana"
+    UPAMANA = "upamana"
+    SHABDA = "shabda"
+    ARTHAPATTI = "arthapatti"
+    ANUPALABDHI = "anupalabdhi"
+    UNKNOWN = "unknown"
+
+
 class ResolutionStatus(str, Enum):
     """The relationship status of a belief relative to others in its cluster.
 
@@ -251,8 +290,18 @@ class Belief:
     reinforcement_sources
         Set of distinct source_ids that have reinforced this belief.
         Used for source-independence weighting.
+    reinforcement_pramanas
+        Set of distinct pramāṇa types that have reinforced this belief.
+        Used for epistemic-diversity weighting: a belief reinforced via
+        perception AND testimony is more robust than one reinforced
+        twice via the same kind of knowledge.
     source_proposition_id
         Link back to the underlying Phase-1 proposition row.
+    pramana
+        Source of valid knowledge for this belief (Pramana enum).
+        Defaults to UNKNOWN when not specified. Auto-detection via
+        linguistic cues is applied by BeliefLayer.ingest unless
+        explicitly overridden.
     """
 
     id: BeliefId
@@ -263,6 +312,7 @@ class Belief:
     confidence: float = 1.0
     status: ResolutionStatus = ResolutionStatus.CURRENT
     validity: Validity = field(default_factory=Validity)
+    pramana: Pramana = Pramana.UNKNOWN
     observed_at: datetime | None = None
     source_id: str | None = None
     supersedes: list[BeliefId] = field(default_factory=list)
@@ -271,6 +321,7 @@ class Belief:
     disputed_with: list[BeliefId] = field(default_factory=list)
     reinforced_by: list[BeliefId] = field(default_factory=list)
     reinforcement_sources: list[str] = field(default_factory=list)
+    reinforcement_pramanas: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:

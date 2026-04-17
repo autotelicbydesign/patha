@@ -42,11 +42,13 @@ from patha.belief.plasticity import (
 )
 from patha.belief.store import BeliefStore
 from patha.belief.validity_extraction import extract_validity
+from patha.belief.pramana import detect_pramana
 from patha.belief.types import (
     Belief,
     BeliefId,
     ContradictionLabel,
     ContradictionResult,
+    Pramana,
     PropositionId,
     ResolutionStatus,
     Validity,
@@ -59,10 +61,13 @@ __all__ = [
     "BeliefId",
     "ContradictionLabel",
     "ContradictionResult",
+    "Pramana",
     "PropositionId",
     "ResolutionStatus",
     "Validity",
     "ValidityMode",
+    # Pramāṇa detection
+    "detect_pramana",
     # Contradiction detection
     "ContradictionDetector",
     "NLIContradictionDetector",
@@ -86,6 +91,12 @@ __all__ = [
     "DirectAnswer",
     "DirectAnswerer",
     "is_belief_lookup",
+    # Plasticity mechanisms (the neuroplasticity layer)
+    "LongTermPotentiation",
+    "LongTermDepression",
+    "SynapticPruning",
+    "HomeostaticRegulation",
+    "HebbianAssociation",
     # Top-level layer
     "BeliefLayer",
     "BeliefQueryResult",

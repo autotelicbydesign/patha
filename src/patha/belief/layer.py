@@ -42,11 +42,13 @@ from patha.belief.plasticity import (
     LongTermDepression,
     SynapticPruning,
 )
+from patha.belief.pramana import detect_pramana
 from patha.belief.store import BeliefStore
 from patha.belief.types import (
     Belief,
     BeliefId,
     ContradictionLabel,
+    Pramana,
     PropositionId,
     Validity,
 )
@@ -257,6 +259,7 @@ class BeliefLayer:
         validity: Validity | None = None,
         confidence: float = 1.0,
         candidate_belief_ids: list[BeliefId] | None = None,
+        pramana: Pramana | None = None,
     ) -> IngestEvent:
         """Ingest a new proposition into the belief layer.
 
@@ -280,6 +283,11 @@ class BeliefLayer:
                 proposition, asserted_at=asserted_at
             )
 
+        # Pramāṇa auto-detection unless explicitly provided.
+        if pramana is None:
+            inferred = detect_pramana(proposition)
+            pramana = inferred.pramana
+
         # Create the new belief first so it has an id we can reference
         # in supersede/reinforce relations.
         new = self.store.add(
@@ -289,6 +297,7 @@ class BeliefLayer:
             source_proposition_id=source_proposition_id,
             validity=validity,
             confidence=confidence,
+            pramana=pramana,
         )
 
         # Candidate beliefs to check against
