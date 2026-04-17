@@ -27,6 +27,7 @@ from patha.belief.llm_judge import (
     PromptLLMJudge,
     StubLLMJudge,
 )
+from patha.belief.ollama_judge import OllamaLLMJudge
 from patha.belief.layer import (
     BeliefLayer,
     BeliefQueryResult,
@@ -77,6 +78,7 @@ __all__ = [
     "LLMJudge",
     "PromptLLMJudge",
     "StubLLMJudge",
+    "OllamaLLMJudge",
     # Store
     "BeliefStore",
     # Plasticity mechanisms (the neuroplasticity layer)
