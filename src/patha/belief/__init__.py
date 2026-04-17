@@ -43,6 +43,7 @@ from patha.belief.plasticity import (
 )
 from patha.belief.store import BeliefStore
 from patha.belief.validity_extraction import extract_validity
+from patha.belief.abhava import AbhavaInference, AbhavaKind, classify_abhava
 from patha.belief.pramana import detect_pramana
 from patha.belief.raw_archive import RawArchive, RawTurn
 from patha.belief.vritti import VrittiClass, vritti_label, vritti_of
@@ -71,6 +72,10 @@ __all__ = [
     "ValidityMode",
     # Pramāṇa detection
     "detect_pramana",
+    # Abhāva (Nyāya four-fold negation)
+    "AbhavaKind",
+    "AbhavaInference",
+    "classify_abhava",
     # Raw archive (provenance substrate)
     "RawArchive",
     "RawTurn",
