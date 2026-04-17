@@ -44,6 +44,7 @@ from patha.belief.plasticity import (
 from patha.belief.store import BeliefStore
 from patha.belief.validity_extraction import extract_validity
 from patha.belief.pramana import detect_pramana
+from patha.belief.raw_archive import RawArchive, RawTurn
 from patha.belief.types import (
     Belief,
     BeliefId,
@@ -69,6 +70,9 @@ __all__ = [
     "ValidityMode",
     # Pramāṇa detection
     "detect_pramana",
+    # Raw archive (provenance substrate)
+    "RawArchive",
+    "RawTurn",
     # Contradiction detection
     "ContradictionDetector",
     "NLIContradictionDetector",
