@@ -31,12 +31,13 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Iterator
 
 from patha.belief.types import (
+    PRAMANA_STRENGTH,
     Belief,
     BeliefId,
     Pramana,
@@ -60,6 +61,47 @@ EVENT_COEXIST = "coexist"
 EVENT_DISPUTE = "dispute"
 EVENT_RESOLVE_DISPUTE = "resolve_dispute"
 EVENT_STATUS_SET = "status_set"
+EVENT_SUBLATE = "sublate"
+EVENT_RELIABILITY_UPDATE = "reliability_update"
+
+
+# ─── Source reliability tracking ─────────────────────────────────────
+
+@dataclass
+class SourceReliability:
+    """Running reliability score for an information source.
+
+    The score tracks, for a given source_id, how often that source's
+    testimony has been contradicted by stronger-pramāṇa evidence (via
+    sublation) vs. how often it has held up or been reinforced.
+
+    Attributes
+    ----------
+    corroborated
+        Count of the source's claims that were reinforced or remained
+        uncontradicted (proxy for "held up").
+    sublated
+        Count of the source's claims that were contradicted by stronger
+        pramāṇa (sublation via BADHITA status).
+    score
+        Derived reliability in [0.3, 1.0]. Computed as:
+            score = max(0.3, 1.0 - sublated / max(1, corroborated + sublated))
+        Floor at 0.3 so a source is never completely dismissed — an
+        unreliable witness can still carry information worth checking.
+        With zero history, score defaults to 1.0 (give new sources the
+        benefit of the doubt).
+    """
+
+    corroborated: int = 0
+    sublated: int = 0
+
+    @property
+    def score(self) -> float:
+        total = self.corroborated + self.sublated
+        if total == 0:
+            return 1.0
+        raw = 1.0 - (self.sublated / total)
+        return max(0.3, raw)
 
 
 # ─── Store ───────────────────────────────────────────────────────────
@@ -79,6 +121,8 @@ class BeliefStore:
         self._beliefs: dict[BeliefId, Belief] = {}
         self._by_session: dict[str, list[BeliefId]] = {}
         self._by_proposition: dict[PropositionId, BeliefId] = {}
+        # Source reliability: source_id -> SourceReliability
+        self._source_reliability: dict[str, SourceReliability] = {}
         self._persistence_path: Path | None = (
             Path(persistence_path) if persistence_path is not None else None
         )
@@ -96,9 +140,10 @@ class BeliefStore:
         asserted_in_session: str,
         source_proposition_id: PropositionId,
         validity: Validity | None = None,
-        confidence: float = 1.0,
+        confidence: float | None = None,
         belief_id: BeliefId | None = None,
         pramana: Pramana | None = None,
+        source_id: str | None = None,
     ) -> Belief:
         """Record a new belief. Returns the created Belief.
 
@@ -107,10 +152,42 @@ class BeliefStore:
 
         ``pramana`` is the source-of-valid-knowledge tag (Pramana enum).
         Defaults to Pramana.UNKNOWN when not provided.
+
+        ``confidence`` is auto-set based on pramāṇa strength and (for
+        SHABDA) source reliability if not explicitly provided:
+
+          - PRATYAKṢA / UNKNOWN  → 1.0 (direct assertion by user)
+          - ANUMANA              → 0.80
+          - ARTHAPATTI           → 0.70
+          - ANUPALABDHI          → 0.65
+          - SHABDA               → 0.60 × source_reliability_score
+                                    (unreliable source discounts further)
+          - UPAMANA              → 0.55
+
+        The user's own direct assertions ("I have X") remain at high
+        confidence. Reported testimony ("my doctor said I have X")
+        starts lower so future direct-perception contradictions can
+        sublate it cleanly via pramāṇa-hierarchy.
         """
         bid = belief_id if belief_id is not None else str(uuid.uuid4())
         if bid in self._beliefs:
             raise ValueError(f"belief id {bid!r} already exists")
+
+        effective_pramana = pramana if pramana is not None else Pramana.UNKNOWN
+        effective_source_id = source_id if source_id is not None else asserted_in_session
+
+        # Compute default confidence if not specified.
+        if confidence is None:
+            base_strength = PRAMANA_STRENGTH.get(effective_pramana.value, 0.7)
+            # For SHABDA specifically, discount by source reliability
+            if effective_pramana == Pramana.SHABDA:
+                rel = self._source_reliability.get(
+                    effective_source_id, SourceReliability()
+                ).score
+                confidence = base_strength * rel
+            else:
+                confidence = base_strength
+
         belief = Belief(
             id=bid,
             proposition=proposition,
@@ -119,7 +196,8 @@ class BeliefStore:
             source_proposition_id=source_proposition_id,
             confidence=confidence,
             validity=validity if validity is not None else Validity(),
-            pramana=pramana if pramana is not None else Pramana.UNKNOWN,
+            pramana=effective_pramana,
+            source_id=effective_source_id,
         )
         self._beliefs[bid] = belief
         self._by_session.setdefault(asserted_in_session, []).append(bid)
@@ -228,6 +306,119 @@ class BeliefStore:
             distinct_source=distinct_source,
             distinct_pramana=distinct_pramana,
         )
+
+    def sublate(self, weaker_id: BeliefId, stronger_id: BeliefId) -> None:
+        """Record that ``stronger_id`` sublates (bādhita) ``weaker_id``.
+
+        Sublation is the Nyāya operation where a stronger pramāṇa
+        (typically direct perception) contradicts a weaker one
+        (typically testimony). Semantically distinct from supersession:
+
+          supersede(old, new)    → 'you changed your mind over time'
+          sublate(weaker, strong) → 'stronger evidence arrived; the
+                                     weaker claim was right-to-believe-
+                                     at-the-time but is now demoted'
+
+        Effect:
+          - weaker.status = BADHITA
+          - Supersession edges added (weaker in stronger.supersedes)
+          - If weaker.source_id has a reliability record, mark this as
+            a 'sublated' event for that source (drives future
+            source-reliability discount on SHABDA from that source).
+
+        Non-destructive: weaker remains queryable, lineage preserved.
+        """
+        if weaker_id == stronger_id:
+            raise ValueError("a belief cannot sublate itself")
+        weaker = self._require(weaker_id)
+        stronger = self._require(stronger_id)
+        if stronger_id not in weaker.superseded_by:
+            weaker.superseded_by.append(stronger_id)
+        if weaker_id not in stronger.supersedes:
+            stronger.supersedes.append(weaker_id)
+        weaker.status = ResolutionStatus.BADHITA
+        # Restore stronger to CURRENT if dispute cleared
+        if (
+            stronger.status in (ResolutionStatus.DISPUTED, ResolutionStatus.AMBIGUOUS)
+            and not stronger.disputed_with
+        ):
+            stronger.status = ResolutionStatus.CURRENT
+
+        # Update source reliability: this source's claim just got sublated.
+        source_id = weaker.source_id or weaker.asserted_in_session
+        rel = self._source_reliability.setdefault(source_id, SourceReliability())
+        rel.sublated += 1
+
+        self._append_event(
+            EVENT_SUBLATE, weaker=weaker_id, stronger=stronger_id
+        )
+        self._append_event(
+            EVENT_RELIABILITY_UPDATE,
+            source_id=source_id,
+            corroborated=rel.corroborated,
+            sublated=rel.sublated,
+        )
+
+    def resolve_contradiction(
+        self, old_id: BeliefId, new_id: BeliefId
+    ) -> ResolutionStatus:
+        """Resolve a contradiction between two beliefs using pramāṇa hierarchy.
+
+        Picks between three outcomes based on pramāṇa strength:
+
+          1. new has strictly stronger pramāṇa → new sublates old (BADHITA)
+          2. old has strictly stronger pramāṇa → new is sublated by old
+             (BADHITA on new, old stays CURRENT). Counter-intuitive but
+             correct: a weaker-pramāṇa claim cannot legitimately
+             supersede a stronger-pramāṇa one. The user is telling us
+             something weaker evidence says; we note it as bādhita.
+          3. equal pramāṇa → temporal supersession (new supersedes old)
+
+        Returns the final status applied to the 'old' belief (or 'new'
+        if the hierarchy inverted) — useful for tests and logging.
+        """
+        old = self._require(old_id)
+        new = self._require(new_id)
+        old_strength = PRAMANA_STRENGTH.get(old.pramana.value, 0.7)
+        new_strength = PRAMANA_STRENGTH.get(new.pramana.value, 0.7)
+
+        # Apply source-reliability multiplier for SHABDA (unreliable
+        # testimony is weaker than reliable testimony even within SHABDA).
+        if old.pramana == Pramana.SHABDA:
+            rel = self._source_reliability.get(
+                old.source_id or old.asserted_in_session, SourceReliability()
+            )
+            old_strength *= rel.score
+        if new.pramana == Pramana.SHABDA:
+            rel = self._source_reliability.get(
+                new.source_id or new.asserted_in_session, SourceReliability()
+            )
+            new_strength *= rel.score
+
+        epsilon = 0.05  # Treat near-equal strengths as equal; avoids
+                        # flip-flopping on tiny reliability-score shifts.
+
+        if new_strength > old_strength + epsilon:
+            # New stronger: new sublates old
+            self.sublate(old_id, new_id)
+            return ResolutionStatus.BADHITA
+        if old_strength > new_strength + epsilon:
+            # Old stronger: new is the sublated one
+            self.sublate(new_id, old_id)
+            return ResolutionStatus.BADHITA
+        # Equal → temporal supersession (newer wins)
+        self.supersede(old_id, new_id)
+        return ResolutionStatus.SUPERSEDED
+
+    # ── source reliability (read-only for external callers) ────────
+
+    def source_reliability(self, source_id: str) -> SourceReliability:
+        """Return the reliability record for a source.
+
+        Creates a default record (corroborated=0, sublated=0, score=1.0)
+        if the source has no history.
+        """
+        return self._source_reliability.get(source_id, SourceReliability())
 
     def coexist(self, a_id: BeliefId, b_id: BeliefId) -> None:
         """Record that two beliefs hold simultaneously (no contradiction).
@@ -545,6 +736,20 @@ class BeliefStore:
                     b.status = ResolutionStatus(record["status"])
                 except ValueError:
                     pass
+        elif t == EVENT_SUBLATE:
+            weaker = self._beliefs.get(record["weaker"])
+            stronger = self._beliefs.get(record["stronger"])
+            if weaker is not None and record["stronger"] not in weaker.superseded_by:
+                weaker.superseded_by.append(record["stronger"])
+                weaker.status = ResolutionStatus.BADHITA
+            if stronger is not None and record["weaker"] not in stronger.supersedes:
+                stronger.supersedes.append(record["weaker"])
+        elif t == EVENT_RELIABILITY_UPDATE:
+            sid = record["source_id"]
+            self._source_reliability[sid] = SourceReliability(
+                corroborated=int(record.get("corroborated", 0)),
+                sublated=int(record.get("sublated", 0)),
+            )
 
     # ── utility ─────────────────────────────────────────────────────
 

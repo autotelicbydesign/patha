@@ -257,9 +257,10 @@ class BeliefLayer:
         asserted_in_session: str,
         source_proposition_id: PropositionId,
         validity: Validity | None = None,
-        confidence: float = 1.0,
+        confidence: float | None = None,
         candidate_belief_ids: list[BeliefId] | None = None,
         pramana: Pramana | None = None,
+        source_id: str | None = None,
     ) -> IngestEvent:
         """Ingest a new proposition into the belief layer.
 
@@ -289,7 +290,9 @@ class BeliefLayer:
             pramana = inferred.pramana
 
         # Create the new belief first so it has an id we can reference
-        # in supersede/reinforce relations.
+        # in supersede/reinforce relations. When confidence is None, the
+        # store applies a pramāṇa-weighted default (PRATYAKṢA=1.0,
+        # SHABDA=0.6×source_reliability, etc.).
         new = self.store.add(
             proposition=proposition,
             asserted_at=asserted_at,
@@ -298,6 +301,7 @@ class BeliefLayer:
             validity=validity,
             confidence=confidence,
             pramana=pramana,
+            source_id=source_id,
         )
 
         # Candidate beliefs to check against
@@ -330,7 +334,10 @@ class BeliefLayer:
                 result.label == ContradictionLabel.CONTRADICTS
                 and result.confidence >= self._contradiction_threshold
             ):
-                self.store.supersede(candidate.id, new.id)
+                # Pramāṇa-aware resolution: the store decides whether
+                # this is a temporal supersession or a sublation based
+                # on which belief carries stronger pramāṇa.
+                self.store.resolve_contradiction(candidate.id, new.id)
                 superseded_ids.append(candidate.id)
                 contradictions_detected += 1
             elif (

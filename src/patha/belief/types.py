@@ -164,6 +164,36 @@ class Validity:
 
 # ─── Belief (the main object) ────────────────────────────────────────
 
+# ─── Pramāṇa epistemic strength ──────────────────────────────────────
+
+# Default epistemic strength of each pramāṇa, 0-1. Used for:
+#   - Default initial confidence of a belief asserted via that pramāṇa
+#   - Hierarchy in contradiction resolution (pratyakṣa trumps śabda for
+#     directly observable things; the 'bādhā' relation in Nyāya)
+#
+# These are conservative defaults. A production system can override
+# them per-domain (e.g., historical claims flip the hierarchy — for
+# events outside perception, testimony outranks direct observation
+# because the observer wasn't there).
+#
+# Values reflect the Nyāya ordering for directly-observable domains:
+# pratyakṣa > anumāna > arthāpatti > śabda > anupalabdhi > upamāna.
+
+PRAMANA_STRENGTH: dict[str, float] = {
+    "pratyaksa": 1.00,    # direct perception — strongest
+    "anumana": 0.80,      # inference
+    "arthapatti": 0.70,   # postulation from circumstance
+    "anupalabdhi": 0.65,  # absence-based inference
+    "shabda": 0.60,       # testimony — valid only if source is āpta
+    "upamana": 0.55,      # comparison / analogy
+    # UNKNOWN = 1.0 because a bare self-assertion without epistemic
+    # markers is treated as implicit direct report — the user knows
+    # their own state unless they hedge. This also preserves the v0.1/v0.2
+    # behaviour where beliefs default to confidence 1.0.
+    "unknown": 1.00,
+}
+
+
 class Pramana(str, Enum):
     """Source of valid knowledge, per the Nyāya and Mīmāṃsā traditions.
 
@@ -222,6 +252,12 @@ class ResolutionStatus(str, Enum):
                      surfaced; neither is authoritative.
       AMBIGUOUS    — a contradiction signal was seen but confidence
                      is too low to act on. Flagged for later review.
+      BADHITA      — sublated: contradicted by a stronger pramāṇa.
+                     Distinct from SUPERSEDED (temporally replaced) —
+                     this belief was RIGHT at the time it was asserted,
+                     but a stronger pramāṇa has since contradicted it.
+                     "The doctor told me X, then my own blood test
+                     showed not-X" — the doctor's claim is bādhita.
       ARCHIVED     — pruned via SynapticPruning. Still stored, not
                      returned by default even in history walks.
     """
@@ -231,6 +267,7 @@ class ResolutionStatus(str, Enum):
     COEXISTS = "coexists"
     DISPUTED = "disputed"
     AMBIGUOUS = "ambiguous"
+    BADHITA = "badhita"
     ARCHIVED = "archived"
 
 
