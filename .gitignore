@@ -30,3 +30,18 @@ third_party/long-mem-eval/
 
 # claude code workspace state
 .claude/
+
+# PRIVATE — never commit. Personal drafts and raw material for publishing.
+# Do not remove these entries. Do not add exceptions.
+building_in_public.md
+writeups/
+/docs/phase_2_literature_survey.v1.md.bak
+
+# Large eval artefacts (checkpoints, raw datasets, logs) — not for public repo
+data/checkpoints/
+data/longmemeval_s_cleaned.json
+data/longmemeval_ku_78.json
+data/longmemeval_oracle.json
+data/longmemeval*.json
+*.pkl
+*.pkl.tmp
