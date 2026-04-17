@@ -60,4 +60,7 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers -m 'not slow'"
+markers = [
+    "slow: integration tests that load large models or run long-running work. Skipped by default; run with `pytest -m slow` or `-m ''` for everything.",
+]
