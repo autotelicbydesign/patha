@@ -43,6 +43,7 @@ from patha.belief.types import (
     ContradictionLabel,
     ContradictionResult,
     PropositionId,
+    ResolutionStatus,
     Validity,
     ValidityMode,
 )
@@ -54,6 +55,7 @@ __all__ = [
     "ContradictionLabel",
     "ContradictionResult",
     "PropositionId",
+    "ResolutionStatus",
     "Validity",
     "ValidityMode",
     # Contradiction detection

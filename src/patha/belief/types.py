@@ -164,6 +164,37 @@ class Validity:
 
 # ─── Belief (the main object) ────────────────────────────────────────
 
+class ResolutionStatus(str, Enum):
+    """The relationship status of a belief relative to others in its cluster.
+
+    Moves beyond the binary current/superseded view to reflect the
+    multi-outcome resolution policies a belief maintenance system
+    actually needs (Hansson 1999 on non-prioritised revision):
+
+      CURRENT      — this belief holds. Nothing supersedes it.
+      SUPERSEDED   — a later belief replaced this one. Non-destructive;
+                     still queryable through history.
+      COEXISTS     — this belief holds alongside another related belief
+                     that is neither a strict supersession nor a
+                     strict entailment (e.g., two preferences held
+                     simultaneously: 'I like sushi' + 'I like steak').
+      DISPUTED     — a contradiction was detected but the system
+                     does not yet know which side wins. Both are
+                     surfaced; neither is authoritative.
+      AMBIGUOUS    — a contradiction signal was seen but confidence
+                     is too low to act on. Flagged for later review.
+      ARCHIVED     — pruned via SynapticPruning. Still stored, not
+                     returned by default even in history walks.
+    """
+
+    CURRENT = "current"
+    SUPERSEDED = "superseded"
+    COEXISTS = "coexists"
+    DISPUTED = "disputed"
+    AMBIGUOUS = "ambiguous"
+    ARCHIVED = "archived"
+
+
 @dataclass
 class Belief:
     """A proposition enriched with belief-layer metadata.
@@ -173,7 +204,7 @@ class Belief:
     re-assertions of the same content reinforce (bump confidence) rather
     than create duplicates.
 
-    Supersession is non-destructive in v0.1: when Belief B supersedes A,
+    Supersession is non-destructive: when B supersedes A,
     A.superseded_by appends B.id and B.supersedes appends A.id. A is
     still stored and queryable, just not returned by default.
 
@@ -184,13 +215,24 @@ class Belief:
     proposition
         The textual content (the claim).
     asserted_at
-        When this belief entered the system.
+        When this belief entered the system. (When the user said it.)
+    observed_at
+        Optional: when the referenced event occurred (if different from
+        asserted_at). "I moved to Sofia last month" — asserted now,
+        observed last month.
     asserted_in_session
         Opaque session identifier where it was asserted.
+    source_id
+        Identifier of the external source (speaker, document, session
+        cluster). Used for source-independence weighting of
+        reinforcements. Defaults to asserted_in_session.
     confidence
         Current confidence in [0, 1]. Starts at 1.0 for explicit user
         assertions; adjusted by reinforcement (+), decay (-), or conflict
         resolution over time.
+    status
+        ResolutionStatus. Derived from the supersession/dispute graph
+        by the store; stored denormalised here for fast filtering.
     validity
         Temporal lifespan.
     supersedes
@@ -198,9 +240,17 @@ class Belief:
     superseded_by
         BeliefIds that replace this belief. Non-empty means this is a
         historical/archival belief — still queryable, not current.
+    coexists_with
+        BeliefIds that hold simultaneously with this one. Symmetric.
+    disputed_with
+        BeliefIds that appear to contradict this one but have not been
+        resolved via supersession. Symmetric.
     reinforced_by
         BeliefIds of later assertions that confirmed this belief without
-        contradicting it. Proxy for "number of times the user said this."
+        contradicting it. Proxy for 'number of times the user said this.'
+    reinforcement_sources
+        Set of distinct source_ids that have reinforced this belief.
+        Used for source-independence weighting.
     source_proposition_id
         Link back to the underlying Phase-1 proposition row.
     """
@@ -211,23 +261,44 @@ class Belief:
     asserted_in_session: str
     source_proposition_id: PropositionId
     confidence: float = 1.0
+    status: ResolutionStatus = ResolutionStatus.CURRENT
     validity: Validity = field(default_factory=Validity)
+    observed_at: datetime | None = None
+    source_id: str | None = None
     supersedes: list[BeliefId] = field(default_factory=list)
     superseded_by: list[BeliefId] = field(default_factory=list)
+    coexists_with: list[BeliefId] = field(default_factory=list)
+    disputed_with: list[BeliefId] = field(default_factory=list)
     reinforced_by: list[BeliefId] = field(default_factory=list)
+    reinforcement_sources: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(
                 f"confidence must be in [0, 1]; got {self.confidence}"
             )
+        if self.source_id is None:
+            self.source_id = self.asserted_in_session
 
     @property
     def is_current(self) -> bool:
-        """A belief is current iff nothing has superseded it."""
-        return len(self.superseded_by) == 0
+        """A belief is current iff nothing has superseded it and it is not archived."""
+        return (
+            len(self.superseded_by) == 0
+            and self.status != ResolutionStatus.ARCHIVED
+        )
 
     @property
     def is_superseded(self) -> bool:
-        """Inverse of is_current. Exists for readability at call sites."""
-        return not self.is_current
+        """At least one later belief has replaced this one."""
+        return len(self.superseded_by) > 0
+
+    @property
+    def is_disputed(self) -> bool:
+        """This belief has unresolved contradiction with another."""
+        return len(self.disputed_with) > 0
+
+    @property
+    def is_coexisting(self) -> bool:
+        """This belief holds alongside related non-contradictory beliefs."""
+        return len(self.coexists_with) > 0

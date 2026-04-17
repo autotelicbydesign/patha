@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from patha.belief.store import BeliefStore
-from patha.belief.types import Validity
+from patha.belief.types import ResolutionStatus, Validity
 
 
 # ─── Fixtures and helpers ────────────────────────────────────────────
@@ -114,21 +114,30 @@ class TestSupersession:
 # ─── reinforcement ───────────────────────────────────────────────────
 
 class TestReinforcement:
-    def test_records_reinforced_by(self, store: BeliefStore) -> None:
-        b1 = _add(store, "b1", "I love sushi")
-        _add(store, "b2", "I love sushi so much")
-        assert b1.confidence == 1.0
+    def test_same_source_small_bump(self, store: BeliefStore) -> None:
+        """Repeated reinforcement from the SAME session gets a small bump."""
+        b1 = _add(store, "b1", "I love sushi", session="s1")
+        _add(store, "b2", "I love sushi so much", session="s1")  # same session
         b1.confidence = 0.6  # simulate decay
         store.reinforce("b1", "b2")
         assert "b2" in b1.reinforced_by
-        # Confidence should bump toward 1.0 by 30% of gap.
-        # gap was 0.4 → expect 0.6 + 0.12 = 0.72
+        # Same-source bump = 10% of gap. gap=0.4 → 0.6 + 0.04 = 0.64
+        assert b1.confidence == pytest.approx(0.64)
+
+    def test_distinct_source_full_bump(self, store: BeliefStore) -> None:
+        """Reinforcement from a DISTINCT session gets the full 30% bump."""
+        b1 = _add(store, "b1", "I love sushi", session="s1")
+        _add(store, "b2", "Sushi is the best", session="s2")  # distinct session
+        b1.confidence = 0.6
+        store.reinforce("b1", "b2")
+        # Distinct-source bump = 30% of gap. gap=0.4 → 0.6 + 0.12 = 0.72
         assert b1.confidence == pytest.approx(0.72)
+        assert "s2" in b1.reinforcement_sources
 
     def test_confidence_caps_at_one(self, store: BeliefStore) -> None:
         b1 = _add(store, "b1", "x")
         b1.confidence = 0.99
-        _add(store, "b2", "y")
+        _add(store, "b2", "y", session="s2")
         store.reinforce("b1", "b2")
         assert b1.confidence <= 1.0
 
@@ -136,6 +145,137 @@ class TestReinforcement:
         _add(store, "b1", "x")
         with pytest.raises(ValueError, match="cannot reinforce itself"):
             store.reinforce("b1", "b1")
+
+    def test_source_independence_prevents_runaway(
+        self, store: BeliefStore
+    ) -> None:
+        """Ten reinforcements from one source don't reach full confidence."""
+        b1 = _add(store, "b1", "x", session="s1")
+        b1.confidence = 0.5
+        for i in range(10):
+            _add(store, f"reinforcer-{i}", f"x-restated-{i}", session="s1")
+            store.reinforce("b1", f"reinforcer-{i}")
+        # 10 × same-source 10% gap-closes doesn't saturate
+        # starting gap = 0.5, each closes 10%, so after 10 iterations:
+        # conf ≈ 1 - 0.5 * 0.9^10 ≈ 1 - 0.5 * 0.3487 ≈ 0.826
+        assert b1.confidence < 0.95
+
+
+# ─── multi-outcome resolution ────────────────────────────────────────
+
+class TestCoexist:
+    def test_bidirectional_and_status_promotion(self, store: BeliefStore) -> None:
+        a = _add(store, "a", "I like sushi")
+        b = _add(store, "b", "I also like steak")
+        store.coexist("a", "b")
+        assert "b" in a.coexists_with
+        assert "a" in b.coexists_with
+        assert a.status == ResolutionStatus.COEXISTS
+        assert b.status == ResolutionStatus.COEXISTS
+
+    def test_self_coexist_rejected(self, store: BeliefStore) -> None:
+        _add(store, "a", "x")
+        with pytest.raises(ValueError, match="cannot coexist with itself"):
+            store.coexist("a", "a")
+
+    def test_coexisting_query(self, store: BeliefStore) -> None:
+        _add(store, "a", "x")
+        _add(store, "b", "y")
+        _add(store, "c", "z")
+        store.coexist("a", "b")
+        coexisting = store.coexisting()
+        assert {x.id for x in coexisting} == {"a", "b"}
+
+
+class TestDispute:
+    def test_dispute_symmetric_and_status(self, store: BeliefStore) -> None:
+        a = _add(store, "a", "Ravi is lead")
+        b = _add(store, "b", "Emma is lead")
+        store.dispute("a", "b")
+        assert "b" in a.disputed_with
+        assert "a" in b.disputed_with
+        assert a.status == ResolutionStatus.DISPUTED
+        assert b.status == ResolutionStatus.DISPUTED
+        # Still queryable, both remain current-ish (not superseded)
+        assert not a.is_superseded
+        assert not b.is_superseded
+        assert a.is_disputed
+        assert b.is_disputed
+
+    def test_ambiguous_flag_sets_ambiguous_status(
+        self, store: BeliefStore
+    ) -> None:
+        _add(store, "a", "x")
+        _add(store, "b", "y")
+        store.dispute("a", "b", ambiguous=True)
+        assert store.get("a").status == ResolutionStatus.AMBIGUOUS  # type: ignore[union-attr]
+
+    def test_disputed_query(self, store: BeliefStore) -> None:
+        _add(store, "a", "x")
+        _add(store, "b", "y")
+        _add(store, "c", "z")
+        store.dispute("a", "b")
+        disputed = store.disputed()
+        assert {x.id for x in disputed} == {"a", "b"}
+
+    def test_self_dispute_rejected(self, store: BeliefStore) -> None:
+        _add(store, "a", "x")
+        with pytest.raises(ValueError, match="cannot dispute itself"):
+            store.dispute("a", "a")
+
+
+class TestResolveDispute:
+    def test_winner_supersedes_loser(self, store: BeliefStore) -> None:
+        winner = _add(store, "winner", "Emma is lead now")
+        loser = _add(store, "loser", "Ravi is lead")
+        store.dispute("winner", "loser")
+
+        store.resolve_dispute("winner", "loser")
+
+        assert loser.status == ResolutionStatus.SUPERSEDED
+        assert winner.status == ResolutionStatus.CURRENT
+        # Supersession edges were added
+        assert "loser" in winner.supersedes
+        assert "winner" in loser.superseded_by
+        # Dispute edges cleaned up
+        assert loser.disputed_with == []
+        assert winner.disputed_with == []
+
+    def test_resolve_non_disputed_pair_raises(
+        self, store: BeliefStore
+    ) -> None:
+        _add(store, "a", "x")
+        _add(store, "b", "y")
+        with pytest.raises(ValueError, match="not disputed with"):
+            store.resolve_dispute("a", "b")
+
+
+class TestArchive:
+    def test_archive_sets_status(self, store: BeliefStore) -> None:
+        a = _add(store, "a", "x")
+        store.archive("a")
+        assert a.status == ResolutionStatus.ARCHIVED
+        # Not current any more (is_current checks archive too)
+        assert not a.is_current
+
+    def test_archived_query(self, store: BeliefStore) -> None:
+        _add(store, "a", "x")
+        _add(store, "b", "y")
+        store.archive("a")
+        assert {b.id for b in store.archived()} == {"a"}
+
+
+class TestByStatus:
+    def test_by_status_filters(self, store: BeliefStore) -> None:
+        _add(store, "a", "x")
+        b = _add(store, "b", "y")
+        c = _add(store, "c", "z")
+        store.supersede("a", "b")
+        store.archive("c")
+        # a is SUPERSEDED, b is CURRENT, c is ARCHIVED
+        assert {x.id for x in store.by_status(ResolutionStatus.SUPERSEDED)} == {"a"}
+        assert {x.id for x in store.by_status(ResolutionStatus.CURRENT)} == {"b"}
+        assert {x.id for x in store.by_status(ResolutionStatus.ARCHIVED)} == {"c"}
 
 
 # ─── queries ─────────────────────────────────────────────────────────

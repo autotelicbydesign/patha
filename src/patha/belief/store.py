@@ -40,6 +40,7 @@ from patha.belief.types import (
     Belief,
     BeliefId,
     PropositionId,
+    ResolutionStatus,
     Validity,
 )
 
@@ -54,6 +55,10 @@ EVENT_ADD = "add"
 EVENT_SUPERSEDE = "supersede"
 EVENT_REINFORCE = "reinforce"
 EVENT_CONFIDENCE_SET = "confidence_set"
+EVENT_COEXIST = "coexist"
+EVENT_DISPUTE = "dispute"
+EVENT_RESOLVE_DISPUTE = "resolve_dispute"
+EVENT_STATUS_SET = "status_set"
 
 
 # ─── Store ───────────────────────────────────────────────────────────
@@ -131,6 +136,13 @@ class BeliefStore:
             old.superseded_by.append(new_id)
         if old_id not in new.supersedes:
             new.supersedes.append(old_id)
+        old.status = ResolutionStatus.SUPERSEDED
+        # Keep new's status as CURRENT unless a dispute/coexist edge exists.
+        if (
+            new.status in (ResolutionStatus.DISPUTED, ResolutionStatus.AMBIGUOUS)
+            and not new.disputed_with
+        ):
+            new.status = ResolutionStatus.CURRENT
         self._append_event(EVENT_SUPERSEDE, old=old_id, new=new_id)
 
     def reinforce(self, existing_id: BeliefId, new_id: BeliefId) -> None:
@@ -139,22 +151,153 @@ class BeliefStore:
         Reinforcement means the user restated a belief consistent with an
         existing one — no contradiction, no supersession. Effect:
         - existing.reinforced_by += [new_id]
+        - existing.reinforcement_sources += [new.source_id] if distinct
         - existing.confidence bumped toward 1.0 (capped)
 
-        The new belief is stored as its own record, linked back to
-        existing via the reinforced_by edge.
+        Source-independence weighting: confidence is bumped by the full
+        gap-closure rate only if the reinforcing source is distinct from
+        existing sources. Repeated reinforcements from the same source
+        get a discounted bump (10% of gap) to avoid "ten echoes from one
+        rumour mill" overpowering other signals.
         """
         if existing_id == new_id:
             raise ValueError("a belief cannot reinforce itself")
         existing = self._require(existing_id)
-        _ = self._require(new_id)  # validate
+        new = self._require(new_id)
         if new_id not in existing.reinforced_by:
             existing.reinforced_by.append(new_id)
-        # Confidence bump: simple multiplicative decay toward 1.0.
-        # Each reinforcement closes 30% of the gap to 1.0.
+
+        # Source-independence tracking
+        new_source = new.source_id or new.asserted_in_session
+        existing_sources = set(existing.reinforcement_sources)
+        existing_sources.add(existing.source_id or existing.asserted_in_session)
+        distinct_source = new_source not in existing_sources
+        if distinct_source and new_source not in existing.reinforcement_sources:
+            existing.reinforcement_sources.append(new_source)
+
+        # Distinct source → full bump (close 30% of gap).
+        # Same source → discounted bump (close 10% of gap).
         gap = 1.0 - existing.confidence
-        existing.confidence = min(1.0, existing.confidence + 0.3 * gap)
-        self._append_event(EVENT_REINFORCE, existing=existing_id, new=new_id)
+        rate = 0.3 if distinct_source else 0.1
+        existing.confidence = min(1.0, existing.confidence + rate * gap)
+        self._append_event(
+            EVENT_REINFORCE,
+            existing=existing_id,
+            new=new_id,
+            distinct_source=distinct_source,
+        )
+
+    def coexist(self, a_id: BeliefId, b_id: BeliefId) -> None:
+        """Record that two beliefs hold simultaneously (no contradiction).
+
+        Symmetric: a.coexists_with += [b], b.coexists_with += [a].
+        Both beliefs stay CURRENT; their status is decorated with
+        coexistence rather than replaced. Use this when a new proposition
+        is related to an existing one but explicitly non-contradictory
+        (e.g., 'I like sushi' + 'I also like steak').
+        """
+        if a_id == b_id:
+            raise ValueError("a belief cannot coexist with itself")
+        a = self._require(a_id)
+        b = self._require(b_id)
+        if b_id not in a.coexists_with:
+            a.coexists_with.append(b_id)
+        if a_id not in b.coexists_with:
+            b.coexists_with.append(a_id)
+        # Promote CURRENT-labelled beliefs to COEXISTS so downstream
+        # code can surface the relationship.
+        for belief in (a, b):
+            if belief.status == ResolutionStatus.CURRENT:
+                belief.status = ResolutionStatus.COEXISTS
+        self._append_event(EVENT_COEXIST, a=a_id, b=b_id)
+
+    def dispute(
+        self,
+        a_id: BeliefId,
+        b_id: BeliefId,
+        *,
+        ambiguous: bool = False,
+    ) -> None:
+        """Record an unresolved contradiction between two beliefs.
+
+        Unlike supersession, neither belief wins. Both remain current
+        (not superseded) but carry a DISPUTED (or AMBIGUOUS) status so
+        callers know to surface them with a caveat.
+
+        Parameters
+        ----------
+        ambiguous
+            If True, record as AMBIGUOUS (low-confidence contradiction
+            signal, flagged for review). If False (default), DISPUTED
+            (clear conflict, resolution pending).
+        """
+        if a_id == b_id:
+            raise ValueError("a belief cannot dispute itself")
+        a = self._require(a_id)
+        b = self._require(b_id)
+        if b_id not in a.disputed_with:
+            a.disputed_with.append(b_id)
+        if a_id not in b.disputed_with:
+            b.disputed_with.append(a_id)
+        target_status = (
+            ResolutionStatus.AMBIGUOUS if ambiguous else ResolutionStatus.DISPUTED
+        )
+        for belief in (a, b):
+            # Don't downgrade superseded beliefs; their history status wins.
+            if belief.status in (
+                ResolutionStatus.CURRENT,
+                ResolutionStatus.COEXISTS,
+            ):
+                belief.status = target_status
+        self._append_event(EVENT_DISPUTE, a=a_id, b=b_id, ambiguous=ambiguous)
+
+    def resolve_dispute(
+        self,
+        winner_id: BeliefId,
+        loser_id: BeliefId,
+    ) -> None:
+        """Resolve a previously-disputed pair: winner supersedes loser.
+
+        Moves loser from DISPUTED to SUPERSEDED, promotes winner back to
+        CURRENT, and drops the disputed_with edge between them.
+        """
+        winner = self._require(winner_id)
+        loser = self._require(loser_id)
+        if winner_id not in loser.disputed_with:
+            raise ValueError(
+                f"{loser_id} is not disputed with {winner_id}"
+            )
+        # Remove the symmetric dispute edge
+        loser.disputed_with = [x for x in loser.disputed_with if x != winner_id]
+        winner.disputed_with = [x for x in winner.disputed_with if x != loser_id]
+        # Apply the supersession
+        self.supersede(loser_id, winner_id)
+        # Restore winner's status if no other disputes remain
+        if not winner.disputed_with:
+            winner.status = (
+                ResolutionStatus.COEXISTS
+                if winner.coexists_with
+                else ResolutionStatus.CURRENT
+            )
+        self._append_event(
+            EVENT_RESOLVE_DISPUTE, winner=winner_id, loser=loser_id
+        )
+
+    def archive(self, belief_id: BeliefId) -> None:
+        """Mark a belief as archived (pruned from default surfaces).
+
+        Non-destructive: still stored, still queryable through explicit
+        archive queries. Used by SynapticPruning and for manual cleanup.
+        """
+        b = self._require(belief_id)
+        b.status = ResolutionStatus.ARCHIVED
+        self._append_event(EVENT_STATUS_SET, belief=belief_id, status="archived")
+
+    def set_status(self, belief_id: BeliefId, status: ResolutionStatus) -> None:
+        """Explicit status override. For advanced callers."""
+        b = self._require(belief_id)
+        b.status = status
+        self._append_event(EVENT_STATUS_SET, belief=belief_id, status=status.value)
 
     def set_confidence(self, belief_id: BeliefId, confidence: float) -> None:
         """Explicitly set a belief's confidence. Used by decay and external callers."""
@@ -180,6 +323,28 @@ class BeliefStore:
     def superseded(self) -> list[Belief]:
         """Only superseded beliefs."""
         return [b for b in self._beliefs.values() if b.is_superseded]
+
+    def disputed(self) -> list[Belief]:
+        """Beliefs currently in a DISPUTED or AMBIGUOUS state."""
+        return [
+            b for b in self._beliefs.values()
+            if b.status in (ResolutionStatus.DISPUTED, ResolutionStatus.AMBIGUOUS)
+        ]
+
+    def coexisting(self) -> list[Belief]:
+        """Beliefs that have at least one coexists_with edge."""
+        return [b for b in self._beliefs.values() if b.coexists_with]
+
+    def archived(self) -> list[Belief]:
+        """Archived beliefs (pruned from default surfaces)."""
+        return [
+            b for b in self._beliefs.values()
+            if b.status == ResolutionStatus.ARCHIVED
+        ]
+
+    def by_status(self, status: ResolutionStatus) -> list[Belief]:
+        """All beliefs with the exact given status."""
+        return [b for b in self._beliefs.values() if b.status == status]
 
     def lineage(self, belief_id: BeliefId) -> list[Belief]:
         """Walk from a belief back through its supersession ancestors.
@@ -277,6 +442,7 @@ class BeliefStore:
             new = self._beliefs.get(record["new"])
             if old is not None and record["new"] not in old.superseded_by:
                 old.superseded_by.append(record["new"])
+                old.status = ResolutionStatus.SUPERSEDED
             if new is not None and record["old"] not in new.supersedes:
                 new.supersedes.append(record["old"])
         elif t == EVENT_REINFORCE:
@@ -289,6 +455,54 @@ class BeliefStore:
             b = self._beliefs.get(record["belief"])
             if b is not None:
                 b.confidence = float(record["confidence"])
+        elif t == EVENT_COEXIST:
+            a = self._beliefs.get(record["a"])
+            b = self._beliefs.get(record["b"])
+            if a is not None and record["b"] not in a.coexists_with:
+                a.coexists_with.append(record["b"])
+            if b is not None and record["a"] not in b.coexists_with:
+                b.coexists_with.append(record["a"])
+            for belief in (a, b):
+                if belief is not None and belief.status == ResolutionStatus.CURRENT:
+                    belief.status = ResolutionStatus.COEXISTS
+        elif t == EVENT_DISPUTE:
+            a = self._beliefs.get(record["a"])
+            b = self._beliefs.get(record["b"])
+            if a is not None and record["b"] not in a.disputed_with:
+                a.disputed_with.append(record["b"])
+            if b is not None and record["a"] not in b.disputed_with:
+                b.disputed_with.append(record["a"])
+            target = (
+                ResolutionStatus.AMBIGUOUS
+                if record.get("ambiguous")
+                else ResolutionStatus.DISPUTED
+            )
+            for belief in (a, b):
+                if belief is not None and belief.status in (
+                    ResolutionStatus.CURRENT,
+                    ResolutionStatus.COEXISTS,
+                ):
+                    belief.status = target
+        elif t == EVENT_RESOLVE_DISPUTE:
+            winner = self._beliefs.get(record["winner"])
+            loser = self._beliefs.get(record["loser"])
+            if loser is not None:
+                loser.disputed_with = [
+                    x for x in loser.disputed_with if x != record["winner"]
+                ]
+            if winner is not None:
+                winner.disputed_with = [
+                    x for x in winner.disputed_with if x != record["loser"]
+                ]
+            # The dispute-resolving also emits a supersede event; don't
+            # double-apply here.
+        elif t == EVENT_STATUS_SET:
+            b = self._beliefs.get(record["belief"])
+            if b is not None:
+                try:
+                    b.status = ResolutionStatus(record["status"])
+                except ValueError:
+                    pass
 
     # ── utility ─────────────────────────────────────────────────────
 
@@ -304,6 +518,9 @@ class BeliefStore:
 def _belief_to_dict(b: Belief) -> dict:
     d = asdict(b)
     d["asserted_at"] = b.asserted_at.isoformat()
+    if b.observed_at is not None:
+        d["observed_at"] = b.observed_at.isoformat()
+    d["status"] = b.status.value
     if b.validity.start is not None:
         d["validity"]["start"] = b.validity.start.isoformat()
     if b.validity.end is not None:
@@ -320,6 +537,10 @@ def _belief_from_dict(d: dict) -> Belief:
         half_life_days=val.get("half_life_days"),
         source=val.get("source", "default"),
     )
+    try:
+        status = ResolutionStatus(d.get("status", "current"))
+    except ValueError:
+        status = ResolutionStatus.CURRENT
     return Belief(
         id=d["id"],
         proposition=d["proposition"],
@@ -327,8 +548,18 @@ def _belief_from_dict(d: dict) -> Belief:
         asserted_in_session=d["asserted_in_session"],
         source_proposition_id=d["source_proposition_id"],
         confidence=d.get("confidence", 1.0),
+        status=status,
         validity=validity,
+        observed_at=(
+            datetime.fromisoformat(d["observed_at"])
+            if d.get("observed_at")
+            else None
+        ),
+        source_id=d.get("source_id"),
         supersedes=list(d.get("supersedes", [])),
         superseded_by=list(d.get("superseded_by", [])),
+        coexists_with=list(d.get("coexists_with", [])),
+        disputed_with=list(d.get("disputed_with", [])),
         reinforced_by=list(d.get("reinforced_by", [])),
+        reinforcement_sources=list(d.get("reinforcement_sources", [])),
     )
