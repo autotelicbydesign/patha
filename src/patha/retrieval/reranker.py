@@ -49,12 +49,14 @@ class CrossEncoderReranker:
         device: str | None = None,
         batch_size: int = 64,
         top_n: int = 100,
+        rrf_blend: float = 0.0,
     ) -> None:
         from sentence_transformers import CrossEncoder
 
         self._model = CrossEncoder(model_name, device=device)
         self._batch_size = batch_size
         self.top_n = top_n
+        self._rrf_blend = rrf_blend  # 0.0 = pure CE, 1.0 = pure RRF
 
     def __call__(
         self,
@@ -102,8 +104,29 @@ class CrossEncoderReranker:
             show_progress_bar=False,
         )
 
-        # Pair up and sort
-        scored = list(zip(valid_ids, [float(s) for s in scores]))
+        # Pair up, optionally blend with original RRF rank
+        ce_scores = [float(s) for s in scores]
+
+        if self._rrf_blend > 0.0:
+            # Normalize CE scores to [0, 1] range for blending
+            ce_min = min(ce_scores) if ce_scores else 0.0
+            ce_max = max(ce_scores) if ce_scores else 1.0
+            ce_range = ce_max - ce_min if ce_max > ce_min else 1.0
+
+            # Build RRF rank scores: rank 1 → 1.0, rank N → ~0.0
+            n = len(valid_ids)
+            rrf_rank_scores = {cid: 1.0 - (i / n) for i, (cid, _) in enumerate(candidates) if cid in set(valid_ids)}
+
+            blended = []
+            for cid, ce_s in zip(valid_ids, ce_scores):
+                ce_norm = (ce_s - ce_min) / ce_range
+                rrf_s = rrf_rank_scores.get(cid, 0.0)
+                blend = (1.0 - self._rrf_blend) * ce_norm + self._rrf_blend * rrf_s
+                blended.append((cid, blend))
+            scored = blended
+        else:
+            scored = list(zip(valid_ids, ce_scores))
+
         scored.sort(key=lambda x: (-x[1], x[0]))
 
         if self.top_n > 0:
