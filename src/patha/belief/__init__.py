@@ -28,6 +28,13 @@ from patha.belief.layer import (
     IngestAction,
     IngestEvent,
 )
+from patha.belief.plasticity import (
+    HebbianAssociation,
+    HomeostaticRegulation,
+    LongTermDepression,
+    LongTermPotentiation,
+    SynapticPruning,
+)
 from patha.belief.store import BeliefStore
 from patha.belief.validity_extraction import extract_validity
 from patha.belief.types import (
@@ -60,6 +67,12 @@ __all__ = [
     "StubLLMJudge",
     # Store
     "BeliefStore",
+    # Plasticity mechanisms (the neuroplasticity layer)
+    "LongTermPotentiation",
+    "LongTermDepression",
+    "SynapticPruning",
+    "HomeostaticRegulation",
+    "HebbianAssociation",
     # Validity extraction
     "extract_validity",
     # Top-level layer
