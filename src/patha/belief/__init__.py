@@ -44,6 +44,7 @@ from patha.belief.plasticity import (
 from patha.belief.store import BeliefStore
 from patha.belief.validity_extraction import extract_validity
 from patha.belief.abhava import AbhavaInference, AbhavaKind, classify_abhava
+from patha.belief.counterfactual import order_sensitivity, replay_in_order
 from patha.belief.pramana import detect_pramana
 from patha.belief.raw_archive import RawArchive, RawTurn
 from patha.belief.vritti import VrittiClass, vritti_label, vritti_of
@@ -76,6 +77,9 @@ __all__ = [
     "AbhavaKind",
     "AbhavaInference",
     "classify_abhava",
+    # Counterfactual / order-sensitive belief operations (quantum cognition)
+    "replay_in_order",
+    "order_sensitivity",
     # Raw archive (provenance substrate)
     "RawArchive",
     "RawTurn",
