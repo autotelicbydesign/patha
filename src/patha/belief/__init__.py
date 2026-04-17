@@ -16,6 +16,12 @@ from patha.belief.contradiction import (
     NLIContradictionDetector,
     StubContradictionDetector,
 )
+from patha.belief.llm_judge import (
+    HybridContradictionDetector,
+    LLMJudge,
+    PromptLLMJudge,
+    StubLLMJudge,
+)
 from patha.belief.layer import (
     BeliefLayer,
     BeliefQueryResult,
@@ -47,6 +53,11 @@ __all__ = [
     "ContradictionDetector",
     "NLIContradictionDetector",
     "StubContradictionDetector",
+    # LLM-judge fallback (D1 Option D)
+    "HybridContradictionDetector",
+    "LLMJudge",
+    "PromptLLMJudge",
+    "StubLLMJudge",
     # Store
     "BeliefStore",
     # Validity extraction
