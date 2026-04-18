@@ -540,6 +540,7 @@ class BeliefLayer:
         result: BeliefQueryResult,
         *,
         include_history: bool = False,
+        include_vritti: bool = False,
     ) -> str:
         """Render a query result as a compact text summary for an LLM.
 
@@ -547,7 +548,20 @@ class BeliefLayer:
         belief state, not the raw proposition soup. A lookup that would
         have been 12 propositions at ~20 tokens each becomes one current
         belief line and (optionally) a brief lineage.
+
+        Parameters
+        ----------
+        include_history
+            Surface supersession lineage alongside current beliefs.
+        include_vritti
+            Tag each belief with its Patañjali vṛtti (cognitive mode):
+            [pramāṇa] for valid current cognition, [vikalpa] for
+            asserted-but-unverified, [smṛti] for recollected history,
+            etc. Useful for LLMs that need to reason about how
+            confidently to use the surfaced beliefs.
         """
+        from patha.belief.vritti import vritti_label, vritti_of
+
         lines: list[str] = []
         if not result.current:
             return "(no current belief)"
@@ -555,12 +569,21 @@ class BeliefLayer:
             line = f"- [{_fmt_date(b.asserted_at)}] {b.proposition}"
             if b.reinforced_by:
                 line += f" (reinforced {len(b.reinforced_by)}×)"
+            if b.is_vasana_established:
+                line += f" (deeply held, vāsanā={b.deep_confidence:.2f})"
+            if include_vritti:
+                v = vritti_of(b, surfaced_as_history=False)
+                line += f" [{v.value}]"
             lines.append(line)
         if include_history and result.history:
             lines.append("")
             lines.append("Earlier beliefs (superseded):")
             for b in result.history:
-                lines.append(f"  ~ [{_fmt_date(b.asserted_at)}] {b.proposition}")
+                hist_line = f"  ~ [{_fmt_date(b.asserted_at)}] {b.proposition}"
+                if include_vritti:
+                    v = vritti_of(b, surfaced_as_history=True)
+                    hist_line += f" [{v.value}]"
+                lines.append(hist_line)
         return "\n".join(lines)
 
 

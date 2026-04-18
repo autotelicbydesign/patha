@@ -39,6 +39,7 @@ from patha.belief.contradiction import (
 )
 from patha.belief.direct_answer import DirectAnswer, DirectAnswerer
 from patha.belief.layer import BeliefLayer, BeliefQueryResult, IngestEvent
+from patha.belief.raw_archive import RawArchive
 from patha.belief.store import BeliefStore
 from patha.belief.types import PropositionId
 
@@ -120,6 +121,7 @@ class IntegratedPatha:
         phase1_retrieve=None,
         belief_layer: BeliefLayer | None = None,
         direct_answerer: DirectAnswerer | None = None,
+        raw_archive: RawArchive | None = None,
         *,
         system_prompt: str | None = None,
     ) -> None:
@@ -132,6 +134,13 @@ class IntegratedPatha:
             if direct_answerer is not None
             else DirectAnswerer(self.belief_layer.store)
         )
+        # Raw Archive (v0.3, wired into ingest flow in v0.5).
+        # When provided, every ingest automatically creates a raw-turn
+        # record and links the resulting proposition_id to it, so full
+        # provenance is preserved from the start.
+        self.raw_archive = raw_archive
+        # Per-session turn counter for the raw archive
+        self._turn_counters: dict[str, int] = {}
         self.system_prompt = system_prompt or self.DEFAULT_SYSTEM_PROMPT
 
     # ── ingestion ───────────────────────────────────────────────────
@@ -143,18 +152,46 @@ class IntegratedPatha:
         asserted_at: datetime,
         asserted_in_session: str,
         source_proposition_id: PropositionId,
+        speaker: str = "user",
+        raw_content: str | None = None,
+        source_name: str = "integrated",
     ) -> IngestEvent:
-        """Ingest one proposition into the belief layer.
+        """Ingest one proposition into the belief layer (and archive).
 
         Phase 1 (proposition store) ingestion is the caller's
         responsibility — call `patha.indexing.ingest.ingest_session`
-        separately to populate the multi-view index. This method only
-        updates Phase 2.
+        separately to populate the multi-view index. This method
+        updates Phase 2 and, if a raw_archive is wired, also records
+        the raw turn for full provenance.
 
-        Rationale: keeping the two phases explicit at the ingest
-        boundary makes it easy to use Patha in reading-only mode
-        (Phase 1 already has the raw text; Phase 2 gets fresh beliefs).
+        Parameters
+        ----------
+        speaker
+            Who uttered the proposition. Default 'user'.
+        raw_content
+            The original verbatim text. Defaults to the proposition
+            itself — only differs when the proposition is a distilled
+            atomic claim from a longer utterance.
+        source_name
+            Archive source label (e.g., 'slack-dm', 'voice-memo').
         """
+        # Raw archive: record the turn and link the proposition id
+        if self.raw_archive is not None:
+            idx = self._turn_counters.get(asserted_in_session, 0)
+            turn = self.raw_archive.add_turn(
+                session_id=asserted_in_session,
+                turn_index=idx,
+                speaker=speaker,
+                content=raw_content if raw_content is not None else proposition,
+                timestamp=asserted_at,
+                source_name=source_name,
+            )
+            self._turn_counters[asserted_in_session] = idx + 1
+            self.raw_archive.link_proposition(
+                raw_turn_id=turn.id,
+                proposition_id=source_proposition_id,
+            )
+
         return self.belief_layer.ingest(
             proposition=proposition,
             asserted_at=asserted_at,
