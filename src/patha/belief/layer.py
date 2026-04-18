@@ -40,6 +40,7 @@ from patha.belief.plasticity import (
     HebbianAssociation,
     HomeostaticRegulation,
     LongTermDepression,
+    LongTermPotentiation,
     SynapticPruning,
 )
 from patha.belief.pramana import detect_pramana
@@ -173,6 +174,11 @@ class PlasticityConfig:
     ltd_on_query: bool = True
     ltd_half_life_days: float = 365.0
     ltd_floor: float = 0.1
+    # Long-term potentiation — fired on every reinforcement. Closes a
+    # fraction of the confidence gap to 1.0 per reinforcement, so a
+    # repeatedly asserted belief becomes progressively more confident.
+    ltp_on_reinforce: bool = True
+    ltp_gap_closure: float = 0.3
     hebbian_on_query: bool = True
     hebbian_learning_rate: float = 0.05
     homeostasis_on_ingest: bool = True
@@ -253,6 +259,9 @@ class BeliefLayer:
         )
         self._pruning = SynapticPruning(
             max_depth=self.plasticity.pruning_max_depth,
+        )
+        self._ltp = LongTermPotentiation(
+            gap_closure=self.plasticity.ltp_gap_closure,
         )
         # Ingest tick — advances every .ingest() call; used to schedule
         # periodic homeostasis and pruning without running them on every ingest.
@@ -396,6 +405,9 @@ class BeliefLayer:
                 # want to multiply-reinforce a single user repetition.
                 self.store.reinforce(candidate.id, new.id)
                 reinforced_id = candidate.id
+                # LTP: bump the reinforced belief's confidence toward 1.0
+                if self.plasticity.enabled and self.plasticity.ltp_on_reinforce:
+                    self._ltp.apply(candidate)
 
         # Plasticity: scheduled maintenance (homeostasis, pruning)
         self._run_scheduled_plasticity()

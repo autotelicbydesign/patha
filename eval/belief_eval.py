@@ -39,6 +39,7 @@ from typing import Any
 
 from patha.belief.adhyasa_detector import AdhyasaAwareDetector
 from patha.belief.numerical_detector import NumericalAwareDetector
+from patha.belief.sequential_detector import SequentialEventDetector
 from patha.belief.contradiction import (
     ContradictionDetector,
     NLIContradictionDetector,
@@ -498,11 +499,26 @@ def _make_detector(name: str) -> ContradictionDetector:
         # to lift preference_supersession accuracy without an LLM.
         return AdhyasaAwareDetector(inner=NLIContradictionDetector())
     if name == "full-stack":
-        # v0.6 stack: numerical-change detector (short-circuits on
-        # shared-subject numeric disagreements) wrapping adhyāsa
+        # v0.6 stack: numerical-change detector wrapping adhyāsa
         # rewrite-and-retest wrapping NLI. No LLM required.
         return NumericalAwareDetector(
             inner=AdhyasaAwareDetector(inner=NLIContradictionDetector())
+        )
+    if name == "full-stack-v7":
+        # v0.7 stack: adds SequentialEventDetector on top of full-stack.
+        # Order (outer to inner):
+        #   Numerical → Sequential → Adhyāsa → NLI
+        # Rationale: numerical has the highest precision (regex over
+        # explicit numeric disagreement), sequential catches state-
+        # change events NLI misses (supersession marker + topic match),
+        # adhyāsa handles lexical-paraphrase contradictions, NLI is
+        # the default fallback.
+        return NumericalAwareDetector(
+            inner=SequentialEventDetector(
+                inner=AdhyasaAwareDetector(
+                    inner=NLIContradictionDetector()
+                )
+            )
         )
     if name == "adhyasa-hybrid":
         # Adhyāsa + NLI + scripted LLM judge. Strongest v0.5 config
@@ -591,7 +607,7 @@ def main(argv: list[str] | None = None) -> None:
         choices=[
             "stub", "nli", "hybrid",
             "adhyasa-nli", "adhyasa-hybrid",
-            "live-ollama-hybrid", "full-stack",
+            "live-ollama-hybrid", "full-stack", "full-stack-v7",
         ],
         default="stub",
         help=(

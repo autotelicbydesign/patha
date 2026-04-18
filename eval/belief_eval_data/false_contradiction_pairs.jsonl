@@ -1,0 +1,20 @@
+{"id":"fc-01","description":"addition, not replacement","p1":"I love jazz","p2":"I now listen to classical music too","expected":"NOT_CONTRADICT"}
+{"id":"fc-02","description":"sequential events, different domains","p1":"My laptop is a 2019 MacBook Pro","p2":"I upgraded my phone to an iPhone 15","expected":"NOT_CONTRADICT"}
+{"id":"fc-03","description":"temporal past event, not current state","p1":"I live in Sofia","p2":"I visited Paris last month","expected":"NOT_CONTRADICT"}
+{"id":"fc-04","description":"marker present but unrelated topic","p1":"I run every morning","p2":"I now drink more water","expected":"NOT_CONTRADICT"}
+{"id":"fc-05","description":"parallel activities","p1":"I play guitar","p2":"I also started learning piano","expected":"NOT_CONTRADICT"}
+{"id":"fc-06","description":"expansion not replacement","p1":"I speak English","p2":"I now also speak Spanish","expected":"NOT_CONTRADICT"}
+{"id":"fc-07","description":"new acquisition compatible with old","p1":"I have a German shepherd","p2":"We got a new puppy, a Labrador","expected":"NOT_CONTRADICT"}
+{"id":"fc-08","description":"role change, not identity change","p1":"I work at Google","p2":"I was promoted to senior engineer","expected":"NOT_CONTRADICT"}
+{"id":"fc-09","description":"third-party event, not about user","p1":"I enjoy running","p2":"My neighbor moved to Seattle","expected":"NOT_CONTRADICT"}
+{"id":"fc-10","description":"past context, present unchanged","p1":"I live in Berlin","p2":"I used to live in Munich before","expected":"NOT_CONTRADICT"}
+{"id":"fc-11","description":"same person different attributes","p1":"My dog Charlie is a rescue mutt","p2":"Charlie loves peanut butter","expected":"NOT_CONTRADICT"}
+{"id":"fc-12","description":"schedule change within same activity","p1":"I go to yoga on Tuesdays","p2":"I switched yoga to Thursdays","expected":"CONTRADICT"}
+{"id":"fc-13","description":"quantity growth (reinforcement-like)","p1":"I own 3 bikes","p2":"I love cycling","expected":"NOT_CONTRADICT"}
+{"id":"fc-14","description":"hobby reinforcement","p1":"I enjoy sushi","p2":"I had sushi again yesterday","expected":"NOT_CONTRADICT"}
+{"id":"fc-15","description":"unrelated topic","p1":"I love reading fiction","p2":"My favorite color is blue","expected":"NOT_CONTRADICT"}
+{"id":"fc-16","description":"legit dietary contradiction","p1":"I am vegetarian","p2":"I now eat meat again","expected":"CONTRADICT"}
+{"id":"fc-17","description":"legit value replacement","p1":"My rent is $1500","p2":"My rent went up to $1800","expected":"CONTRADICT"}
+{"id":"fc-18","description":"legit preference supersession","p1":"I prefer tea","p2":"I switched to coffee","expected":"CONTRADICT"}
+{"id":"fc-19","description":"activity completion vs supersession","p1":"I was working on a novel","p2":"I finished the novel","expected":"NOT_CONTRADICT"}
+{"id":"fc-20","description":"marker without same-topic","p1":"Dark chocolate is my favorite","p2":"I now subscribe to a different newspaper","expected":"NOT_CONTRADICT"}
