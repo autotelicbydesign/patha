@@ -440,6 +440,25 @@ def _make_detector(name: str) -> ContradictionDetector:
         return StubContradictionDetector()
     if name == "nli":
         return NLIContradictionDetector()
+    if name == "live-ollama-hybrid":
+        # NLI primary + LIVE Ollama LLM judge (not scripted), wrapped
+        # in adhyāsa rewrite. The v0.5 publication configuration.
+        # Requires Ollama running locally (default localhost:11434)
+        # with a model pulled. Uses gemma4:latest by default; configure
+        # via OLLAMA_MODEL env var.
+        import os
+        from patha.belief.ollama_judge import OllamaLLMJudge
+        model = os.environ.get("OLLAMA_MODEL", "gemma4:latest")
+        llm = OllamaLLMJudge(model=model)
+        hybrid = HybridContradictionDetector(
+            primary=NLIContradictionDetector(),
+            llm=llm,
+            min_overlap=0,
+            uncertainty_band=(0.0, 1.0),
+            escalate_low_confidence_verdicts=True,
+            low_confidence_threshold=0.8,
+        )
+        return AdhyasaAwareDetector(inner=hybrid)
     if name == "adhyasa-nli":
         # NLI wrapped in adhyāsa rewrite-and-retest. The cheapest way
         # to lift preference_supersession accuracy without an LLM.
@@ -528,15 +547,21 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "--detector",
-        choices=["stub", "nli", "hybrid", "adhyasa-nli", "adhyasa-hybrid"],
+        choices=[
+            "stub", "nli", "hybrid",
+            "adhyasa-nli", "adhyasa-hybrid",
+            "live-ollama-hybrid",
+        ],
         default="stub",
         help=(
             "Contradiction detector: "
             "stub = heuristic (CI), "
             "nli = DeBERTa-large, "
-            "hybrid = NLI + LLM fallback, "
+            "hybrid = NLI + scripted LLM fallback, "
             "adhyasa-nli = adhyāsa pre-pass + NLI, "
-            "adhyasa-hybrid = adhyāsa pre-pass + NLI + LLM fallback"
+            "adhyasa-hybrid = adhyāsa pre-pass + NLI + scripted LLM, "
+            "live-ollama-hybrid = adhyāsa + NLI + live Ollama (requires "
+            "Ollama running; set OLLAMA_MODEL env var, default gemma4:latest)"
         ),
     )
     parser.add_argument("--verbose", action="store_true")
