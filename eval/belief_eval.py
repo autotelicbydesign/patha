@@ -37,6 +37,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from patha.belief.adhyasa_detector import AdhyasaAwareDetector
 from patha.belief.contradiction import (
     ContradictionDetector,
     NLIContradictionDetector,
@@ -407,6 +408,23 @@ def _make_detector(name: str) -> ContradictionDetector:
         return StubContradictionDetector()
     if name == "nli":
         return NLIContradictionDetector()
+    if name == "adhyasa-nli":
+        # NLI wrapped in adhyāsa rewrite-and-retest. The cheapest way
+        # to lift preference_supersession accuracy without an LLM.
+        return AdhyasaAwareDetector(inner=NLIContradictionDetector())
+    if name == "adhyasa-hybrid":
+        # Adhyāsa + NLI + scripted LLM judge. Strongest v0.5 config
+        # without a live LLM.
+        llm = StubLLMJudge(verdicts=_BELIEF_EVAL_LLM_SCRIPT)
+        hybrid = HybridContradictionDetector(
+            primary=NLIContradictionDetector(),
+            llm=llm,
+            min_overlap=0,
+            uncertainty_band=(0.0, 1.0),
+            escalate_low_confidence_verdicts=True,
+            low_confidence_threshold=0.8,
+        )
+        return AdhyasaAwareDetector(inner=hybrid)
     if name == "hybrid":
         # NLI primary + scripted LLM judge on the uncertain band.
         # The scripted judge is deterministic; swap for a real local
@@ -431,7 +449,8 @@ def _make_detector(name: str) -> ContradictionDetector:
             low_confidence_threshold=0.8,
         )
     raise ValueError(
-        f"unknown detector {name!r}; choose 'stub', 'nli', or 'hybrid'"
+        f"unknown detector {name!r}; choose 'stub', 'nli', 'hybrid', "
+        "'adhyasa-nli', or 'adhyasa-hybrid'"
     )
 
 
@@ -477,13 +496,15 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "--detector",
-        choices=["stub", "nli", "hybrid"],
+        choices=["stub", "nli", "hybrid", "adhyasa-nli", "adhyasa-hybrid"],
         default="stub",
         help=(
             "Contradiction detector: "
             "stub = heuristic (CI), "
             "nli = DeBERTa-large, "
-            "hybrid = NLI + LLM fallback on uncertain pairs"
+            "hybrid = NLI + LLM fallback, "
+            "adhyasa-nli = adhyāsa pre-pass + NLI, "
+            "adhyasa-hybrid = adhyāsa pre-pass + NLI + LLM fallback"
         ),
     )
     parser.add_argument("--verbose", action="store_true")

@@ -50,6 +50,7 @@ from patha.belief.adhyasa import (
     IsAOntology,
     check_superimposition,
 )
+from patha.belief.adhyasa_detector import AdhyasaAwareDetector
 from patha.belief.counterfactual import order_sensitivity, replay_in_order
 from patha.belief.pramana import detect_pramana
 from patha.belief.raw_archive import RawArchive, RawTurn
@@ -88,6 +89,7 @@ __all__ = [
     "order_sensitivity",
     # Adhyāsa (superimposition-based contradiction detection)
     "AdhyasaResult",
+    "AdhyasaAwareDetector",
     "HandCuratedOntology",
     "IsAOntology",
     "check_superimposition",
