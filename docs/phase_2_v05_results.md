@@ -22,7 +22,7 @@ Four pieces that bring the v0.3 and v0.4 capabilities into the everyday pipeline
 
 ## Headline numbers
 
-### BeliefEval 150-scenario set
+### BeliefEval 150-scenario templated set
 
 | Detector | Accuracy | Breakdown |
 |---|:---:|:---|
@@ -30,11 +30,57 @@ Four pieces that bring the v0.3 and v0.4 capabilities into the everyday pipeline
 | nli (DeBERTa-v3-large) | 0.933 (168/180) | validity 60/60, pref 63/75, fact 45/45 |
 | **adhyasa-nli (v0.5)** | **1.000 (180/180)** | **all families at 1.000** |
 
-Progression:
-- stub → NLI: **+0.600 absolute** (NLI doing the core work)
+### BeliefEval 125-scenario hand-curated set
+
+| Detector | Accuracy |
+|---|:---:|
+| adhyasa-nli | **0.897 (122/136)** |
+
+Eight families, topically diverse (food, tech, transport, hobbies,
+finance, health, medical, relationships, etc.) including four new
+families not in the templated set: abhava_negation, pramana_sublation,
+context_scoped, reinforcement, multi_step_chain.
+
+### BeliefEval 300-scenario combined set (hand-curated + templated)
+
+| Detector | Accuracy | Notes |
+|---|:---:|:---|
+| adhyasa-nli | **0.960 (333/347)** | Scripted judge, no live LLM |
+| **live-ollama-hybrid** (gemma4:8B) | **0.963 (334/347)** | Live local LLM backend |
+
+Per-family on the 300-scenario combined set (adhyasa-nli):
+
+| Family | Accuracy |
+|---|:---:|
+| temporally_bounded | 1.000 (95/95) |
+| abhava_negation | 1.000 (12/12) |
+| reinforcement | 1.000 (4/4) |
+| preference_supersession | 0.976 (124/127) |
+| factual_supersession | 0.924 (85/92) |
+| pramana_sublation | 0.875 (7/8) |
+| context_scoped | 0.750 (3/4) |
+| multi_step_chain | 0.600 (3/5) |
+
+### Plasticity-stressing benchmark
+
+6/6 mechanistic tests pass (not possible with pure-retrieval memory systems):
+
+| Test | Result |
+|---|:---:|
+| LTP reinforcement (conf 0.5→0.916 + vāsanā crystallise) | ✅ |
+| LTD decay (2×half-life → 0.25) | ✅ |
+| Homeostasis (no runaway after mixed reinforcement) | ✅ |
+| Synaptic pruning (depth-3 chain archived) | ✅ |
+| Hebbian association (weight scales linearly with co-retrieval) | ✅ |
+| Vāsanā preservation (effective_confidence survives surface decay) | ✅ |
+
+### Progression on 150-scenario templated set
+
+- stub → NLI: **+0.600 absolute** (NLI does the core work)
 - NLI → adhyasa-nli (scoring fix only): +0.034
 - adhyasa-nli (scoring fix + template fix): +0.033
-- **Total lift over pure NLI: +0.067 absolute**, specifically recovering `preference_supersession` from 0.840 → 1.000
+- **Total lift over pure NLI: +0.067 absolute**, recovering
+  `preference_supersession` from 0.840 → 1.000
 
 ### BeliefEval 20-scenario seed (carried from v0.2)
 

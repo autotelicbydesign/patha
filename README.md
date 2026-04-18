@@ -2,17 +2,55 @@
 
 > *The way. The recitation.*
 
-An AI memory system built on multi-view redundant encoding and narrative traversal. Inspired by Vedic recitation and Aboriginal songlines. Runs fully local with **zero hosted-LLM API calls**.
+An AI memory system built on multi-view redundant encoding, narrative traversal, and cognitive-theory primitives drawn from Vedic and quantum-cognition traditions. Runs fully local with **zero hosted-LLM API calls**.
+
+Patha has two phases, both shipped:
+
+- **Phase 1 — Retrieval.** 7-view redundant encoding (Vedic recitation), songline graph traversal (Aboriginal narrative), hybrid BM25 + dense + RRF-blended cross-encoder reranking.
+- **Phase 2 — Belief layer.** Non-destructive supersession, pramāṇa-aware reinforcement, vāsanā layered confidence, vṛtti-classified retrieval, adhyāsa superimposition detection, neuroplasticity-inspired maintenance (LTD/LTP/Hebbian/homeostasis/pruning).
 
 ## Results
 
-### Headline numbers
+### Phase 1 — LongMemEval (retrieval)
 
-| Benchmark | R@5 | R@10 | Notes |
-|-----------|:---:|:----:|:------|
-| **LongMemEval S — 100q stratified sample** | **0.989** | 0.989 | Baseline pipeline with `rrf_blend=0.2` |
-| **LongMemEval-KU — full subset (all 78 questions)** | **1.000** (78/78) | 1.000 | Knowledge-update subset |
-| Full 500q LongMemEval S | *not yet run* | — | Requires >32 GB RAM for session cache |
+| Benchmark | R@5 | Notes |
+|-----------|:---:|:------|
+| **LongMemEval S — 100q stratified sample** | **0.989** | Full pipeline with `rrf_blend=0.2` |
+| **LongMemEval-KU — full 78-question subset** | **1.000** | Beats Mem0 (ECAI 2025, 0.934) by **+6.6 points** |
+| Full 500q LongMemEval S | *not yet run* | Needs >32 GB RAM for session cache |
+
+### Phase 2 — BeliefEval (belief maintenance)
+
+| Set | Detector | Accuracy |
+|-----|---------|:--------:|
+| 20-scenario seed (v0.1) | hybrid NLI + scripted LLM | 0.958 (23/24) |
+| 150-scenario templated | adhyasa-nli | 1.000 (180/180) |
+| **125-scenario hand-curated** | adhyasa-nli | 0.897 (122/136) |
+| **300-scenario combined** | adhyasa-nli | 0.960 (333/347) |
+| **300-scenario combined** | **live-ollama-hybrid** (gemma4:8B) | **0.963** (334/347) |
+
+Per-family on the combined 300-scenario set:
+
+| Family | Accuracy | Notes |
+|---|:---:|:---|
+| temporally_bounded | 1.000 | Validity windows + rule-based extraction |
+| abhava_negation | 1.000 | Nyāya four-fold negation taxonomy |
+| reinforcement | 1.000 | Multi-source corroboration chains |
+| preference_supersession | 0.976 | Adhyāsa rewrite lifts commonsense cases |
+| factual_supersession | 0.924 | NLI weak on numerical supersessions |
+| pramana_sublation | 0.875 | Pramāṇa-hierarchy-aware contradiction resolution |
+| context_scoped | 0.750 | v0.6 target: tighter context filter |
+| multi_step_chain | 0.600 | v0.6 target: transitive supersession |
+
+### Plasticity-stressing benchmark
+
+6/6 mechanistic tests pass:
+- LTP reinforcement: 5 distinct-source reinforcements → confidence 0.916, vāsanā crystallised
+- LTD decay: after 2× half-life → confidence 0.25
+- Homeostasis: max/min confidence ratio bounded
+- Synaptic pruning: depth-3 chain ancestors archived
+- Hebbian association: co-retrieval → edge weight grows linearly
+- Vāsanā preservation: effective_confidence survives heavy surface decay
 
 ### Comparison on LongMemEval-KU
 
@@ -57,21 +95,49 @@ The RRF blend — blending 20% of the upstream RRF rank score into the cross-enc
 ## Architecture
 
 ```
-                    ┌──────────────────────────────────────┐
-      raw           │         INGESTION (Patha)            │
-   conversations ──▶│  propositionize → 7 view fingerprints│
-                    │       → proposition store             │
-                    └────────────────┬─────────────────────┘
-                                     │
-                                     ▼
-                    ┌──────────────────────────────────────┐
-                    │       SONGLINE GRAPH BUILD            │
-                    │  bind propositions to entity / time / │
-                    │  topic / speaker modalities → edges   │
-                    └────────────────┬─────────────────────┘
-                                     │
- query ─▶ hybrid candidates ─▶ rerank ─▶ songline walk ─▶ MMR ─▶ top-5
-         (BM25 + 7 dense views)  (CE)      (graph)
+┌─────────────────────────────────────────────────────────────────┐
+│                     PHASE 1 — Retrieval                          │
+│                                                                  │
+│  raw turns ─▶ Raw Archive (immutable, content-addressed)         │
+│     ↓                                                            │
+│  propositionize ─▶ 7 view fingerprints ─▶ proposition store      │
+│     ↓                                                            │
+│  songline graph (entity / time / topic / speaker edges)          │
+│                                                                  │
+│  query ─▶ hybrid candidates (7-view RRF + BM25)                  │
+│         ─▶ cross-encoder rerank (rrf_blend=0.2)                  │
+│         ─▶ songline walk  ─▶ MMR  ─▶ top-k                       │
+└─────────────────────────────────────────────────────────────────┘
+                           │
+                           ▼ candidate proposition ids
+┌─────────────────────────────────────────────────────────────────┐
+│                     PHASE 2 — Belief Layer                       │
+│                                                                  │
+│  Belief store (non-destructive)                                  │
+│    ├─ types:     Belief + Validity + Pramana + Vṛtti             │
+│    ├─ statuses:  CURRENT, SUPERSEDED, BADHITA, COEXISTS,         │
+│    │             DISPUTED, AMBIGUOUS, ARCHIVED                   │
+│    ├─ edges:     supersedes, coexists_with, disputed_with,       │
+│    │             reinforced_by                                   │
+│    └─ layers:    surface confidence + deep vāsanā confidence     │
+│                                                                  │
+│  Contradiction detection pipeline:                               │
+│    adhyāsa rewrite (ontology-aware)                              │
+│      ─▶ NLI primary                                              │
+│         ─▶ LLM judge fallback (live Ollama or scripted)          │
+│            ─▶ pramāṇa-hierarchy resolution                       │
+│               (supersede / sublate / coexist / dispute)          │
+│                                                                  │
+│  Plasticity (runs continuously):                                 │
+│    ├─ LTD decay on query              (time-based)               │
+│    ├─ Hebbian co-retrieval edges      (association)              │
+│    ├─ Homeostasis on ingest           (normalisation)            │
+│    └─ Synaptic pruning                (archival)                 │
+│                                                                  │
+│  Query → direct-answer (no LLM) for lookup queries               │
+│         → structured summary for reasoning queries               │
+│         → raw propositions as fallback                           │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Design Philosophy
@@ -181,61 +247,117 @@ make ablation
 
 ```
 src/patha/
-  chunking/
-    propositionizer.py       # deterministic rule-based proposition splitter
-    views.py                 # 7 Vedic view constructors
-  indexing/
-    store.py                 # in-memory proposition store
-    bm25_index.py            # BM25 sparse retrieval
-    songline_graph.py        # multi-modal graph (entity/time/topic edges)
-    ingest.py                # ingestion orchestrator
-  retrieval/
-    hybrid_candidates.py     # 7-view dense + BM25 → RRF fusion
-    reranker.py              # cross-encoder with RRF blend
-    songline_walker.py       # 3-hop weighted graph walks
-    mmr.py                   # MMR diversity with session cap
-    pipeline.py              # full query orchestrator
-  query/
-    prf.py                   # RM3 pseudo-relevance feedback
-    temporal.py              # temporal expression extraction
-    entities.py              # spaCy NER enrichment
-  models/
-    embedder.py              # embedder protocol + stub
-    embedder_st.py           # sentence-transformers wrapper
+  chunking/, indexing/, retrieval/,   # Phase 1 — retrieval pipeline
+  query/, models/                       (7-view RRF, BM25, songline, MMR)
+  belief/                              # Phase 2 — belief maintenance
+    types.py              Belief + Validity + Pramana + ResolutionStatus
+    contradiction.py      NLI + stub detectors (Protocol-based)
+    llm_judge.py          HybridContradictionDetector
+    ollama_judge.py       OllamaLLMJudge (real local LLM backend)
+    adhyasa.py            superimposition detection + HandCuratedOntology
+    adhyasa_detector.py   AdhyasaAwareDetector wrapper
+    wordnet_ontology.py   WordNet-backed ontology (optional, needs nltk)
+    store.py              BeliefStore (non-destructive, JSONL-persistent)
+    layer.py              BeliefLayer (+ PlasticityConfig)
+    pramana.py            Nyāya source-of-knowledge classifier
+    plasticity.py         LTP + LTD + pruning + homeostasis + Hebbian
+    validity_extraction.py rule-based + LLM-inferred validity windows
+    direct_answer.py      D7-C: no-LLM lookup answers + vṛtti policy
+    raw_archive.py        immutable provenance substrate
+    vritti.py             Patañjali cognitive-mode taxonomy
+    abhava.py             Nyāya four-fold negation classifier
+    counterfactual.py     order-sensitive / replay-in-alt-order API
+  integrated.py                        # Phase 1 + Phase 2 end-to-end
+  cli.py                               # minimal patha ingest/ask CLI
 
 eval/
-  runner.py                  # LongMemEval evaluation harness
-  ablations.py               # ablation matrix runner
-  metrics.py                 # R@K, NDCG@K, per-stratum breakdowns
-  viewer/                    # Streamlit results viewer
+  runner.py, ablations.py, metrics.py  # Phase 1 evaluation
+  belief_eval.py                        # Phase 2 BeliefEval runner
+  token_economy.py                      # compression-curve measurement
+  plasticity_ablations.py               # plasticity-feature ablations
+  plasticity_benchmark.py               # plasticity-stressing tests
+  belief_eval_data/
+    seed_scenarios.jsonl               # v0.1 20-scenario seed
+    v03_scenarios.jsonl                # v0.3 150-scenario templated
+    v05_hand_curated.jsonl             # v0.5 125-scenario hand-curated
+    v05_combined_300.jsonl             # hand-curated + templated = 300
 
 docs/
-  phase_2_spec.md                    # Phase 2 (belief layer) design — DRAFT
-  phase_2_literature_survey.md       # Phase 2 literature survey — DRAFT
+  phase_2_spec.md                      # architectural spec (D1–D7)
+  phase_2_literature_survey.md         # ~4000-word survey of related work
+  phase_2_v01_results.md               # first BeliefEval run
+  phase_2_v02_results.md               # ablations + v0.2 sprint
+  phase_2_v03_results.md               # integration + real KU-78 1.000
+  phase_2_v04_results.md               # Vedic + quantum cognition additions
+  phase_2_v04_roadmap.md               # original v0.4 design doc
+  phase_2_v05_results.md               # 1.000 on templated + this work
 ```
 
-## Phase 2 — Belief Layer (in design)
+## Phase 2 — Belief Layer (in production)
 
-Phase 1 (this repo, above) handles retrieval. Phase 2 adds a belief-maintenance layer on top of retrieval that tracks contradiction, supersession, and temporal validity — the dynamic aspects of memory that current AI memory systems handle by dumping everything into the LLM's context window and hoping it sorts things out.
+Phase 2 handles the *dynamic* aspects of memory that current AI memory systems fumble by dumping retrieved context into an LLM and hoping it sorts things out:
 
-See [docs/phase_2_spec.md](docs/phase_2_spec.md) for the full design. Three capabilities:
+- **Contradiction detection** — DeBERTa-v3-large NLI + adhyāsa rewrite-and-retest + optional live-LLM judge (Ollama) for commonsense cases
+- **Non-destructive supersession** — old beliefs stay queryable; pramāṇa hierarchy decides whether a claim temporally supersedes (SUPERSEDED) or is sublated by stronger evidence (BADHITA)
+- **Temporal validity** — beliefs have lifespans (permanent / dated range / inferred duration / decay); rule-based extraction with LLM fallback
+- **Pramāṇa-aware reinforcement** — six Nyāya sources of valid knowledge (perception, inference, testimony, comparison, postulation, non-perception); cross-source / cross-pramāṇa corroboration weighted higher than same-source repetition
+- **Vāsanā layered confidence** — surface confidence decays fast; deep vāsanā confidence crystallises after 5+ reinforcements and decays 10× slower
+- **Vṛtti classification** — every surfaced belief tagged with its Patañjali cognitive mode (pramāṇa / viparyaya / vikalpa / nidrā / smṛti)
+- **Abhāva handling** — four Nyāya kinds of absence distinguished ('I never X' vs 'I no longer X' vs 'I am not a X' vs 'haven't X yet')
+- **Contextuality** — beliefs carry contexts; work-scoped belief doesn't contradict personal-scoped belief
+- **Plasticity mechanisms** — LTD time decay, Hebbian co-retrieval edges, homeostatic regulation, synaptic pruning all firing during normal ingest/query
+- **Raw archive** — every belief traces back to its verbatim source via content-addressed IDs
+- **Order-sensitive belief evolution** — counterfactual replay API: "what would you currently believe if you'd heard B before A?"
 
-1. **Contradiction detection** — pairwise NLI with LLM fallback for ambiguous cases.
-2. **Supersession** — non-destructive belief replacement with full lineage preserved. When a new assertion conflicts with an existing one, the old one is marked superseded, not deleted. Queries return the current belief; history is available on request.
-3. **Temporal validity** — beliefs have lifespans (permanent, dated range, inferred duration, decay by default). Rule-based extraction + LLM fallback.
+**Token economy:** direct-answer compression for belief-lookup queries spends zero LLM input tokens; structured summary compresses ~4.88× vs naive RAG; published curves across memory sizes (50 → 5000 beliefs).
 
-**Token economy as a first-class evaluation axis.** Phase 2 is explicitly designed to *reduce* tokens per correct answer, not increase them. A belief state compresses a chain of assertions (e.g., five preference updates) into a single current belief with optional lineage — often a 5-10× compression on its own. See [docs/phase_2_spec.md §4.3](docs/phase_2_spec.md) and [docs/phase_2_literature_survey.md §G](docs/phase_2_literature_survey.md).
+See [docs/phase_2_spec.md](docs/phase_2_spec.md) and [docs/phase_2_v05_results.md](docs/phase_2_v05_results.md) for details.
 
 ## Roadmap
 
-- [x] 100-question stratified eval with full ablation matrix
-- [x] LongMemEval-KU full subset evaluation (78/78 correct, beats Mem0 by 6.6 pts)
-- [x] RRF blend fix preventing single-reranker veto of multi-view consensus
-- [x] Atomic checkpointing + per-question eval resume (for long-running evals)
-- [x] Phase 2 design spec and literature survey
-- [ ] Full 500q LongMemEval S eval — pending a machine with >32 GB RAM
-- [ ] End-to-end answer accuracy eval (generation layer over retrieved context)
+### Phase 1 (shipped)
+
+- [x] 100-question stratified LongMemEval S eval + full ablation matrix
+- [x] LongMemEval-KU 78-question subset: R@5 = 1.000 (beats Mem0 +6.6 pts)
+- [x] RRF blend fix (no single downstream model vetoes multi-view consensus)
+- [x] Atomic checkpointing + per-question eval resume
+- [ ] Full 500q LongMemEval S eval — pending >32 GB RAM
+- [ ] End-to-end answer accuracy eval (generation over retrieved context)
 - [ ] LanceDB persistent store
+
+### Phase 2 (shipped through v0.5)
+
+- [x] BeliefStore with non-destructive supersession, JSONL persistence
+- [x] NLI-based contradiction detection + hybrid LLM fallback
+- [x] Pramāṇa-aware belief tracking + source reliability + BADHITA status
+- [x] Plasticity wired into runtime (LTD/LTP/Hebbian/homeostasis/pruning)
+- [x] Vṛtti cognitive-mode taxonomy + vāsanā layered confidence
+- [x] Abhāva four-fold negation classifier
+- [x] Adhyāsa superimposition detection + ontology-aware rewrite
+- [x] Order-sensitive / counterfactual belief operations
+- [x] Contextuality (session-scoped beliefs)
+- [x] Raw archive integration (end-to-end provenance)
+- [x] Live-Ollama hybrid detector (real local LLM judge)
+- [x] WordNet IsAOntology (optional, via nltk)
+- [x] Vṛtti-aware direct-answer policy (filter vikalpa, flag viparyaya)
+- [x] BeliefEval 300-scenario benchmark (125 hand-curated + 175 generated)
+- [x] Plasticity-stressing benchmark (6/6 tests pass)
+
+### Phase 2 v0.6 (next)
+
+- [ ] Hand-curated 300-scenario benchmark with inter-annotator agreement
+- [ ] multi_step_chain transitive supersession (currently 0.600)
+- [ ] Tighter context filter (currently 0.750)
+- [ ] Numerical supersession handling (rent 1500 → 1800, 8pm → 9pm)
+- [ ] Adhyāsa rewrite-verification pass (second LLM confirms meaning preserved)
+- [ ] Counterfactual full re-evaluation (replay from raw ingest, re-run NLI)
+- [ ] Auto-detected contextuality (LLM classifier on ingest)
+
+### Phase 3 (further out)
+
+- [ ] Multi-user belief attribution (whose belief is it?)
+- [ ] Probabilistic confidence (Bayesian networks)
+- [ ] Learned contradiction policies (fine-tune on user corrections)
 - [ ] **Phase 2 prototype** — contradiction detection + non-destructive supersession + temporal validity
 - [ ] **BeliefEval** — benchmark that jointly stresses contradiction, supersession, and temporal validity
 - [ ] Tokens-per-correct-answer curves as memory grows (first publication of this metric in the memory-systems literature)
