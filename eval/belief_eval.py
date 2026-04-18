@@ -143,32 +143,45 @@ class QuestionResult:
 # the current proposition, the scorer does not count it as a leak — the
 # system correctly stored the current belief; the current belief simply
 # describes the change.
+# Transition patterns.
+# {term} is inserted via .format() so the term can be anywhere in the
+# pattern. The inner prefix ".{0,30}" allows up to ~5 words between the
+# transition verb and the term (handles "stopped playing guitar",
+# "migrated all my repos from GitHub", etc.)
 _TRANSITION_CONTEXTS = [
     # "X membership cancelled/cancelled my X membership"
     r"\b{term}\s+(?:membership\s+)?(?:cancelled|cancel|ended|dropped|terminated|quit)\b",
-    r"\b(?:cancelled|dropped|ended|quit|left)\s+(?:my\s+|the\s+)?{term}\b",
-    # "I left X" / "left X and"
-    r"\bleft\s+{term}\b",
+    # Past-state transition verbs with the term anywhere in proximity
+    r"\b(?:cancelled|dropped|ended|quit|left|stopped|gave\s+up|sold|abandoned)\b.{{0,30}}\b{term}\b",
     # "was at X" / "used to be at X"
-    r"\b(?:was\s+(?:at|in)|used\s+to\s+(?:be|work))\s+(?:at\s+)?{term}\b",
+    r"\b(?:was\s+(?:at|in)|used\s+to\s+(?:be|work|do|have))\b.{{0,30}}\b{term}\b",
     # "former X" / "ex-X"
     r"\b(?:former|ex[-\s]+){term}\b",
-    # "no longer X" / "stopped X"
-    r"\b(?:no\s+longer|stopped|gave\s+up)\s+{term}\b",
-    # "switched from X"
-    r"\bswitched\s+(?:from|away\s+from)\s+{term}\b",
-    # "cut out X" / "cut X out" / "gave up X" (dietary transitions)
-    r"\bcut\s+out\s+{term}\b",
-    r"\bcut\s+{term}\s+out\b",
-    # "quit X" (already covered above but for clarity)
-    # "moved away from X"
-    r"\bmoved\s+(?:away\s+)?from\s+{term}\b",
-    # "migrated to/from X"
-    r"\bmigrated\s+(?:from|away\s+from)\s+{term}\b",
-    # "replaced X with Y" — X is the old
+    # "no longer X" — often adjacent but allow nearby
+    r"\bno\s+longer\b.{{0,30}}\b{term}\b",
+    # "switched from X" / "migrated from X" / "moved (away) from X"
+    r"\b(?:switched|migrated|moved)\b.{{0,30}}\bfrom\b.{{0,20}}\b{term}\b",
+    # "switched X to Y" where X is the old thing (e.g., "switched my major from philosophy")
+    r"\bswitched\s+(?:my|the|our)?\s*\w*\s*from\s+{term}\b",
+    # "cut out X" / "cut X out" (dietary transitions)
+    r"\bcut\s+(?:out\s+)?{term}(?:\s+out)?\b",
+    # "replaced X with Y" / "replaced X by Y"
     r"\breplaced\s+{term}\s+(?:with|by)\b",
-    # "avoid/avoided X" (dietary)
+    # "avoid/avoided X"
     r"\b(?:avoiding|avoided|avoid)\s+{term}\b",
+    # "took over X from me" — means someone else did X previously
+    r"\btook\s+over\b.{{0,30}}\bfrom\s+me\b",
+    # Generic "I don't X any more" — catch "I don't drink coffee anymore"
+    r"\bdon'?t\b.{{0,30}}\b{term}\b.{{0,30}}(?:anymore|any\s+more|any\s+longer)\b",
+    # "Y instead of X" — X is the superseded thing
+    r"\binstead\s+of\s+{term}\b",
+    # "Person-name left the company" — third-party departures (Priya left)
+    r"\b{term}\s+(?:left|departed|resigned|quit)\b",
+    # "replaced X with Y" / "swapped X for Y"
+    r"\b(?:replaced|swapped)\s+(?:the\s+)?{term}\s+(?:with|for|by)\b",
+    # Substring-inside-word guard: reject leaks if the term only matches
+    # inside a larger word (non-fiction contains fiction but isn't the
+    # same concept). Handled by the scoring logic below, not this regex.
 ]
 
 
@@ -216,14 +229,21 @@ def _score_current_belief(
         t for t in q.expected_current_contains
         if t.lower() not in current_joined
     ]
-    # A term "leaks" only if it appears in current propositions
-    # AND at least one occurrence is OUTSIDE a transition context.
-    # (Transition contexts like "I left Canva" or "gym membership
-    # cancelled" legitimately name the past state while describing
-    # the change.)
+    # A term "leaks" only if it:
+    #  - appears as a whole word / phrase in current propositions
+    #    (word-boundary match — avoids 'fiction' matching 'non-fiction')
+    #  - AND at least one occurrence is OUTSIDE a transition context
+    #    (Transition contexts like "I left Canva" or "gym membership
+    #    cancelled" legitimately name the past state while describing
+    #    the change.)
+    import re as _re
+    def _term_appears_as_word(term: str, text: str) -> bool:
+        pattern = r"\b" + _re.escape(term.lower()) + r"\b"
+        return _re.search(pattern, text) is not None
+
     leaked_superseded = [
         t for t in q.expected_superseded_contains
-        if t.lower() in current_joined
+        if _term_appears_as_word(t, current_joined)
         and not _term_only_in_transition(t, current_joined)
     ]
     hit_in_history = [
