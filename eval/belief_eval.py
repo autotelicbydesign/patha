@@ -157,6 +157,18 @@ _TRANSITION_CONTEXTS = [
     r"\b(?:no\s+longer|stopped|gave\s+up)\s+{term}\b",
     # "switched from X"
     r"\bswitched\s+(?:from|away\s+from)\s+{term}\b",
+    # "cut out X" / "cut X out" / "gave up X" (dietary transitions)
+    r"\bcut\s+out\s+{term}\b",
+    r"\bcut\s+{term}\s+out\b",
+    # "quit X" (already covered above but for clarity)
+    # "moved away from X"
+    r"\bmoved\s+(?:away\s+)?from\s+{term}\b",
+    # "migrated to/from X"
+    r"\bmigrated\s+(?:from|away\s+from)\s+{term}\b",
+    # "replaced X with Y" — X is the old
+    r"\breplaced\s+{term}\s+(?:with|by)\b",
+    # "avoid/avoided X" (dietary)
+    r"\b(?:avoiding|avoided|avoid)\s+{term}\b",
 ]
 
 

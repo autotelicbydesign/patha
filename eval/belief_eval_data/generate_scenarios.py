@@ -100,7 +100,7 @@ _PREFERENCE_TEMPLATES: list[PreferenceTemplate] = [
     ),
     PreferenceTemplate(
         subject="Linux", verb="use", frequency="as my main OS",
-        new_state="switched to macOS for work",
+        new_state="migrated away from Linux to macOS entirely",
         answer_current=["macOS"],
         answer_superseded=["Linux"],
     ),
