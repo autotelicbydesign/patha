@@ -51,6 +51,13 @@ from patha.belief.adhyasa import (
     check_superimposition,
 )
 from patha.belief.adhyasa_detector import AdhyasaAwareDetector
+
+# WordNet ontology is optional — only available when nltk is installed.
+# Import lazily to avoid ImportError on `from patha.belief import ...`.
+try:
+    from patha.belief.wordnet_ontology import WordNetOntology
+except ImportError:
+    WordNetOntology = None  # type: ignore[assignment,misc]
 from patha.belief.counterfactual import order_sensitivity, replay_in_order
 from patha.belief.pramana import detect_pramana
 from patha.belief.raw_archive import RawArchive, RawTurn
@@ -92,6 +99,7 @@ __all__ = [
     "AdhyasaAwareDetector",
     "HandCuratedOntology",
     "IsAOntology",
+    "WordNetOntology",  # may be None if nltk not installed
     "check_superimposition",
     # Raw archive (provenance substrate)
     "RawArchive",

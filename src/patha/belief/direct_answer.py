@@ -155,9 +155,46 @@ class DirectAnswerer:
         store: BeliefStore,
         *,
         include_history_by_default: bool = False,
+        surface_vikalpa: bool = False,
+        flag_viparyaya: bool = True,
+        vikalpa_threshold: float = 0.5,
     ) -> None:
+        """Construct a DirectAnswerer.
+
+        Vṛtti-aware policy (v0.5 #6):
+
+        Not every current belief deserves to be surfaced with equal
+        weight. Patañjali's taxonomy distinguishes:
+          - pramāṇa  (valid, well-grounded cognition)  → surface confidently
+          - vikalpa  (asserted-but-unverified)          → by default, omit
+                                                          to avoid repeating
+                                                          shaky claims back
+                                                          at the user
+          - viparyaya (erroneous / disputed cognition)  → surface with caveat
+                                                          so caller knows to
+                                                          hedge
+
+        Parameters
+        ----------
+        surface_vikalpa
+            If False (default), beliefs with surface confidence below
+            ``vikalpa_threshold`` are excluded from the direct answer.
+            These are 'verbal-only' beliefs the user mentioned without
+            robust grounding; surfacing them risks feeding back shaky
+            claims as if they were certainties.
+        flag_viparyaya
+            If True (default), disputed beliefs are surfaced alongside
+            current ones but tagged with an explicit '(disputed)' note
+            so the downstream LLM / user knows the belief is contested.
+        vikalpa_threshold
+            Confidence threshold below which a CURRENT belief is
+            treated as vikalpa and filtered by default. Default 0.5.
+        """
         self._store = store
         self._include_history_default = include_history_by_default
+        self._surface_vikalpa = surface_vikalpa
+        self._flag_viparyaya = flag_viparyaya
+        self._vikalpa_threshold = vikalpa_threshold
 
     # ── main entry ──────────────────────────────────────────────────
 
@@ -183,7 +220,11 @@ class DirectAnswerer:
         )
         t = at_time or datetime.now()
 
-        # Filter to current, validity-valid beliefs among the candidates
+        # Filter to current, validity-valid beliefs among the candidates,
+        # then apply vṛtti policy:
+        #   - Drop low-confidence current beliefs (vikalpa) unless
+        #     surface_vikalpa=True
+        #   - Keep disputed (viparyaya) beliefs but flag them below
         current: list[Belief] = []
         for bid in candidate_belief_ids:
             b = self._store.get(bid)
@@ -193,6 +234,14 @@ class DirectAnswerer:
                 continue
             if not b.validity.is_valid_at(t):
                 continue
+            # Vṛtti filter: exclude vikalpa (low-confidence verbal-only
+            # beliefs) unless caller opted in. Uses effective_confidence
+            # so vāsanā-backed beliefs survive surface decay.
+            if (
+                not self._surface_vikalpa
+                and b.effective_confidence < self._vikalpa_threshold
+            ):
+                continue
             current.append(b)
 
         if not current:
@@ -200,12 +249,13 @@ class DirectAnswerer:
 
         # Build the answer text
         lines = [f"- {b.proposition}" for b in current]
-        disputed = [b for b in current if b.is_disputed]
-        if disputed:
-            lines.append(
-                f"  (note: {len(disputed)} disputed belief(s); "
-                "resolution pending)"
-            )
+        if self._flag_viparyaya:
+            disputed = [b for b in current if b.is_disputed]
+            if disputed:
+                lines.append(
+                    f"  (note: {len(disputed)} disputed belief(s); "
+                    "resolution pending)"
+                )
         if include_history:
             history: list[Belief] = []
             seen: set[BeliefId] = set()
