@@ -44,6 +44,12 @@ from patha.belief.plasticity import (
 from patha.belief.store import BeliefStore
 from patha.belief.validity_extraction import extract_validity
 from patha.belief.abhava import AbhavaInference, AbhavaKind, classify_abhava
+from patha.belief.adhyasa import (
+    AdhyasaResult,
+    HandCuratedOntology,
+    IsAOntology,
+    check_superimposition,
+)
 from patha.belief.counterfactual import order_sensitivity, replay_in_order
 from patha.belief.pramana import detect_pramana
 from patha.belief.raw_archive import RawArchive, RawTurn
@@ -80,6 +86,11 @@ __all__ = [
     # Counterfactual / order-sensitive belief operations (quantum cognition)
     "replay_in_order",
     "order_sensitivity",
+    # Adhyāsa (superimposition-based contradiction detection)
+    "AdhyasaResult",
+    "HandCuratedOntology",
+    "IsAOntology",
+    "check_superimposition",
     # Raw archive (provenance substrate)
     "RawArchive",
     "RawTurn",
