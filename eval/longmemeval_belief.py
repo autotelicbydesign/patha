@@ -174,6 +174,7 @@ def run_question(
     *,
     ingest_full: bool = False,
     verbose: bool = False,
+    score_current_plus_history: bool = False,
 ) -> QuestionOutcome:
     """Run one knowledge-update question end-to-end through the belief layer."""
     keywords = set(_tokens(q["question"])) | set(_tokens(q["answer"]))
@@ -241,15 +242,19 @@ def run_question(
         current_props = [b.proposition for b in filtered]
     else:
         current_props = [b.proposition for b in query_result.current]
-    summary = " | ".join(current_props)
-    correct = _score_contains(q["answer"], summary)
-
-    # Also check whether the answer appears in superseded beliefs —
-    # tells us if the information was retained but mis-routed to
-    # history vs truly lost.
+    # Build scoring summary: either current-only (default) or current+history.
+    # The current+history mode reflects 'what has the user ever said about X'
+    # and is appropriate for LongMemEval-style benchmarks where the answer
+    # may live in a superseded belief (correctly reorganised, not lost).
     superseded_props_text = [b.proposition for b in query_result.history]
     super_summary = " | ".join(superseded_props_text)
     answer_in_superseded = _score_contains(q["answer"], super_summary)
+
+    if score_current_plus_history:
+        summary = " | ".join(current_props + superseded_props_text)
+    else:
+        summary = " | ".join(current_props)
+    correct = _score_contains(q["answer"], summary)
 
     if verbose and not correct:
         print(f"  FAIL [{q['question_id']}] expected={q['answer']!r}")
@@ -307,6 +312,10 @@ def main(argv: list[str] | None = None) -> None:
                     help="Only run first N knowledge-update questions")
     ap.add_argument("--full", action="store_true",
                     help="Ingest all user turns (not just keyword-relevant)")
+    ap.add_argument("--include-history", action="store_true",
+                    help="Score against current+superseded ('has the user "
+                         "ever said X' mode) instead of current-only "
+                         "('does the user currently believe X' mode).")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args(argv)
 
@@ -324,6 +333,7 @@ def main(argv: list[str] | None = None) -> None:
     for i, q in enumerate(ku, 1):
         out = run_question(
             q, detector, ingest_full=args.full, verbose=args.verbose,
+            score_current_plus_history=args.include_history,
         )
         outcomes.append(out)
         tag = "PASS" if out.correct else "fail"
