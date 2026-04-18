@@ -146,6 +146,7 @@ class QuestionOutcome:
     question: str
     gold_answer: str
     correct: bool
+    answer_in_superseded: bool  # info retained but mis-routed to history
     current_summary: str
     current_count: int
     superseded_count: int
@@ -224,7 +225,7 @@ def run_question(
     # Query at question_date
     question_date = _parse_lme_date(q["question_date"])
     query_result = layer.query(
-        belief_ids, at_time=question_date, include_history=False,
+        belief_ids, at_time=question_date, include_history=True,
     )
     # Filter current beliefs by question-keyword overlap so the
     # belief-layer summary is focused. This mirrors how a retrieval
@@ -243,6 +244,13 @@ def run_question(
     summary = " | ".join(current_props)
     correct = _score_contains(q["answer"], summary)
 
+    # Also check whether the answer appears in superseded beliefs —
+    # tells us if the information was retained but mis-routed to
+    # history vs truly lost.
+    superseded_props_text = [b.proposition for b in query_result.history]
+    super_summary = " | ".join(superseded_props_text)
+    answer_in_superseded = _score_contains(q["answer"], super_summary)
+
     if verbose and not correct:
         print(f"  FAIL [{q['question_id']}] expected={q['answer']!r}")
         print(f"    current ({len(current_props)}): {current_props[:5]}")
@@ -253,6 +261,7 @@ def run_question(
         question=q["question"],
         gold_answer=q["answer"],
         correct=correct,
+        answer_in_superseded=answer_in_superseded,
         current_summary=summary,
         current_count=len(query_result.current),
         superseded_count=len(query_result.history),

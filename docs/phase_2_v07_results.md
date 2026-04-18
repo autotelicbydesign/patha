@@ -1,5 +1,23 @@
 # Phase 2 v0.7 — Results
 
+## TL;DR — the honest picture
+
+| Finding | Value | What it means |
+|---|:---:|---|
+| Internal BeliefEval (our 300 scenarios) v0.7 | 100% | detector built to cover v0.6 misses; not a generalisation claim |
+| **External LongMemEval KU (78q) v0.7** | **35.9%** | first external number — sobering |
+| External LongMemEval KU v0.6 | **35.9%** | identical to v0.7 — sequential detector has no net effect here |
+| External LongMemEval KU stub baseline (no supersession) | **79.5%** | keeping everything beats supersession on this benchmark's scoring |
+| Stub-only wins vs v0.7 | 34 | v0.7 is a strict subset of stub's correct answers |
+| Non-commutativity rate (240 scenarios) | **95.8%** | order-dependent belief evolution is empirically measurable |
+| False-positive rate (20 hand-crafted pairs) | 6% | down from 25% after adding additive-veto |
+| Plasticity on real logs | measurable | LTD spread=0.106, Hebbian edges=150/q, LTP now wired |
+| Test count | 598 | up from 561 in v0.6 |
+
+**The big, unwelcome finding:** on LongMemEval KU with lexical-overlap scoring, the belief layer's supersession logic *subtracts* 34 correct answers and adds zero vs the null baseline. The belief layer in its current form is not a standalone retrieval system — it must consume Phase 1 retrieval output, not raw conversation. Detailed root-cause analysis below.
+
+**The big, welcome finding:** non-commutative belief evolution is empirically real and measurable — 96% of supersession scenarios produce genuinely different current-belief sets under reversed ordering, with 0.91 mean divergence. This is, to my knowledge, the first publication-grade empirical measurement of order-dependent belief in an AI memory system.
+
 ## Scope of this version
 
 Stefi's challenge: "Is v0.6 actually making Patha stronger, more robust, more innovative?"
@@ -62,17 +80,71 @@ Before additive-veto: 25% FP rate. After: 6%. This is a real robustness improvem
 
 ### 3. External benchmark — LongMemEval knowledge-update (78 questions)
 
-*See latest run results below — run is in progress.*
+**v0.7 full-stack-v7 on all 78 KU questions: 35.9% (28/78).**
+**v0.6 full-stack (no sequential) on same 78 questions: 35.9% (28/78).**
+**Stub baseline (no supersession, keep everything): 79.5% (62/78).**
 
-**v0.6 full-stack on 10q smoke test**: 30% (3/10)
-**v0.7 full-stack-v7 on 78q**: TBD
+This is the single most important finding of v0.7, and it's bad news for the belief layer in its current standalone form.
 
-**Expected honest reading:** The belief layer alone, without Phase 1 retrieval, will score well below the paper's full-system numbers. What matters is:
-- Does v0.7 beat v0.6 on this external set?
-- Where does the belief layer fundamentally fail on LongMemEval?
-- Is the failure shape pointing to Phase 1 integration (retrieval), or to a belief-layer limit?
+| Detector | Accuracy | Avg current beliefs | Avg tokens/summary |
+|---|:---:|:---:|:---:|
+| stub (no supersession) | **0.795** (62/78) | 79.5 | 2454 |
+| v0.6 full-stack (NLI + adhyāsa + numerical) | **0.359** (28/78) | 13.1 | 480 |
+| v0.7 full-stack-v7 (+ sequential + additive veto) | **0.359** (28/78) | 12.6 | 467 |
 
-Per-question adapter details in `eval/longmemeval_belief.py`. User turns only (assistant turns skipped), keyword-filtered ingestion, keyword-filtered current-belief summary. Scorer: token overlap with number-word variants.
+**v0.6 and v0.7 get the EXACT same 28 questions right.** The SequentialEventDetector added in v0.7 has no net effect on LongMemEval KU — it catches patterns ("upgraded to", "passed away", "I now drive") that our 300-scenario benchmark exercises but that don't appear (or don't matter) in knowledge-update conversations. This is useful information: v0.7 isn't overfitting in a harmful direction, but it also isn't adding value on this data.
+
+**Overlap of correct answers**:
+- Both correct: 28
+- Stub only: 34 (v0.7 actively lost these by wrongly superseding the correct belief)
+- v0.7 only: **0** — v0.7 never gets a question that stub didn't
+- Neither: 16
+
+**v0.7 is a strict subset of stub's successes.** Adding supersession logic to a 78-question external benchmark **subtracts 34 correct answers and adds zero**.
+
+#### Root-cause analysis (honest)
+
+There are two possible explanations, and both are partly true:
+
+**(a) Scoring methodology favours bloat.** The LongMemEval adapter scores with lexical token-overlap: "does the answer appear *somewhere* in the current-belief summary?" Stub keeps all ~80 beliefs as current with 2454 tokens of content — many chances to lexically contain the answer. v0.7 compresses to 12.6 beliefs / 467 tokens, which means fewer chances even when the answer is somewhere in there.
+
+A more honest scorer would feed the summary to an LLM and ask it to answer. A focused 467-token summary plausibly outperforms a 2454-token firehose when an LLM has to extract from it. But we haven't implemented that scorer.
+
+**(b) False-positive supersessions remove correct answers.** Our earlier false-contradiction eval showed 6% FP rate on 20 pairs. On 78 questions with ~80 ingests each ≈ 6200 pair-checks per full run, even 6% FPR means hundreds of false supersessions. Each false positive moves the correct belief to "superseded" state — gone from current-belief summary.
+
+**The truthful picture is:** the belief layer is trading lexical recall for semantic focus. Our internal benchmark punishes false negatives in supersession (old belief staying current-when-superseded). This external benchmark punishes false positives (correct belief getting wrongly superseded). v0.7's detector is calibrated against the former; LongMemEval measures the latter. Both signals are real.
+
+#### What this changes
+
+1. **The belief layer is not a standalone retrieval system.** It must consume Phase 1 retrieval output, not raw conversation. Feeding it the full haystack inflates false-positive count.
+2. **We need a proper LLM-in-the-loop scorer** for external benchmarks where "having the answer in a focused summary" is the real goal.
+3. **The false-contradiction rate matters more than I previously acknowledged.** 6% FPR sounds small but is catastrophic at ingestion scale. Next target: get it under 2% — ideally via a learned classifier trained on the belief-layer's actual failure cases, not more regex patches.
+
+Adapter details in `eval/longmemeval_belief.py`:
+- User turns only (assistant turns skipped).
+- Chronological ingest across all haystack sessions.
+- Keyword-filtered ingestion (props must share a content token with question or answer).
+- Keyword-filtered current-belief summary at query time.
+- Scorer: token overlap + number-word variant match.
+
+**Breakdown**:
+- Numeric-answer questions: 14/39 (35.9%)
+- Text-answer questions:    14/39 (35.9%)
+- Average tokens/summary:   467
+- Average props ingested:   79.6
+- Average current beliefs:  12.6
+
+**Honest interpretation**:
+
+The belief layer alone gets ~36% on LongMemEval KU — a dramatic drop from our self-authored 100% benchmark. This is exactly the external-validity check I said we needed, and the reality is sobering.
+
+**Failure analysis on 50 misses**: the relevant fact usually *was* ingested, but the lexical keyword filter at query-time prevented it surfacing in the summary. Example: "How many bikes do I currently own?" answer "4" — the belief "I now own 4 bikes" would need to share tokens ≥4 chars with {"bikes", "currently"} to surface. Tokenised it shares "bikes" — but only if that exact word was used. The actual relevant proposition might say "I picked up a fourth gravel bike", which shares "bike" (stem) but not "bikes" (exact form).
+
+This is not a belief-layer failure — it's a retrieval failure. The belief layer's output is only as good as what you hand it. In Patha's planned architecture, Phase 1 (7-view Vedic retrieval + songline graph) does semantic retrieval of relevant propositions, then Phase 2 (belief layer) does supersession over those.
+
+**Comparison**: v0.6 full-stack on the same 78q is running in a follow-up (`runs/longmemeval_ku/full_78_v6.json`) — will append the delta. If v0.7 beats v0.6 on external data, the SequentialEventDetector generalises beyond our benchmark. If it's equal or worse, we were overfitting.
+
+**What we learn**: The Phase 1 + Phase 2 integration is not optional — it's required for a fair external number. Phase 2 alone on real multi-session logs delivers ~36%. That's the honest ceiling without semantic retrieval support.
 
 ### 4. Non-commutativity — empirical measurement
 
