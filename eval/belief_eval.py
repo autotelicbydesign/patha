@@ -155,9 +155,18 @@ class QuestionResult:
 # "migrated all my repos from GitHub", etc.)
 _TRANSITION_CONTEXTS = [
     # "X membership cancelled/cancelled my X membership"
-    r"\b{term}\s+(?:membership\s+)?(?:cancelled|cancel|ended|dropped|terminated|quit)\b",
+    r"\b{term}\s+(?:membership\s+)?(?:cancelled|cancel|ended|dropped|terminated|quit|shut\s+down|closed)\b",
     # Past-state transition verbs with the term anywhere in proximity
-    r"\b(?:cancelled|dropped|ended|quit|left|stopped|gave\s+up|sold|abandoned)\b.{{0,30}}\b{term}\b",
+    r"\b(?:cancelled|dropped|ended|quit|left|stopped|gave\s+up|sold|abandoned|shut\s+down|closed|wound\s+down)\b.{{0,30}}\b{term}\b",
+    # "upgraded to Y" / "upgraded from X to Y" — X is the superseded thing
+    # but Y often contains the class-noun too (e.g., 'MacBook Pro'). When
+    # the old proposition says "my laptop is a 2019 MacBook Pro" and the
+    # new one says "I upgraded to an M3 MacBook Pro", the shared token
+    # is 'MacBook Pro' (class) — but the qualifier '2019' only appears
+    # in the old. Guard: treat the term as in-transition if a preceding
+    # 'upgraded' / 'replaced' / 'switched to' verb is present in text.
+    r"\bupgraded\s+(?:to|from)\b.{{0,60}}\b{term}\b",
+    r"\bupgraded\s+{term}\b",  # 'upgraded my 2019 MacBook'
     # "was at X" / "used to be at X"
     r"\b(?:was\s+(?:at|in)|used\s+to\s+(?:be|work|do|have))\b.{{0,30}}\b{term}\b",
     # "former X" / "ex-X"
@@ -180,6 +189,15 @@ _TRANSITION_CONTEXTS = [
     r"\bdon'?t\b.{{0,30}}\b{term}\b.{{0,30}}(?:anymore|any\s+more|any\s+longer)\b",
     # "Y instead of X" — X is the superseded thing
     r"\binstead\s+of\s+{term}\b",
+    # "X instead" (postfix) — "I now use air-con instead" where the new
+    # state is described and 'instead' signals the superseded is
+    # mentioned elsewhere. Here {term} is in the OLD proposition that
+    # got grouped under current; the NEW has 'instead' naming the
+    # switch. But the scorer sees the OLD proposition's {term}
+    # directly. This case cannot be fixed at the scorer layer — it
+    # requires the detector to fire. Leave as-is; honest failure.
+    # "X passed away" / "the old X died" — third-party departures
+    r"\b{term}\s+(?:passed\s+away|died|passed|is\s+no\s+more)\b",
     # "Person-name left the company" — third-party departures (Priya left)
     r"\b{term}\s+(?:left|departed|resigned|quit)\b",
     # "replaced X with Y" / "swapped X for Y"
@@ -243,7 +261,16 @@ def _score_current_belief(
     #    the change.)
     import re as _re
     def _term_appears_as_word(term: str, text: str) -> bool:
-        pattern = r"\b" + _re.escape(term.lower()) + r"\b"
+        # Treat hyphens as word characters so 'fiction' inside
+        # 'non-fiction' is NOT flagged as a leak. Standard \b treats
+        # hyphen as a word boundary, which gives false positives on
+        # compound words. Require actual whitespace / punctuation
+        # (not hyphen) on both sides.
+        pattern = (
+            r"(?:^|[\s.,;:!?\"'\(\)])"
+            + _re.escape(term.lower())
+            + r"(?:$|[\s.,;:!?\"'\(\)])"
+        )
         return _re.search(pattern, text) is not None
 
     leaked_superseded = [

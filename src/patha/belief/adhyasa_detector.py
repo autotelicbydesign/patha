@@ -49,7 +49,7 @@ from patha.belief.adhyasa import (
     check_superimposition,
 )
 from patha.belief.contradiction import ContradictionDetector
-from patha.belief.types import ContradictionResult
+from patha.belief.types import ContradictionLabel, ContradictionResult
 
 
 class AdhyasaAwareDetector:
@@ -88,15 +88,52 @@ class AdhyasaAwareDetector:
         if not pairs:
             return []
 
-        # First pass: rewrite pairs where superimposition is detected
-        effective_pairs: list[tuple[str, str]] = []
-        for p1, p2 in pairs:
+        # For each pair, if superimposition is detected, we submit BOTH
+        # the original and the rewritten version to the inner detector
+        # and take the stronger-contradiction signal.
+        #
+        # Why: adhyāsa rewriting doesn't always help NLI — sometimes the
+        # rewrite preserves the contradiction, sometimes it breaks the
+        # sentence structure and NLI returns NEUTRAL on the rewrite even
+        # though it returned CONTRADICTS on the original. Running both
+        # and picking the stronger CONTRADICTS verdict is more robust
+        # than trusting the rewrite alone.
+        batched: list[tuple[str, str]] = []
+        origin_of: list[int] = []  # index into `pairs` each batched item belongs to
+        kind: list[str] = []       # 'original' or 'rewrite'
+
+        for i, (p1, p2) in enumerate(pairs):
+            batched.append((p1, p2))
+            origin_of.append(i)
+            kind.append("original")
             res = check_superimposition(p1, p2, ontology=self._ontology)
             if res.superimposition_detected and res.rewritten_p2 is not None:
                 self.adhyasa_rewrites += 1
-                effective_pairs.append((p1, res.rewritten_p2))
-            else:
-                effective_pairs.append((p1, p2))
+                batched.append((p1, res.rewritten_p2))
+                origin_of.append(i)
+                kind.append("rewrite")
 
-        self.inner_calls += len(effective_pairs)
-        return self._inner.detect_batch(effective_pairs)
+        self.inner_calls += len(batched)
+        all_results = self._inner.detect_batch(batched)
+
+        # Reassemble: for each input pair, pick the strongest CONTRADICTS
+        # verdict across original + optional rewrite. Tie-break on confidence.
+        per_pair: dict[int, list[ContradictionResult]] = {}
+        for idx, r in zip(origin_of, all_results):
+            per_pair.setdefault(idx, []).append(r)
+
+        final: list[ContradictionResult] = []
+        for i in range(len(pairs)):
+            candidates = per_pair[i]
+            # Prefer CONTRADICTS verdicts; among them pick highest confidence
+            contradicts = [c for c in candidates if c.label == ContradictionLabel.CONTRADICTS]
+            if contradicts:
+                final.append(max(contradicts, key=lambda c: c.confidence))
+                continue
+            entails = [c for c in candidates if c.label == ContradictionLabel.ENTAILS]
+            if entails:
+                final.append(max(entails, key=lambda c: c.confidence))
+                continue
+            # All NEUTRAL — take highest confidence NEUTRAL
+            final.append(max(candidates, key=lambda c: c.confidence))
+        return final

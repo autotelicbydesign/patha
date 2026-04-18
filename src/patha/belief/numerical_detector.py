@@ -155,6 +155,65 @@ def check_numerical_contradiction(p1: str, p2: str) -> bool:
     return False
 
 
+# ─── Shared-subject value detector ──────────────────────────────────
+# Catches 'my email is X' vs 'my new email is Y' (or 'my laptop is X'
+# vs 'my laptop is Y'). Different from numerical: the values are
+# text strings, not numbers, but the subject is shared.
+
+_VALUE_PROPERTIES: frozenset[str] = frozenset({
+    "email", "phone", "address", "number",
+    "laptop", "computer", "phone number",
+    "company", "employer", "job", "role", "title",
+    "boss", "manager",
+    "landlord", "partner", "spouse",
+    "doctor", "dentist", "therapist", "accountant",
+})
+
+
+_VALUE_PATTERN = re.compile(
+    # "my [new] <property> is <value>" — capture property and value.
+    # Value is everything up to end of sentence / period / comma.
+    r"\bmy\s+(?:new\s+|old\s+|current\s+|former\s+|previous\s+)?"
+    r"(?P<prop>\w+(?:\s+\w+)?)\s+is\s+"
+    r"(?P<val>[^\.\,;!?]+?)(?=[\.\,;!?]|$)",
+    re.IGNORECASE,
+)
+
+
+def _extract_subject_value_pairs(text: str) -> list[tuple[str, str]]:
+    """Extract (property, value) pairs from 'my X is Y' constructions.
+
+    Only returns properties from _VALUE_PROPERTIES so we don't match
+    every 'my X is Y' (e.g., 'my dog is sweet' shouldn't count).
+    """
+    pairs: list[tuple[str, str]] = []
+    for m in _VALUE_PATTERN.finditer(text):
+        prop = m.group("prop").lower().strip()
+        val = m.group("val").lower().strip()
+        # Only count if the property is in our canonical list
+        prop_singular = prop.rstrip("s") if len(prop) > 3 else prop
+        if prop in _VALUE_PROPERTIES or prop_singular in _VALUE_PROPERTIES:
+            pairs.append((prop_singular, val))
+    return pairs
+
+
+def check_value_replacement(p1: str, p2: str) -> bool:
+    """Return True if p1 and p2 share a 'my X is Y' property but assign
+    different values to X. Catches email / phone / landlord / boss
+    replacements that NLI misses."""
+    pairs1 = _extract_subject_value_pairs(p1)
+    pairs2 = _extract_subject_value_pairs(p2)
+    if not pairs1 or not pairs2:
+        return False
+    vals_by_prop_1: dict[str, set[str]] = {}
+    for prop, val in pairs1:
+        vals_by_prop_1.setdefault(prop, set()).add(val)
+    for prop, val in pairs2:
+        if prop in vals_by_prop_1 and val not in vals_by_prop_1[prop]:
+            return True
+    return False
+
+
 class NumericalAwareDetector:
     """Delegates to an inner detector, but overrides with CONTRADICTS
     when a numerical-change heuristic fires.
@@ -179,7 +238,8 @@ class NumericalAwareDetector:
         if not pairs:
             return []
 
-        # Route: numerical-change pairs short-circuit; others go to inner.
+        # Route: numerical-change or shared-value-replacement pairs
+        # short-circuit; others go to inner.
         numerical_verdicts: dict[int, ContradictionResult] = {}
         inner_pairs: list[tuple[int, tuple[str, str]]] = []
         for idx, (p1, p2) in enumerate(pairs):
@@ -188,6 +248,13 @@ class NumericalAwareDetector:
                     label=ContradictionLabel.CONTRADICTS,
                     confidence=0.9,
                     rationale="numerical: shared subject, differing numbers",
+                )
+                self.numerical_overrides += 1
+            elif check_value_replacement(p1, p2):
+                numerical_verdicts[idx] = ContradictionResult(
+                    label=ContradictionLabel.CONTRADICTS,
+                    confidence=0.9,
+                    rationale="value-replacement: shared property, differing values",
                 )
                 self.numerical_overrides += 1
             else:
