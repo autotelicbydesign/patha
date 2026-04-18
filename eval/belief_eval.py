@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from patha.belief.adhyasa_detector import AdhyasaAwareDetector
+from patha.belief.numerical_detector import NumericalAwareDetector
 from patha.belief.contradiction import (
     ContradictionDetector,
     NLIContradictionDetector,
@@ -59,12 +60,14 @@ class Proposition:
     text: str
     asserted_at: datetime
     session: str
+    context: str | None = None
 
 
 @dataclass
 class Question:
     q: str
     type: str  # "current_belief" | "validity_at_time"
+    context: str | None = None  # v0.4+ context-scoped queries
     expected_current_contains: list[str] = field(default_factory=list)
     expected_superseded_contains: list[str] = field(default_factory=list)
     expected_valid: bool | None = None
@@ -85,6 +88,7 @@ def _parse_scenario(d: dict) -> Scenario:
             text=p["text"],
             asserted_at=datetime.fromisoformat(p["asserted_at"]),
             session=p["session"],
+            context=p.get("context"),
         )
         for p in d["propositions"]
     ]
@@ -102,6 +106,7 @@ def _parse_scenario(d: dict) -> Scenario:
                     if qd.get("at_time")
                     else None
                 ),
+                context=qd.get("context"),
             )
         )
     return Scenario(
@@ -312,6 +317,7 @@ def run_scenario(
             asserted_at=p.asserted_at,
             asserted_in_session=p.session,
             source_proposition_id=f"{scenario.id}-p{i}",
+            context=p.context,
         )
         all_belief_ids.append(ev.new_belief.id)
         if verbose:
@@ -322,7 +328,8 @@ def run_scenario(
     for q in scenario.questions:
         at_time = q.at_time if q.at_time is not None else datetime(2030, 1, 1)
         query_result = layer.query(
-            all_belief_ids, at_time=at_time, include_history=True
+            all_belief_ids, at_time=at_time, include_history=True,
+            context=q.context,
         )
         current_props = [b.proposition for b in query_result.current]
         superseded_props = [b.proposition for b in query_result.history]
@@ -463,6 +470,13 @@ def _make_detector(name: str) -> ContradictionDetector:
         # NLI wrapped in adhyāsa rewrite-and-retest. The cheapest way
         # to lift preference_supersession accuracy without an LLM.
         return AdhyasaAwareDetector(inner=NLIContradictionDetector())
+    if name == "full-stack":
+        # v0.6 stack: numerical-change detector (short-circuits on
+        # shared-subject numeric disagreements) wrapping adhyāsa
+        # rewrite-and-retest wrapping NLI. No LLM required.
+        return NumericalAwareDetector(
+            inner=AdhyasaAwareDetector(inner=NLIContradictionDetector())
+        )
     if name == "adhyasa-hybrid":
         # Adhyāsa + NLI + scripted LLM judge. Strongest v0.5 config
         # without a live LLM.
@@ -550,7 +564,7 @@ def main(argv: list[str] | None = None) -> None:
         choices=[
             "stub", "nli", "hybrid",
             "adhyasa-nli", "adhyasa-hybrid",
-            "live-ollama-hybrid",
+            "live-ollama-hybrid", "full-stack",
         ],
         default="stub",
         help=(
