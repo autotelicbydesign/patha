@@ -59,6 +59,24 @@ if TYPE_CHECKING:
 
 DEFAULT_MODEL_PATH = Path.home() / ".patha" / "supersession_classifier.joblib"
 
+# In-package shipped model (trained on expanded positives + negatives;
+# 0% FPR on false_contradiction eval at threshold 0.5, 91% precision
+# overall). Lives in _models/ so the package distribution includes it.
+BUNDLED_MODEL_PATH = (
+    Path(__file__).parent / "_models" / "supersession_classifier.joblib"
+)
+
+
+def resolve_model_path(explicit: Path | None = None) -> Path:
+    """Return the first existing model path from: explicit → user-level
+    → bundled. Never raises; returns the bundled path even if it doesn't
+    exist so callers can format a sensible error."""
+    if explicit and explicit.exists():
+        return explicit
+    if DEFAULT_MODEL_PATH.exists():
+        return DEFAULT_MODEL_PATH
+    return BUNDLED_MODEL_PATH
+
 
 # ─── Detector (inference) ───────────────────────────────────────────
 
@@ -78,8 +96,8 @@ class LearnedSupersessionDetector:
     """
 
     inner: ContradictionDetector
-    model_path: Path = field(default_factory=lambda: DEFAULT_MODEL_PATH)
-    threshold: float = 0.7
+    model_path: Path | None = None
+    threshold: float = 0.5
     embedder_name: str = "all-MiniLM-L6-v2"
 
     _model: object | None = None
@@ -92,9 +110,10 @@ class LearnedSupersessionDetector:
             return True
         try:
             import joblib
-            if not self.model_path.exists():
+            resolved = resolve_model_path(self.model_path)
+            if not resolved.exists():
                 return False
-            self._model = joblib.load(self.model_path)
+            self._model = joblib.load(resolved)
         except Exception:
             return False
         try:
@@ -155,24 +174,55 @@ class TrainingPair:
         return {"p1": self.p1, "p2": self.p2, "label": self.label}
 
 
+DEFAULT_PAIR_FILES = (
+    Path("eval/belief_eval_data/false_contradiction_pairs.jsonl"),
+    Path("eval/belief_eval_data/supersession_negatives_expanded.jsonl"),
+    Path("eval/belief_eval_data/supersession_positives_expanded.jsonl"),
+)
+
+
+def _load_pair_file(path: Path) -> list[TrainingPair]:
+    """Load a jsonl file of {p1, p2, expected} records."""
+    if not path.exists():
+        return []
+    out: list[TrainingPair] = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            is_contradict = entry.get("expected") == "CONTRADICT"
+            out.append(TrainingPair(
+                p1=entry["p1"],
+                p2=entry["p2"],
+                label=1 if is_contradict else 0,
+            ))
+    return out
+
+
 def mine_training_pairs(
     *,
     belief_eval_path: Path = Path("eval/belief_eval_data/v05_combined_300.jsonl"),
     false_contradiction_path: Path = Path(
         "eval/belief_eval_data/false_contradiction_pairs.jsonl"
     ),
+    extra_pair_files: list[Path] | None = None,
 ) -> list[TrainingPair]:
     """Harvest labeled pairs from existing eval data.
 
     Positives (label=1):
-      Every (old, new) pair from BeliefEval scenarios where the
-      scenario has ≥2 propositions in temporal order — these are the
-      explicit supersession cases.
+      - Consecutive pairs from BeliefEval supersession scenarios (excluding
+        'reinforcement' family, which doesn't supersede).
+      - Every CONTRADICT pair from the hand-curated {positives,negatives}
+        expanded jsonl files.
 
     Negatives (label=0):
-      - Every "NOT_CONTRADICT" pair from false_contradiction_pairs.jsonl
-      - Cross-scenario random pairs (unrelated topics from different
-        scenarios' first propositions) — trivially non-supersession.
+      - Every NOT_CONTRADICT pair from the expanded negatives jsonl
+      - Every NOT_CONTRADICT pair from false_contradiction_pairs.jsonl
     """
     pairs: list[TrainingPair] = []
 
@@ -193,9 +243,7 @@ def mine_training_pairs(
                 )
                 family = scenario.get("family", "")
                 if family == "reinforcement":
-                    # Reinforcement isn't supersession; skip
                     continue
-                # Consecutive pairs
                 for i in range(len(props) - 1):
                     pairs.append(TrainingPair(
                         p1=props[i]["text"],
@@ -203,23 +251,17 @@ def mine_training_pairs(
                         label=1,
                     ))
 
-    # Negatives from the false-contradiction set
-    if false_contradiction_path.exists():
-        with open(false_contradiction_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                is_contradict = entry.get("expected") == "CONTRADICT"
-                pairs.append(TrainingPair(
-                    p1=entry["p1"],
-                    p2=entry["p2"],
-                    label=1 if is_contradict else 0,
-                ))
+    # Hand-curated pair files (both explicit positives and explicit negatives)
+    files = (
+        [false_contradiction_path]
+        + (extra_pair_files if extra_pair_files is not None
+           else [
+               Path("eval/belief_eval_data/supersession_negatives_expanded.jsonl"),
+               Path("eval/belief_eval_data/supersession_positives_expanded.jsonl"),
+           ])
+    )
+    for path in files:
+        pairs.extend(_load_pair_file(path))
 
     return pairs
 

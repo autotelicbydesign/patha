@@ -508,11 +508,6 @@ def _make_detector(name: str) -> ContradictionDetector:
         # v0.7 stack: adds SequentialEventDetector on top of full-stack.
         # Order (outer to inner):
         #   Numerical → Sequential → Adhyāsa → NLI
-        # Rationale: numerical has the highest precision (regex over
-        # explicit numeric disagreement), sequential catches state-
-        # change events NLI misses (supersession marker + topic match),
-        # adhyāsa handles lexical-paraphrase contradictions, NLI is
-        # the default fallback.
         return NumericalAwareDetector(
             inner=SequentialEventDetector(
                 inner=AdhyasaAwareDetector(
@@ -520,6 +515,10 @@ def _make_detector(name: str) -> ContradictionDetector:
                 )
             )
         )
+    if name == "full-stack-v8":
+        # v0.8: learned-classifier outer wrapper around v0.7.
+        from patha.belief import make_detector as _shared_factory
+        return _shared_factory("full-stack-v8")
     if name == "adhyasa-hybrid":
         # Adhyāsa + NLI + scripted LLM judge. Strongest v0.5 config
         # without a live LLM.
@@ -607,7 +606,7 @@ def main(argv: list[str] | None = None) -> None:
         choices=[
             "stub", "nli", "hybrid",
             "adhyasa-nli", "adhyasa-hybrid",
-            "live-ollama-hybrid", "full-stack", "full-stack-v7",
+            "live-ollama-hybrid", "full-stack", "full-stack-v7", "full-stack-v8",
         ],
         default="stub",
         help=(

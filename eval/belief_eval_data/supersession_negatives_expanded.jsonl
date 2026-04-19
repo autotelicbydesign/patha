@@ -1,0 +1,120 @@
+{"id":"neg-001","description":"addition","p1":"I love jazz","p2":"I now also listen to classical","expected":"NOT_CONTRADICT"}
+{"id":"neg-002","description":"addition with 'too'","p1":"I run in the mornings","p2":"I run in the evenings too","expected":"NOT_CONTRADICT"}
+{"id":"neg-003","description":"addition with 'as well'","p1":"I speak English","p2":"I speak French as well","expected":"NOT_CONTRADICT"}
+{"id":"neg-004","description":"addition with 'in addition'","p1":"I work at Anthropic","p2":"In addition, I consult on weekends","expected":"NOT_CONTRADICT"}
+{"id":"neg-005","description":"parallel activities","p1":"I play guitar","p2":"I also play piano","expected":"NOT_CONTRADICT"}
+{"id":"neg-006","description":"parallel activities","p1":"I bike to work","p2":"I also walk to work sometimes","expected":"NOT_CONTRADICT"}
+{"id":"neg-007","description":"expansion","p1":"I speak three languages","p2":"I'm now learning a fourth","expected":"NOT_CONTRADICT"}
+{"id":"neg-008","description":"new acquisition","p1":"I have a cat named Mochi","p2":"We got another cat","expected":"NOT_CONTRADICT"}
+{"id":"neg-009","description":"parallel pets","p1":"I have a German shepherd","p2":"We also have a Labrador","expected":"NOT_CONTRADICT"}
+{"id":"neg-010","description":"temporal past event","p1":"I live in Berlin","p2":"I visited Paris last month","expected":"NOT_CONTRADICT"}
+{"id":"neg-011","description":"temporal past event","p1":"I work as a designer","p2":"I used to be a teacher","expected":"NOT_CONTRADICT"}
+{"id":"neg-012","description":"used-to phrasing","p1":"I live in Lisbon","p2":"I used to live in Porto before","expected":"NOT_CONTRADICT"}
+{"id":"neg-013","description":"attribute of person","p1":"My dog Charlie is a rescue","p2":"Charlie loves peanut butter","expected":"NOT_CONTRADICT"}
+{"id":"neg-014","description":"attribute of person","p1":"My boss is Rachel","p2":"Rachel went on vacation","expected":"NOT_CONTRADICT"}
+{"id":"neg-015","description":"different attributes","p1":"My laptop is a MacBook","p2":"My laptop has 16GB of RAM","expected":"NOT_CONTRADICT"}
+{"id":"neg-016","description":"completion","p1":"I was working on a novel","p2":"I finished the novel","expected":"NOT_CONTRADICT"}
+{"id":"neg-017","description":"completion","p1":"I am training for a marathon","p2":"I finished the marathon","expected":"NOT_CONTRADICT"}
+{"id":"neg-018","description":"role expansion","p1":"I work at Google","p2":"I was promoted to senior engineer","expected":"NOT_CONTRADICT"}
+{"id":"neg-019","description":"role expansion","p1":"I'm an engineer at Google","p2":"I'm now team lead","expected":"NOT_CONTRADICT"}
+{"id":"neg-020","description":"third-party event","p1":"I enjoy hiking","p2":"My friend moved to Seattle","expected":"NOT_CONTRADICT"}
+{"id":"neg-021","description":"third-party event","p1":"I love cooking","p2":"My neighbor just retired","expected":"NOT_CONTRADICT"}
+{"id":"neg-022","description":"quantity growth","p1":"I own 3 bikes","p2":"I love cycling","expected":"NOT_CONTRADICT"}
+{"id":"neg-023","description":"reinforcement","p1":"I enjoy sushi","p2":"I had sushi again yesterday","expected":"NOT_CONTRADICT"}
+{"id":"neg-024","description":"reinforcement","p1":"I go to yoga on Tuesdays","p2":"Yoga class today was great","expected":"NOT_CONTRADICT"}
+{"id":"neg-025","description":"unrelated topic","p1":"I love fiction novels","p2":"My favorite color is blue","expected":"NOT_CONTRADICT"}
+{"id":"neg-026","description":"unrelated topic","p1":"I prefer dark roast coffee","p2":"I enjoy long walks on the beach","expected":"NOT_CONTRADICT"}
+{"id":"neg-027","description":"marker without topic overlap","p1":"Dark chocolate is my favorite","p2":"I now subscribe to a different newspaper","expected":"NOT_CONTRADICT"}
+{"id":"neg-028","description":"marker without topic overlap","p1":"I exercise daily","p2":"I upgraded my phone to an iPhone 15","expected":"NOT_CONTRADICT"}
+{"id":"neg-029","description":"continued state","p1":"I'm still writing that novel","p2":"Progress has been slow","expected":"NOT_CONTRADICT"}
+{"id":"neg-030","description":"continued state","p1":"I still live in Amsterdam","p2":"The weather is warming up","expected":"NOT_CONTRADICT"}
+{"id":"neg-031","description":"compatible schedule change","p1":"I see my therapist on Thursdays","p2":"I also meet with my coach on Mondays","expected":"NOT_CONTRADICT"}
+{"id":"neg-032","description":"compatible schedule change","p1":"I do yoga Tuesdays","p2":"I lift weights Thursdays","expected":"NOT_CONTRADICT"}
+{"id":"neg-033","description":"new item same category","p1":"My favorite book is Dune","p2":"I also love Foundation","expected":"NOT_CONTRADICT"}
+{"id":"neg-034","description":"new item same category","p1":"My go-to dessert is tiramisu","p2":"I also love crème brûlée","expected":"NOT_CONTRADICT"}
+{"id":"neg-035","description":"temporal context","p1":"I'm vegetarian","p2":"I was not vegetarian as a kid","expected":"NOT_CONTRADICT"}
+{"id":"neg-036","description":"temporal context","p1":"I don't drink alcohol","p2":"I used to drink in college","expected":"NOT_CONTRADICT"}
+{"id":"neg-037","description":"hypothetical","p1":"I live in Seattle","p2":"If I moved to Portland I would miss the ocean","expected":"NOT_CONTRADICT"}
+{"id":"neg-038","description":"hypothetical","p1":"I drive a sedan","p2":"I was considering a truck","expected":"NOT_CONTRADICT"}
+{"id":"neg-039","description":"descriptive elaboration","p1":"My apartment is in Shoreditch","p2":"It's a two-bedroom place with a balcony","expected":"NOT_CONTRADICT"}
+{"id":"neg-040","description":"descriptive elaboration","p1":"My car is a Tesla","p2":"It's a 2022 Model 3","expected":"NOT_CONTRADICT"}
+{"id":"neg-041","description":"name reference","p1":"My dentist is Dr Kim","p2":"Dr Kim recommended a cleaning every six months","expected":"NOT_CONTRADICT"}
+{"id":"neg-042","description":"name reference","p1":"I worked with Alex on the launch","p2":"Alex did the design","expected":"NOT_CONTRADICT"}
+{"id":"neg-043","description":"time-of-day detail","p1":"I meditate in the mornings","p2":"I journal at night","expected":"NOT_CONTRADICT"}
+{"id":"neg-044","description":"time-of-day detail","p1":"I work from 9 to 5","p2":"I go to the gym after work","expected":"NOT_CONTRADICT"}
+{"id":"neg-045","description":"planned future","p1":"I live in Amsterdam","p2":"I'm planning a trip to Japan","expected":"NOT_CONTRADICT"}
+{"id":"neg-046","description":"planned future","p1":"I'm a developer","p2":"I want to learn Rust next year","expected":"NOT_CONTRADICT"}
+{"id":"neg-047","description":"subject change","p1":"I love pizza","p2":"Today I had sushi","expected":"NOT_CONTRADICT"}
+{"id":"neg-048","description":"subject change","p1":"I usually drink black tea","p2":"I had espresso this morning","expected":"NOT_CONTRADICT"}
+{"id":"neg-049","description":"event in a relationship","p1":"I'm married","p2":"We celebrated our anniversary last week","expected":"NOT_CONTRADICT"}
+{"id":"neg-050","description":"event in a relationship","p1":"My partner is a chef","p2":"They just opened a pop-up","expected":"NOT_CONTRADICT"}
+{"id":"neg-051","description":"child milestone","p1":"I have a daughter","p2":"She just turned 5","expected":"NOT_CONTRADICT"}
+{"id":"neg-052","description":"child milestone","p1":"My son plays soccer","p2":"He scored his first goal","expected":"NOT_CONTRADICT"}
+{"id":"neg-053","description":"hobby progression","p1":"I play piano","p2":"I just learned a Chopin piece","expected":"NOT_CONTRADICT"}
+{"id":"neg-054","description":"hobby progression","p1":"I'm learning Japanese","p2":"I just finished my first textbook","expected":"NOT_CONTRADICT"}
+{"id":"neg-055","description":"frequency compatible","p1":"I run 3 times a week","p2":"Today I did a long run","expected":"NOT_CONTRADICT"}
+{"id":"neg-056","description":"frequency compatible","p1":"I read every night","p2":"Last night I read for two hours","expected":"NOT_CONTRADICT"}
+{"id":"neg-057","description":"quantity precision","p1":"I have a few plants","p2":"My monstera just flowered","expected":"NOT_CONTRADICT"}
+{"id":"neg-058","description":"quantity precision","p1":"I own several guitars","p2":"My Strat needs new strings","expected":"NOT_CONTRADICT"}
+{"id":"neg-059","description":"concession","p1":"I don't drink coffee","p2":"I did have an espresso once in Rome","expected":"NOT_CONTRADICT"}
+{"id":"neg-060","description":"concession","p1":"I'm vegetarian","p2":"I tried fish once at a friend's wedding","expected":"NOT_CONTRADICT"}
+{"id":"neg-061","description":"attribute enhancement","p1":"My apartment has a garden","p2":"I just planted tomatoes","expected":"NOT_CONTRADICT"}
+{"id":"neg-062","description":"attribute enhancement","p1":"I have a home office","p2":"I just got a new standing desk","expected":"NOT_CONTRADICT"}
+{"id":"neg-063","description":"seasonal","p1":"I go skiing in winter","p2":"In summer I go camping","expected":"NOT_CONTRADICT"}
+{"id":"neg-064","description":"seasonal","p1":"I swim in the ocean in summer","p2":"In winter I swim at the gym","expected":"NOT_CONTRADICT"}
+{"id":"neg-065","description":"equipment upgrade within hobby","p1":"I cycle every weekend","p2":"I got a new set of cycling shoes","expected":"NOT_CONTRADICT"}
+{"id":"neg-066","description":"equipment upgrade within hobby","p1":"I'm into photography","p2":"I bought a new lens","expected":"NOT_CONTRADICT"}
+{"id":"neg-067","description":"community membership","p1":"I'm part of a book club","p2":"We meet the third Tuesday","expected":"NOT_CONTRADICT"}
+{"id":"neg-068","description":"community membership","p1":"I volunteer at the shelter","p2":"Tomorrow I'm on the weekend shift","expected":"NOT_CONTRADICT"}
+{"id":"neg-069","description":"goal progress","p1":"I want to run a marathon","p2":"I did a 15k yesterday","expected":"NOT_CONTRADICT"}
+{"id":"neg-070","description":"goal progress","p1":"I'm saving for a house","p2":"I put another 2000 into savings","expected":"NOT_CONTRADICT"}
+{"id":"neg-071","description":"preference elaboration","p1":"I like strong coffee","p2":"Kenyan beans are my favorite","expected":"NOT_CONTRADICT"}
+{"id":"neg-072","description":"preference elaboration","p1":"I prefer fiction","p2":"Sci-fi most of all","expected":"NOT_CONTRADICT"}
+{"id":"neg-073","description":"travel detail","p1":"I love Italy","p2":"I especially love Florence","expected":"NOT_CONTRADICT"}
+{"id":"neg-074","description":"travel detail","p1":"I've been to Japan","p2":"I spent a week in Kyoto","expected":"NOT_CONTRADICT"}
+{"id":"neg-075","description":"event detail","p1":"My friend's wedding was last month","p2":"It was in Tuscany","expected":"NOT_CONTRADICT"}
+{"id":"neg-076","description":"event detail","p1":"I went to a concert","p2":"The encore was amazing","expected":"NOT_CONTRADICT"}
+{"id":"neg-077","description":"routine continuation","p1":"I make coffee every morning","p2":"This morning I used a new method","expected":"NOT_CONTRADICT"}
+{"id":"neg-078","description":"routine continuation","p1":"I walk the dog each evening","p2":"Tonight we took a longer route","expected":"NOT_CONTRADICT"}
+{"id":"neg-079","description":"shared ownership","p1":"I live with my partner","p2":"We adopted a cat together","expected":"NOT_CONTRADICT"}
+{"id":"neg-080","description":"shared ownership","p1":"I have two kids","p2":"We just enrolled them in swimming","expected":"NOT_CONTRADICT"}
+{"id":"neg-081","description":"medical detail","p1":"I'm lactose intolerant","p2":"I take an enzyme before pizza","expected":"NOT_CONTRADICT"}
+{"id":"neg-082","description":"medical detail","p1":"I have mild asthma","p2":"I carry an inhaler","expected":"NOT_CONTRADICT"}
+{"id":"neg-083","description":"seasonal mood","p1":"I'm happier in summer","p2":"Winters can feel long","expected":"NOT_CONTRADICT"}
+{"id":"neg-084","description":"seasonal mood","p1":"I love autumn","p2":"The leaves peaked last week","expected":"NOT_CONTRADICT"}
+{"id":"neg-085","description":"multi-language status","p1":"I speak Portuguese","p2":"I'm improving my Portuguese","expected":"NOT_CONTRADICT"}
+{"id":"neg-086","description":"multi-language status","p1":"I speak Mandarin","p2":"I practice with my grandmother","expected":"NOT_CONTRADICT"}
+{"id":"neg-087","description":"preference intensification","p1":"I like hiking","p2":"I've been going every weekend now","expected":"NOT_CONTRADICT"}
+{"id":"neg-088","description":"preference intensification","p1":"I enjoy reading","p2":"I joined two book clubs","expected":"NOT_CONTRADICT"}
+{"id":"neg-089","description":"unrelated state change","p1":"I work in finance","p2":"I now follow a low-sodium diet","expected":"NOT_CONTRADICT"}
+{"id":"neg-090","description":"unrelated state change","p1":"I'm an architect","p2":"I now take Pilates on Fridays","expected":"NOT_CONTRADICT"}
+{"id":"neg-091","description":"ambiguous new","p1":"I have a new phone","p2":"The battery lasts much longer","expected":"NOT_CONTRADICT"}
+{"id":"neg-092","description":"ambiguous new","p1":"I got a new colleague","p2":"They used to work at Meta","expected":"NOT_CONTRADICT"}
+{"id":"neg-093","description":"context-specific state","p1":"I'm serious at work","p2":"I'm easygoing at home","expected":"NOT_CONTRADICT"}
+{"id":"neg-094","description":"context-specific state","p1":"I dress formally for meetings","p2":"I wear hoodies on weekends","expected":"NOT_CONTRADICT"}
+{"id":"neg-095","description":"memory vs fact","p1":"My grandma made the best pasta","p2":"I try to recreate her recipes","expected":"NOT_CONTRADICT"}
+{"id":"neg-096","description":"memory vs fact","p1":"I grew up in a coastal town","p2":"The smell of salt still reminds me of it","expected":"NOT_CONTRADICT"}
+{"id":"neg-097","description":"wish vs state","p1":"I own a 2018 Civic","p2":"I wish I had a Tesla","expected":"NOT_CONTRADICT"}
+{"id":"neg-098","description":"wish vs state","p1":"I work remote","p2":"I'd love an office someday","expected":"NOT_CONTRADICT"}
+{"id":"neg-099","description":"multi-location","p1":"I live in Berlin","p2":"I visit my parents in Munich monthly","expected":"NOT_CONTRADICT"}
+{"id":"neg-100","description":"multi-location","p1":"I'm based in SF","p2":"I have a cabin in Tahoe","expected":"NOT_CONTRADICT"}
+{"id":"neg-101","description":"complementary activities","p1":"I'm learning piano","p2":"I'm also taking music theory","expected":"NOT_CONTRADICT"}
+{"id":"neg-102","description":"complementary activities","p1":"I'm training jiu jitsu","p2":"I also do yoga for mobility","expected":"NOT_CONTRADICT"}
+{"id":"neg-103","description":"family event","p1":"My brother is a doctor","p2":"He just published a paper","expected":"NOT_CONTRADICT"}
+{"id":"neg-104","description":"family event","p1":"My sister lives abroad","p2":"She's visiting next week","expected":"NOT_CONTRADICT"}
+{"id":"neg-105","description":"clothing swap","p1":"I usually wear black","p2":"I wore a red dress to the wedding","expected":"NOT_CONTRADICT"}
+{"id":"neg-106","description":"clothing swap","p1":"I prefer sneakers","p2":"I have one pair of dress shoes","expected":"NOT_CONTRADICT"}
+{"id":"neg-107","description":"diet detail","p1":"I'm mostly vegetarian","p2":"I eat fish occasionally","expected":"NOT_CONTRADICT"}
+{"id":"neg-108","description":"diet detail","p1":"I avoid sugar","p2":"I allow myself dessert on birthdays","expected":"NOT_CONTRADICT"}
+{"id":"neg-109","description":"workout variation","p1":"I lift heavy on Mondays","p2":"I do cardio on Wednesdays","expected":"NOT_CONTRADICT"}
+{"id":"neg-110","description":"workout variation","p1":"I swim every morning","p2":"I bike on weekends","expected":"NOT_CONTRADICT"}
+{"id":"neg-111","description":"work tool change","p1":"I write in Notion","p2":"I also use Linear for tasks","expected":"NOT_CONTRADICT"}
+{"id":"neg-112","description":"work tool change","p1":"I code in Python","p2":"I use TypeScript for the frontend","expected":"NOT_CONTRADICT"}
+{"id":"neg-113","description":"attribute of place","p1":"My apartment gets great light","p2":"There's a park next door","expected":"NOT_CONTRADICT"}
+{"id":"neg-114","description":"attribute of place","p1":"My office is downtown","p2":"There's great coffee nearby","expected":"NOT_CONTRADICT"}
+{"id":"neg-115","description":"dual citizenship","p1":"I'm Italian","p2":"I also hold a UK passport","expected":"NOT_CONTRADICT"}
+{"id":"neg-116","description":"dual citizenship","p1":"I was born in Brazil","p2":"I'm a naturalized US citizen too","expected":"NOT_CONTRADICT"}
+{"id":"neg-117","description":"reading expansion","p1":"I'm reading a biography","p2":"I also started a novel","expected":"NOT_CONTRADICT"}
+{"id":"neg-118","description":"reading expansion","p1":"I listen to audiobooks","p2":"I still buy physical books","expected":"NOT_CONTRADICT"}
+{"id":"neg-119","description":"service subscription additions","p1":"I subscribe to Spotify","p2":"I also pay for Apple Music","expected":"NOT_CONTRADICT"}
+{"id":"neg-120","description":"service subscription additions","p1":"I have Netflix","p2":"I just added HBO","expected":"NOT_CONTRADICT"}

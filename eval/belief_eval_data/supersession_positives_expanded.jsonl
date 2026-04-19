@@ -1,0 +1,40 @@
+{"id":"pos-001","description":"employer change","p1":"I work at Google","p2":"I left Google and joined Anthropic","expected":"CONTRADICT"}
+{"id":"pos-002","description":"residence change","p1":"I live in Sofia","p2":"I moved to Lisbon last week","expected":"CONTRADICT"}
+{"id":"pos-003","description":"residence change","p1":"I live in Brooklyn","p2":"I just relocated to Philadelphia","expected":"CONTRADICT"}
+{"id":"pos-004","description":"relationship change","p1":"I'm dating Sam","p2":"Sam and I broke up","expected":"CONTRADICT"}
+{"id":"pos-005","description":"relationship change","p1":"I'm married","p2":"We got divorced","expected":"CONTRADICT"}
+{"id":"pos-006","description":"diet change","p1":"I'm vegetarian","p2":"I started eating meat again","expected":"CONTRADICT"}
+{"id":"pos-007","description":"diet change","p1":"I'm a strict vegan","p2":"I eat dairy now","expected":"CONTRADICT"}
+{"id":"pos-008","description":"pet loss","p1":"My dog Rex is healthy","p2":"Rex passed away last month","expected":"CONTRADICT"}
+{"id":"pos-009","description":"email change","p1":"My email is alice@old.com","p2":"My new email is alice@new.com","expected":"CONTRADICT"}
+{"id":"pos-010","description":"phone change","p1":"My phone number is 555-1234","p2":"I changed my number to 555-9876","expected":"CONTRADICT"}
+{"id":"pos-011","description":"car replacement","p1":"I drive a 2015 Honda","p2":"I sold the Honda and bought a Tesla","expected":"CONTRADICT"}
+{"id":"pos-012","description":"car replacement","p1":"My daily is a sedan","p2":"I traded it for an SUV","expected":"CONTRADICT"}
+{"id":"pos-013","description":"team change","p1":"I manage the backend team","p2":"I moved to the platform team","expected":"CONTRADICT"}
+{"id":"pos-014","description":"preferred drink change","p1":"I only drink tea","p2":"I switched to coffee","expected":"CONTRADICT"}
+{"id":"pos-015","description":"preferred drink change","p1":"I drink wine with dinner","p2":"I quit drinking entirely","expected":"CONTRADICT"}
+{"id":"pos-016","description":"commute change","p1":"I bike to work","p2":"I now take the subway","expected":"CONTRADICT"}
+{"id":"pos-017","description":"project end","p1":"I run a consulting business","p2":"I shut down the consultancy to take a full-time role","expected":"CONTRADICT"}
+{"id":"pos-018","description":"gym change","p1":"I go to Equinox","p2":"I switched to the local YMCA","expected":"CONTRADICT"}
+{"id":"pos-019","description":"rent change","p1":"My rent is 1500","p2":"My rent went up to 1800","expected":"CONTRADICT"}
+{"id":"pos-020","description":"phone replacement","p1":"I use an iPhone 11","p2":"I upgraded to an iPhone 15","expected":"CONTRADICT"}
+{"id":"pos-021","description":"roommate change","p1":"I live with Sam","p2":"Sam moved out and Jess moved in","expected":"CONTRADICT"}
+{"id":"pos-022","description":"routine change","p1":"I meditate daily","p2":"I stopped meditating","expected":"CONTRADICT"}
+{"id":"pos-023","description":"language shift","p1":"I only drink cold brew","p2":"I only drink espresso now","expected":"CONTRADICT"}
+{"id":"pos-024","description":"project pivot","p1":"I'm building a SaaS","p2":"I pivoted to an agency","expected":"CONTRADICT"}
+{"id":"pos-025","description":"wardrobe change","p1":"I only wear black","p2":"I now wear earth tones","expected":"CONTRADICT"}
+{"id":"pos-026","description":"working style","p1":"I work from home","p2":"I go into the office daily now","expected":"CONTRADICT"}
+{"id":"pos-027","description":"hobby swap","p1":"I play tennis","p2":"I switched to padel","expected":"CONTRADICT"}
+{"id":"pos-028","description":"subscription replacement","p1":"I use Spotify","p2":"I canceled Spotify and moved to Apple Music","expected":"CONTRADICT"}
+{"id":"pos-029","description":"editor change","p1":"I code in VSCode","p2":"I've fully switched to Cursor","expected":"CONTRADICT"}
+{"id":"pos-030","description":"language replacement","p1":"I write in Python","p2":"I've moved everything to Rust","expected":"CONTRADICT"}
+{"id":"pos-031","description":"trip complete","p1":"I'm planning a trip to Japan","p2":"I'm back from Japan now","expected":"CONTRADICT"}
+{"id":"pos-032","description":"pregnancy update","p1":"I'm pregnant","p2":"I just gave birth","expected":"CONTRADICT"}
+{"id":"pos-033","description":"doctor replacement","p1":"My doctor is Dr Chen","p2":"I switched to Dr Patel","expected":"CONTRADICT"}
+{"id":"pos-034","description":"hairstyle change","p1":"I have long hair","p2":"I cut my hair short","expected":"CONTRADICT"}
+{"id":"pos-035","description":"allergy status","p1":"I'm allergic to peanuts","p2":"I outgrew the peanut allergy","expected":"CONTRADICT"}
+{"id":"pos-036","description":"musical instrument","p1":"I play violin","p2":"I gave up violin for cello","expected":"CONTRADICT"}
+{"id":"pos-037","description":"addressing change","p1":"Call me Alex","p2":"I go by Alexandra now","expected":"CONTRADICT"}
+{"id":"pos-038","description":"product migration","p1":"We use Slack","p2":"We migrated everything to Discord","expected":"CONTRADICT"}
+{"id":"pos-039","description":"credit card change","p1":"I use my Chase card","p2":"I canceled Chase and use Amex now","expected":"CONTRADICT"}
+{"id":"pos-040","description":"brand switch","p1":"I'm a PC person","p2":"I switched to Mac","expected":"CONTRADICT"}

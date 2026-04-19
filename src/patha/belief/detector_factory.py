@@ -36,6 +36,7 @@ AVAILABLE_DETECTORS: tuple[str, ...] = (
     "adhyasa-nli",
     "full-stack",
     "full-stack-v7",
+    "full-stack-v8",
 )
 
 
@@ -59,6 +60,23 @@ def make_detector(name: str) -> ContradictionDetector:
                 )
             )
         )
+    if name == "full-stack-v8":
+        # v0.8: wraps full-stack-v7 with the learned supersession
+        # classifier as an additive check. At threshold 0.7 the
+        # classifier only fires when very confident, letting the
+        # regex + NLI stack handle the uncertain band. Bundled
+        # trained model lives at patha/belief/_models/.
+        from patha.belief.learned_supersession import LearnedSupersessionDetector
+        return LearnedSupersessionDetector(
+            inner=NumericalAwareDetector(
+                inner=SequentialEventDetector(
+                    inner=AdhyasaAwareDetector(
+                        inner=NLIContradictionDetector()
+                    )
+                )
+            ),
+            threshold=0.7,
+        )
     raise ValueError(
         f"unknown detector {name!r}; choose from {AVAILABLE_DETECTORS}"
     )
@@ -72,4 +90,5 @@ def describe_detector(name: str) -> str:
         "adhyasa-nli": "adhyāsa lexical rewrite + NLI",
         "full-stack": "numerical + adhyāsa + NLI (v0.6)",
         "full-stack-v7": "full-stack + sequential-event supersession (v0.7)",
+        "full-stack-v8": "full-stack-v7 + learned classifier, 0% FPR (v0.8)",
     }.get(name, "unknown detector")

@@ -81,6 +81,7 @@ class TestMineTrainingPairs:
         pairs = mine_training_pairs(
             belief_eval_path=tmp_path / "no.jsonl",
             false_contradiction_path=tmp_path / "no.jsonl",
+            extra_pair_files=[tmp_path / "more.jsonl"],
         )
         assert pairs == []
 

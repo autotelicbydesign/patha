@@ -78,6 +78,11 @@ DEFAULT_SEMANTIC_FILTER_K = int(os.environ.get("PATHA_SEMANTIC_FILTER_K", "40"))
 SEMANTIC_FILTER_ENABLED = (
     os.environ.get("PATHA_SEMANTIC_FILTER", "on").lower() != "off"
 )
+# Full Phase 1 pipeline: 7-view Vedic + BM25 + songline + RRF.
+# Overkill at personal-memory scale; the semantic filter above is
+# usually sufficient. Opt in with PATHA_PHASE1=on when your store
+# grows beyond a few thousand beliefs.
+PHASE1_ENABLED = os.environ.get("PATHA_PHASE1", "off").lower() == "on"
 
 
 # ─── Lazy-built singleton integrated instance ───────────────────────
@@ -93,13 +98,28 @@ def _get_patha() -> IntegratedPatha:
     if _patha is None:
         DEFAULT_DATA_DIR.mkdir(parents=True, exist_ok=True)
         store_path = DEFAULT_DATA_DIR / "beliefs.jsonl"
+        belief_store = BeliefStore(persistence_path=store_path)
         layer = BeliefLayer(
-            store=BeliefStore(persistence_path=store_path),
+            store=belief_store,
             detector=make_detector(DEFAULT_DETECTOR),
         )
         answerer = DirectAnswerer(layer.store)
+
+        phase1_retrieve = None
+        if PHASE1_ENABLED:
+            try:
+                from patha.phase1_bridge import build_phase1_retriever
+                phase1_retrieve = build_phase1_retriever(belief_store)
+            except Exception as e:
+                import sys
+                print(
+                    f"[patha-mcp] warn: PATHA_PHASE1 requested but bridge "
+                    f"failed ({e}); falling back to semantic filter.",
+                    file=sys.stderr,
+                )
+
         _patha = IntegratedPatha(
-            phase1_retrieve=None,
+            phase1_retrieve=phase1_retrieve,
             belief_layer=layer,
             direct_answerer=answerer,
         )
