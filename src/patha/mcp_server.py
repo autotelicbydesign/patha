@@ -70,6 +70,14 @@ DEFAULT_DATA_DIR = Path(
     os.environ.get("PATHA_STORE_PATH", str(Path.home() / ".patha"))
 )
 DEFAULT_DETECTOR = os.environ.get("PATHA_DETECTOR", "stub")
+# Semantic pre-filter: when set, `patha_query` narrows the belief
+# store to the top-K topically relevant beliefs before running
+# supersession and summary. Cuts false-positive supersessions on
+# large stores. Disable with PATHA_SEMANTIC_FILTER=off.
+DEFAULT_SEMANTIC_FILTER_K = int(os.environ.get("PATHA_SEMANTIC_FILTER_K", "40"))
+SEMANTIC_FILTER_ENABLED = (
+    os.environ.get("PATHA_SEMANTIC_FILTER", "on").lower() != "off"
+)
 
 
 # ─── Lazy-built singleton integrated instance ───────────────────────
@@ -77,6 +85,7 @@ DEFAULT_DETECTOR = os.environ.get("PATHA_DETECTOR", "stub")
 # can see the tools) before the NLI model downloads.
 
 _patha: IntegratedPatha | None = None
+_semantic_filter = None  # lazy-built on first filtered query
 
 
 def _get_patha() -> IntegratedPatha:
@@ -95,6 +104,16 @@ def _get_patha() -> IntegratedPatha:
             direct_answerer=answerer,
         )
     return _patha
+
+
+def _get_semantic_filter():
+    """Lazy-load the semantic filter only when a filtered query is served.
+    Avoids dragging MiniLM weights in for MCP clients that only ingest."""
+    global _semantic_filter
+    if _semantic_filter is None:
+        from patha.belief.semantic_filter import SemanticBeliefFilter
+        _semantic_filter = SemanticBeliefFilter()
+    return _semantic_filter
 
 
 # ─── MCP server ─────────────────────────────────────────────────────
@@ -167,6 +186,7 @@ def patha_query(
     question: str,
     at_time: str | None = None,
     include_history: bool = False,
+    semantic_filter: bool | None = None,
 ) -> dict[str, Any]:
     """Ask what the user currently believes about a topic.
 
@@ -174,6 +194,11 @@ def patha_query(
         question: the query text.
         at_time: ISO timestamp to query at (defaults to now).
         include_history: if true, also return superseded beliefs.
+        semantic_filter: if true (default: follows PATHA_SEMANTIC_FILTER env
+            var, normally on), the belief store is narrowed to the top-K
+            topically relevant beliefs before supersession and summary.
+            This prevents unrelated-topic beliefs from diluting the answer
+            and cuts false-positive supersessions on large stores.
 
     Returns:
         {
@@ -182,14 +207,35 @@ def patha_query(
           "summary": "...",
           "current": [{"id", "proposition", "asserted_at"}, ...],
           "history": [{"id", "proposition", "asserted_at"}, ...] if include_history,
-          "tokens_in_summary": int
+          "tokens_in_summary": int,
+          "semantic_filter_applied": bool,
+          "semantic_filter_kept": int  # how many beliefs survived the filter
         }
     """
     patha = _get_patha()
     at = datetime.fromisoformat(at_time) if at_time else datetime.now()
 
+    use_filter = (
+        semantic_filter if semantic_filter is not None else SEMANTIC_FILTER_ENABLED
+    )
+    candidate_belief_ids = None
+    filter_kept = 0
+    if use_filter:
+        all_beliefs = list(patha.belief_layer.store.all())
+        if all_beliefs:
+            sfilter = _get_semantic_filter()
+            candidate_belief_ids = sfilter.top_k(
+                query=question,
+                beliefs=all_beliefs,
+                k=DEFAULT_SEMANTIC_FILTER_K,
+            )
+            filter_kept = len(candidate_belief_ids)
+
     response = patha.query(
-        question, at_time=at, include_history=include_history,
+        question,
+        at_time=at,
+        include_history=include_history,
+        candidate_belief_ids=candidate_belief_ids,
     )
 
     qr = response.retrieval_result
@@ -219,6 +265,8 @@ def patha_query(
         "current": current,
         "history": history,
         "tokens_in_summary": response.tokens_in,
+        "semantic_filter_applied": use_filter,
+        "semantic_filter_kept": filter_kept,
     }
 
 

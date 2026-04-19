@@ -2,11 +2,18 @@
 
 > *The way. The recitation.*
 
-**Local-first AI memory with contradiction detection, non-destructive supersession, and empirically non-commutative belief evolution.** Runs fully on your machine — zero hosted-LLM API calls anywhere in the pipeline.
+**Your AI memory, inspectable and portable.** One belief store shared across every AI tool you use — Claude Desktop, Claude Code, Cursor, Zed, Goose. Runs fully on your machine, zero cloud, zero API calls.
 
-Plugs into Claude Desktop / Claude Code / Cursor / Zed / Goose as an MCP server in one config line. Ships with a CLI, a Python library, and a Streamlit viewer for visual inspection.
+**What makes it different from the memory your AI assistant already has:**
 
-Built on primitives drawn from two human memory traditions that lasted thousands of years: **Vedic recitation** (redundant multi-view encoding for lossless paraphrase-robust retrieval) and **Aboriginal songlines** (narrative graph traversal for multi-session recall).
+- **You can see it.** Memory lives in a plain `~/.patha/beliefs.jsonl` file you can read, edit, version-control, or export. Open the Streamlit viewer for a visual dashboard.
+- **Old beliefs aren't lost.** When you change your mind, Patha marks the old belief as *superseded* instead of overwriting it. You can ask "what did I used to think about X?" and get an answer.
+- **Contradictions are explicit.** Every ingest is tagged `added` / `reinforced` / `superseded`, with the full supersession chain visible. No silent "remembered."
+- **Cross-tool.** The same belief store feeds every MCP-compatible AI tool. Switch from Claude Desktop to Cursor mid-project — your memory follows you.
+- **Portable.** Copy the JSONL file to another machine. Your memory moves with it.
+- **Private.** Nothing leaves your laptop. No API keys, no OAuth, no Anthropic account required for the memory itself.
+
+Under the hood: contradiction detection via NLI + lexical rewriting + sequential-event markers + numerical-change handling. Non-commutative belief evolution measured empirically (96% of supersession scenarios are order-dependent). Plasticity mechanisms (time decay, Hebbian associations, homeostasis) operate during normal use. Primitives drawn from two human memory traditions that lasted thousands of years: Vedic recitation (redundant multi-view encoding) and Aboriginal songlines (narrative graph traversal).
 
 ---
 
@@ -39,7 +46,16 @@ That's it. State persists to `~/.patha/beliefs.jsonl` across all three modes.
 
 ### 1. As an MCP server (Claude Desktop, Claude Code, Cursor)
 
-Add one block to your MCP client's config:
+**One command:**
+
+```bash
+make mcp-install            # detects OS, writes Claude Desktop config safely
+make mcp-install-code       # for Claude Code instead
+```
+
+Quit + restart Claude Desktop. Four tools (`patha_ingest`, `patha_query`, `patha_history`, `patha_stats`) become available. See [docs/mcp.md](docs/mcp.md) and [docs/e2e-test-claude-desktop.md](docs/e2e-test-claude-desktop.md) for details and the post-install verification checklist.
+
+**Or manually** — add one block to your MCP client's config:
 
 ```json
 {
@@ -109,15 +125,21 @@ Opens a browser dashboard over `~/.patha/beliefs.jsonl`:
 
 ---
 
-## Why Patha
+## Why Patha (vs Claude's built-in memory, ChatGPT memory, etc.)
 
-Every existing AI memory system I've read treats memory as retrieval — dump candidate chunks into the LLM's context and hope it sorts the contradictions out. That doesn't work when a user's beliefs evolve ("I was vegetarian, then I wasn't, then I started eating fish only"). Patha's belief layer does the sorting before the LLM sees it.
+Most AI assistants now have some form of built-in memory. The value of Patha over those isn't that it "remembers things" — they all do that. It's what it does with the memory once it has it.
 
-Three architectural choices that distinguish it:
+Four architectural choices that cloud-hosted memory systems don't offer:
 
-1. **Non-destructive supersession.** When new evidence contradicts an old belief, the old belief moves to history instead of being overwritten. Queries can ask for current-only or current+history; the store retains everything you've ever said.
-2. **Order-dependent evolution.** Measured empirically: on 240 supersession scenarios, reversing the ingest order produces a different final belief set 95.8% of the time (mean divergence 0.91). Reinforcement scenarios correctly come out 0% non-commutative. The metric and benchmark are both in this repo (`eval/non_commutative_eval.py`).
-3. **Plasticity inspired by neural maintenance.** LTD time decay, Hebbian co-retrieval edges, homeostatic confidence regulation, synaptic pruning. On 10 real LongMemEval conversations the confidence distribution has std=0.106 (LTD is doing real work) and a mean of 150 Hebbian edges per conversation (associative graph emerges from use).
+1. **You can see and edit your memory.** `~/.patha/beliefs.jsonl` is a plain text file. Open it in any editor. Commit it to git. Diff it between machines. Export it. Anthropic's and OpenAI's memory features give you a settings panel with a toggle; Patha gives you the actual data.
+
+2. **Non-destructive supersession.** When new evidence contradicts an old belief, the old belief moves to *history* — it isn't overwritten. Queries can ask for current-only ("what do I think now?") or current+history ("what did I used to think?"). The cloud-hosted systems make old beliefs disappear as if they were never asserted.
+
+3. **Order-dependent evolution, measured.** On 240 supersession scenarios, reversing the ingest order produces a different final belief set 95.8% of the time (mean divergence 0.91). Reinforcement scenarios correctly come out 0% non-commutative. This means Patha has a principled theory of *when order matters* — and exposes an API to ask "what would I currently believe if I'd heard B before A?" No other memory system I'm aware of makes this explicit.
+
+4. **Cross-tool, cross-process.** Every MCP-compatible AI tool reads the same belief store. Your memory isn't trapped inside one app's account. Switch from Claude Desktop to Cursor mid-project, and Cursor sees what Claude Desktop saw.
+
+Plus: plasticity mechanisms (time decay, Hebbian associations, homeostasis, LTP, pruning) that operate during normal use. On 10 real LongMemEval conversations the confidence distribution has std=0.106 (LTD is doing real work) with a mean of 150 Hebbian edges per conversation (an associative graph emerges from use).
 
 ---
 

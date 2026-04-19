@@ -173,6 +173,19 @@ def cmd_mcp(args: argparse.Namespace) -> int:
     return mcp_main()
 
 
+def cmd_install_mcp(args: argparse.Namespace) -> int:
+    """Merge Patha into the Claude Desktop / Claude Code MCP config."""
+    from patha.install import install
+    return install(
+        client=args.client,
+        use_uvx=args.uvx,
+        store_path=args.store_path,
+        detector=args.install_detector,
+        yes=args.yes,
+        dry_run=args.dry_run,
+    )
+
+
 def cmd_viewer(args: argparse.Namespace) -> int:
     """Launch the Streamlit belief viewer."""
     try:
@@ -347,6 +360,41 @@ def main(argv: list[str] | None = None) -> int:
         "mcp", help="Run the Patha MCP server (stdio transport)",
     )
     p_mcp.set_defaults(fn=cmd_mcp)
+
+    # install-mcp — set up Claude Desktop / Claude Code config
+    p_install = sub.add_parser(
+        "install-mcp",
+        help="Configure Claude Desktop (or Claude Code) to use Patha as an "
+             "MCP server. Detects OS, finds the config file, merges safely.",
+    )
+    from patha.install import CLIENTS
+    p_install.add_argument(
+        "--client", choices=list(CLIENTS.keys()), default="claude-desktop",
+        help="Which client to configure (default: claude-desktop).",
+    )
+    p_install.add_argument(
+        "--uvx", action="store_true",
+        help="Use `uvx patha-memory` instead of local checkout (pypi only).",
+    )
+    p_install.add_argument(
+        "--store-path", type=Path, default=None,
+        help="Where to persist the belief store (default: ~/.patha).",
+    )
+    p_install.add_argument(
+        "--install-detector", default="stub",
+        choices=AVAILABLE_DETECTORS,
+        help="Contradiction detector to write into the config "
+             "(default: stub — instant, no downloads).",
+    )
+    p_install.add_argument(
+        "-y", "--yes", action="store_true",
+        help="Don't prompt before writing the config.",
+    )
+    p_install.add_argument(
+        "--dry-run", action="store_true",
+        help="Show what would be written, don't actually write.",
+    )
+    p_install.set_defaults(fn=cmd_install_mcp)
 
     # viewer
     p_viewer = sub.add_parser(

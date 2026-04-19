@@ -1,4 +1,28 @@
-.PHONY: test eval eval-quick eval-32 lint typecheck clean setup-data
+.PHONY: test eval eval-quick eval-32 lint typecheck clean setup-data \
+        verify demo mcp mcp-install viewer
+
+# ── Quickstart targets ───────────────────────────────────────────────
+
+verify:
+	uv run patha verify
+
+demo:
+	uv run patha demo
+
+mcp:
+	uv run patha-mcp
+
+mcp-install:
+	uv run patha install-mcp
+
+mcp-install-dry:
+	uv run patha install-mcp --dry-run
+
+mcp-install-code:
+	uv run patha install-mcp --client claude-code
+
+viewer:
+	uv run patha viewer
 
 # ── Setup ────────────────────────────────────────────────────────────
 

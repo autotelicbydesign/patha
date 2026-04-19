@@ -1,6 +1,14 @@
 # Patha MCP server
 
-Patha plugs into any MCP-compatible AI tool (Claude Desktop, Claude Code, Cursor, Zed, Goose) as a persistent memory layer. After setup, your AI assistant can remember what you've told it across sessions, detect when new assertions contradict old ones, and track how your beliefs evolve over time — all stored locally on your machine.
+Patha plugs into any MCP-compatible AI tool (Claude Desktop, Claude Code, Cursor, Zed, Goose) as a local memory server. Unlike built-in assistant memory (Claude's or ChatGPT's), the belief store is:
+
+- **Inspectable** — a plain `~/.patha/beliefs.jsonl` file you can read, edit, grep, git-diff.
+- **Non-destructive** — old beliefs become *superseded*, not overwritten; you can ask for history.
+- **Explicit about contradictions** — every ingest is tagged `added` / `reinforced` / `superseded`.
+- **Shared across tools** — the same belief store feeds Claude Desktop, Claude Code, Cursor, Zed, Goose simultaneously.
+- **Local-only** — your memory never leaves your machine.
+
+If Claude's built-in memory is enough for your use case, great — don't adopt this. Reach for Patha when you want to see the memory, own it, move it between machines, or share it across AI tools.
 
 ## Install
 
@@ -92,6 +100,10 @@ Environment variables read by the MCP server:
 - **`stub`** (default) — heuristic-only. Fast startup, no downloads. Catches clear asymmetric-negation pairs ("I love X" vs "I don't love X") and exact-entity contradictions. Misses paraphrases ("sushi" vs "raw fish").
 - **`full-stack-v7`** — production detector. NLI (DeBERTa-v3-large MNLI) + adhyāsa lexical rewriting + numerical-change detection + sequential-event detection with additive-veto. Catches the vast majority of real-world supersessions.
 
+**Scale note**: when the belief store grows beyond a hundred or so beliefs, the MCP server's `patha_query` tool automatically applies a lightweight semantic pre-filter (MiniLM cosine similarity, top-40) before running supersession/summary. This prevents unrelated-topic beliefs from diluting the answer and keeps false-positive supersessions from compounding at scale. Disable with `PATHA_SEMANTIC_FILTER=off` if you're debugging.
+
+**Learned classifier (experimental, not default)**: `src/patha/belief/learned_supersession.py` provides a scaffold for training a logistic-regression supersession classifier on top of sentence embeddings. The infrastructure works (train with `python -m patha.belief.learned_supersession`) but the current training set is skewed (245 positive vs 16 negative) and hasn't yielded a production-ready model. Wiring it into the MCP server would be a small change once the dataset is balanced.
+
 For first-time users, start with `stub`. Once you're comfortable and want serious contradiction handling:
 
 ```bash
@@ -108,6 +120,10 @@ Every ingest appends to `~/.patha/beliefs.jsonl` (an event log). The store is:
 - **Safe for concurrent access** — CLI and MCP server can both write; JSONL appends don't corrupt.
 - **Portable** — copy the file to move your memory between machines.
 - **Inspectable** — `uv run patha viewer` opens a Streamlit dashboard over it.
+
+## End-to-end testing
+
+For a step-by-step verification checklist (ingest through Claude, confirm persistence across restart, observe supersession, open the viewer), see [e2e-test-claude-desktop.md](e2e-test-claude-desktop.md).
 
 ## Troubleshooting
 

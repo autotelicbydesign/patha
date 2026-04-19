@@ -210,6 +210,7 @@ class IntegratedPatha:
         at_time: datetime | None = None,
         phase1_top_k: int = 20,
         include_history: bool = False,
+        candidate_belief_ids: list[str] | None = None,
     ) -> IntegratedResponse:
         """Answer a question by running Phase 1 + Phase 2 end-to-end.
 
@@ -226,23 +227,36 @@ class IntegratedPatha:
             If True, structured and direct-answer responses include
             supersession lineage. If False (default), only current
             state is returned.
+        candidate_belief_ids
+            Explicit list of belief ids to consider. When set, bypasses
+            both Phase 1 retrieval and the default "all current beliefs"
+            fallback. Use this to wire a lightweight pre-filter (e.g.,
+            semantic retrieval via SemanticBeliefFilter) without
+            building a full Phase 1 pipeline.
         """
-        # 1. Phase 1 retrieval — candidate propositions
-        if self._phase1_retrieve is not None:
-            proposition_ids = list(self._phase1_retrieve(question, phase1_top_k))
+        # 1. Retrieval — narrow the candidate set
+        if candidate_belief_ids is not None:
+            # Caller provided explicit belief ids (e.g., after semantic
+            # filter). Skip Phase 1 lookup; use them directly.
+            belief_ids = list(candidate_belief_ids)
         else:
-            # Fallback: candidate = every current belief's source proposition
-            proposition_ids = [
-                b.source_proposition_id
-                for b in self.belief_layer.store.current()
-            ]
+            if self._phase1_retrieve is not None:
+                proposition_ids = list(
+                    self._phase1_retrieve(question, phase1_top_k)
+                )
+            else:
+                # Fallback: candidate = every current belief's source proposition
+                proposition_ids = [
+                    b.source_proposition_id
+                    for b in self.belief_layer.store.current()
+                ]
 
-        # 2. Map Phase 1 proposition ids → Phase 2 belief ids
-        belief_ids: list[str] = []
-        for pid in proposition_ids:
-            belief = self.belief_layer.store.by_proposition(pid)
-            if belief is not None:
-                belief_ids.append(belief.id)
+            # 2. Map Phase 1 proposition ids → Phase 2 belief ids
+            belief_ids = []
+            for pid in proposition_ids:
+                belief = self.belief_layer.store.by_proposition(pid)
+                if belief is not None:
+                    belief_ids.append(belief.id)
 
         # 3. Phase 2 belief-layer filter
         result = self.belief_layer.query(
