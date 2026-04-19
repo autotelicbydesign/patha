@@ -1,0 +1,32 @@
+{
+  "_comment": "Drop this block under the top-level 'mcpServers' key in your Claude Desktop config (macOS: ~/Library/Application Support/Claude/claude_desktop_config.json; or for Claude Code: ~/.claude/config.json). See docs/mcp.md for full instructions.",
+
+  "mcpServers": {
+
+    "_option_a_pypi_install": {
+      "_note": "Once patha-memory is published to pypi, this is the one-line install.",
+      "command": "uvx",
+      "args": ["patha-memory", "patha-mcp"],
+      "env": {
+        "PATHA_DETECTOR": "full-stack-v7",
+        "PATHA_STORE_PATH": "/Users/YOURNAME/.patha"
+      }
+    },
+
+    "_option_b_local_checkout": {
+      "_note": "For a local clone of github.com/autotelicbydesign/patha. Replace PROJECT_PATH with the absolute path to your clone. Fastest first-run: uses stub detector (no 1.7 GB download). Upgrade to full-stack-v7 once you've confirmed it works.",
+      "command": "uv",
+      "args": ["run", "--project", "/ABSOLUTE/PATH/TO/patha", "patha-mcp"],
+      "env": {
+        "PATHA_DETECTOR": "stub",
+        "PATHA_STORE_PATH": "/Users/YOURNAME/.patha"
+      }
+    },
+
+    "patha": {
+      "_note": "Copy EITHER option_a OR option_b above, rename to 'patha', and delete these placeholder keys. This is just the shape the final config should have.",
+      "command": "uv",
+      "args": ["run", "--project", "/ABSOLUTE/PATH/TO/patha", "patha-mcp"]
+    }
+  }
+}

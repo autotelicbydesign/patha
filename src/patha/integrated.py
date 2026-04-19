@@ -155,6 +155,7 @@ class IntegratedPatha:
         speaker: str = "user",
         raw_content: str | None = None,
         source_name: str = "integrated",
+        context: str | None = None,
     ) -> IngestEvent:
         """Ingest one proposition into the belief layer (and archive).
 
@@ -197,6 +198,7 @@ class IntegratedPatha:
             asserted_at=asserted_at,
             asserted_in_session=asserted_in_session,
             source_proposition_id=source_proposition_id,
+            context=context,
         )
 
     # ── query path ──────────────────────────────────────────────────

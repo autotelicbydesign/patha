@@ -33,6 +33,18 @@ dependencies = [
 colbert = ["colbert-ai>=0.2.21"]
 # offline batched inference runtime
 vllm = ["vllm>=0.6"]
+# MCP server — plugs Patha into Claude Desktop / Code / Cursor / Zed / Goose
+mcp = [
+    "mcp>=1.0",
+]
+# Streamlit belief viewer — visual inspection of the belief store
+viewer = [
+    "streamlit>=1.38",
+    "pyvis>=0.3",
+    "plotly>=5.20",
+    "pandas>=2.0",
+    "networkx>=3.2",
+]
 # dev / test / eval viewer
 dev = [
     "pytest>=8.3",
@@ -44,6 +56,8 @@ dev = [
 
 [project.scripts]
 patha = "patha.cli:main"
+patha-mcp = "patha.mcp_server:main"
+patha-viewer = "patha.viewer.app:main"
 
 [build-system]
 requires = ["hatchling"]

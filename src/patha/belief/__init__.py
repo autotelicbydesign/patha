@@ -16,6 +16,11 @@ from patha.belief.contradiction import (
     NLIContradictionDetector,
     StubContradictionDetector,
 )
+from patha.belief.detector_factory import (
+    AVAILABLE_DETECTORS,
+    describe_detector,
+    make_detector,
+)
 from patha.belief.direct_answer import (
     DirectAnswer,
     DirectAnswerer,
@@ -143,4 +148,8 @@ __all__ = [
     "BeliefQueryResult",
     "IngestAction",
     "IngestEvent",
+    # Detector factory (shared by CLI / MCP / viewer / eval)
+    "make_detector",
+    "describe_detector",
+    "AVAILABLE_DETECTORS",
 ]
