@@ -143,6 +143,28 @@ def test_mcp_full_roundtrip():
         assert store_file.exists()
         assert store_file.stat().st_size > 0
 
+        # Step 10: list resources (v0.9 adds these for auto-context)
+        _send(proc, {
+            "jsonrpc": "2.0", "id": 8, "method": "resources/list",
+        })
+        resp = _recv(proc)
+        resource_uris = {r["uri"] for r in resp["result"]["resources"]}
+        assert "patha://beliefs/current" in resource_uris
+        assert "patha://beliefs/all" in resource_uris
+        assert "patha://stats" in resource_uris
+
+        # Step 11: read the current-beliefs resource
+        _send(proc, {
+            "jsonrpc": "2.0", "id": 9,
+            "method": "resources/read",
+            "params": {"uri": "patha://beliefs/current"},
+        })
+        resp = _recv(proc)
+        text = resp["result"]["contents"][0]["text"]
+        # We ingested 2 beliefs above; both should be present
+        assert "sushi" in text.lower()
+        assert "raw fish" in text.lower()
+
     finally:
         proc.terminate()
         try:

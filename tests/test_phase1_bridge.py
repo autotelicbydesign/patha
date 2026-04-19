@@ -13,6 +13,7 @@ from pathlib import Path
 from patha.belief.store import BeliefStore
 from patha.models.embedder import StubEmbedder
 from patha.phase1_bridge import (
+    LazyPhase1Retriever,
     build_phase1_indexes,
     build_phase1_retriever,
 )
@@ -67,3 +68,61 @@ class TestBuildPhase1Retriever:
         assert all(r.startswith("src-") for r in results)
         # Should return at most top_k items
         assert len(results) <= 2
+
+
+class TestLazyPhase1Retriever:
+    def test_builds_on_first_call_not_construction(self, tmp_path):
+        """Constructing the retriever must NOT build indexes yet —
+        that's the whole point of laziness. Claude Desktop startup
+        stays fast."""
+        store = BeliefStore(persistence_path=tmp_path / "beliefs.jsonl")
+        _populate(store)
+        retriever = LazyPhase1Retriever(store, embedder=StubEmbedder())
+        # Before any call: not built
+        assert retriever.is_built is False
+        # First call builds
+        retriever("tea", 2)
+        assert retriever.is_built is True
+
+    def test_invalidate_triggers_rebuild(self, tmp_path):
+        store = BeliefStore(persistence_path=tmp_path / "beliefs.jsonl")
+        _populate(store)
+        retriever = LazyPhase1Retriever(store, embedder=StubEmbedder())
+        retriever("initial", 2)
+        assert retriever.is_built is True
+
+        retriever.invalidate()
+        # After invalidate: not built
+        assert retriever.is_built is False
+
+        # Next call rebuilds
+        retriever("after-invalidate", 2)
+        assert retriever.is_built is True
+
+    def test_newly_added_belief_findable_after_invalidate(self, tmp_path):
+        """Realistic MCP flow: ingest → query. The new belief must be
+        retrievable after invalidate() runs."""
+        store = BeliefStore(persistence_path=tmp_path / "beliefs.jsonl")
+        _populate(store)
+        retriever = LazyPhase1Retriever(store, embedder=StubEmbedder())
+        retriever("tea", 2)
+
+        # Add a new belief. Without invalidate, it wouldn't be indexed.
+        store.add(
+            proposition="I just got a new laptop",
+            asserted_at=datetime(2024, 2, 1),
+            asserted_in_session="s-new",
+            source_proposition_id="src-new",
+        )
+        retriever.invalidate()
+
+        # Rebuild happens on next call. The new belief should be
+        # retrievable (StubEmbedder is deterministic so relative
+        # scoring is predictable).
+        results = retriever("laptop", 5)
+        assert "src-new" in results
+
+    def test_empty_store_returns_empty(self, tmp_path):
+        store = BeliefStore(persistence_path=tmp_path / "beliefs.jsonl")
+        retriever = LazyPhase1Retriever(store, embedder=StubEmbedder())
+        assert retriever("anything", 5) == []

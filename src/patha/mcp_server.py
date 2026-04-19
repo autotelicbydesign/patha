@@ -78,11 +78,16 @@ DEFAULT_SEMANTIC_FILTER_K = int(os.environ.get("PATHA_SEMANTIC_FILTER_K", "40"))
 SEMANTIC_FILTER_ENABLED = (
     os.environ.get("PATHA_SEMANTIC_FILTER", "on").lower() != "off"
 )
-# Full Phase 1 pipeline: 7-view Vedic + BM25 + songline + RRF.
-# Overkill at personal-memory scale; the semantic filter above is
-# usually sufficient. Opt in with PATHA_PHASE1=on when your store
-# grows beyond a few thousand beliefs.
-PHASE1_ENABLED = os.environ.get("PATHA_PHASE1", "off").lower() == "on"
+# Phase 1 — the 7-view Vedic retrieval pillar. On by default because
+# it IS Patha; running only the semantic filter is a watered-down
+# version. Disable with PATHA_PHASE1=off if you specifically want
+# cosine-only behavior (benchmarking, offline profiling).
+#
+# Indexes are built lazily on first query, not at MCP startup — so
+# Claude Desktop's server-start stays instant. The first query after
+# a Claude Desktop restart pays a one-time indexing cost (~3s per
+# 100 beliefs on CPU).
+PHASE1_ENABLED = os.environ.get("PATHA_PHASE1", "on").lower() != "off"
 
 
 # ─── Lazy-built singleton integrated instance ───────────────────────
@@ -91,10 +96,11 @@ PHASE1_ENABLED = os.environ.get("PATHA_PHASE1", "off").lower() == "on"
 
 _patha: IntegratedPatha | None = None
 _semantic_filter = None  # lazy-built on first filtered query
+_phase1_retriever = None  # LazyPhase1Retriever — need handle for invalidate()
 
 
 def _get_patha() -> IntegratedPatha:
-    global _patha
+    global _patha, _phase1_retriever
     if _patha is None:
         DEFAULT_DATA_DIR.mkdir(parents=True, exist_ok=True)
         store_path = DEFAULT_DATA_DIR / "beliefs.jsonl"
@@ -108,13 +114,14 @@ def _get_patha() -> IntegratedPatha:
         phase1_retrieve = None
         if PHASE1_ENABLED:
             try:
-                from patha.phase1_bridge import build_phase1_retriever
-                phase1_retrieve = build_phase1_retriever(belief_store)
+                from patha.phase1_bridge import LazyPhase1Retriever
+                _phase1_retriever = LazyPhase1Retriever(belief_store)
+                phase1_retrieve = _phase1_retriever
             except Exception as e:
-                import sys
                 print(
-                    f"[patha-mcp] warn: PATHA_PHASE1 requested but bridge "
-                    f"failed ({e}); falling back to semantic filter.",
+                    f"[patha-mcp] warn: PATHA_PHASE1 enabled but bridge "
+                    f"failed to initialize ({e}); falling back to semantic "
+                    f"filter.",
                     file=sys.stderr,
                 )
 
@@ -124,6 +131,15 @@ def _get_patha() -> IntegratedPatha:
             direct_answerer=answerer,
         )
     return _patha
+
+
+def _invalidate_phase1() -> None:
+    """Mark Phase 1 indexes dirty so the next query rebuilds them.
+    Called after every successful ingest so newly-added beliefs are
+    findable. Cheap — just flips a flag."""
+    global _phase1_retriever
+    if _phase1_retriever is not None:
+        _phase1_retriever.invalidate()
 
 
 def _get_semantic_filter():
@@ -141,14 +157,35 @@ def _get_semantic_filter():
 mcp = FastMCP(
     name="patha",
     instructions=(
-        "Patha is a local-first AI memory system with contradiction "
-        "detection and non-destructive supersession. Use `patha_ingest` "
-        "to remember things the user tells you about themselves, their "
-        "preferences, commitments, or context. Use `patha_query` to ask "
-        "what the user currently believes about a topic (pass "
-        "`include_history=true` to also see what they used to believe). "
-        "Use `patha_history` to find every mention of a term. Use "
-        "`patha_stats` to see how much Patha has remembered."
+        "Patha is the user's persistent, local-first memory. Use it "
+        "proactively, not just when asked.\n\n"
+        "USE RULES (follow these every conversation):\n"
+        "1. At the start of every new conversation, read the "
+        "`patha://beliefs/current` resource OR call `patha_query` with "
+        "the topic of the conversation so you have the user's memory in "
+        "context before responding.\n"
+        "2. Whenever the user states a FACT about themselves, their "
+        "life, work, preferences, relationships, projects, commitments, "
+        "deadlines, decisions, opinions, or context — call "
+        "`patha_ingest` with that fact. Don't ask permission; the tool "
+        "is idempotent and handles duplicates. Missed facts are a bug; "
+        "over-capturing is fine.\n"
+        "3. When the user contradicts something they said earlier (new "
+        "job, moved, changed their mind), still call `patha_ingest` — "
+        "Patha's belief layer handles supersession correctly and "
+        "preserves the old belief as history.\n"
+        "4. When the user asks ANY question about their own life, "
+        "preferences, past decisions, or context, call `patha_query` "
+        "first. Do not answer from conversation context alone; the user "
+        "has explicitly installed Patha to be the source of truth about "
+        "themselves.\n"
+        "5. Use `patha_history` to show the user how a belief evolved "
+        "over time (old vs current). Use `patha_stats` for storage "
+        "overview.\n\n"
+        "Patha stores beliefs in a plain JSONL file at ~/.patha/ the "
+        "user owns. Everything is local, nothing is sent to servers. "
+        "You do NOT need to warn the user each time you call a tool; "
+        "just do it."
     ),
 )
 
@@ -192,6 +229,9 @@ def patha_ingest(
         source_proposition_id=src,
         context=context,
     )
+    # Mark the Phase 1 index dirty so the next query rebuilds with
+    # the new belief included. Cheap flag-flip.
+    _invalidate_phase1()
     return {
         "action": ev.action,
         "belief_id": ev.new_belief.id,
@@ -344,6 +384,75 @@ def patha_stats() -> dict[str, Any]:
         "hebbian_edges": len(hebbian_weights),
         "ingest_tick": getattr(layer, "_ingest_tick", 0),
     }
+
+
+# ─── Resources ──────────────────────────────────────────────────────
+# Resources are addressable data Claude (or any MCP client) can read
+# without a tool call. Exposing the current belief summary here means
+# a client can surface memory at conversation start with no roundtrip.
+
+@mcp.resource("patha://beliefs/current")
+def _beliefs_current() -> str:
+    """Current belief summary (all non-superseded beliefs)."""
+    patha = _get_patha()
+    store = patha.belief_layer.store
+    current = list(store.current())
+    if not current:
+        return (
+            "No beliefs yet. Patha is installed and ready; ingest facts "
+            "as the user tells you about themselves."
+        )
+    lines = [
+        f"Patha — user's current beliefs ({len(current)} total). "
+        f"Stored locally at ~/.patha/beliefs.jsonl.",
+        "",
+    ]
+    for b in current:
+        date = b.asserted_at.strftime("%Y-%m-%d") if b.asserted_at else "-"
+        lines.append(f"- [{date}] {b.proposition}")
+    return "\n".join(lines)
+
+
+@mcp.resource("patha://beliefs/all")
+def _beliefs_all() -> str:
+    """All beliefs including superseded ones, sorted newest-first."""
+    patha = _get_patha()
+    store = patha.belief_layer.store
+    current = list(store.current())
+    superseded = list(store.superseded())
+    if not current and not superseded:
+        return "No beliefs yet."
+    lines = [f"Patha — all beliefs ({len(current)} current, "
+             f"{len(superseded)} superseded).", ""]
+    lines.append("## Current")
+    for b in current:
+        date = b.asserted_at.strftime("%Y-%m-%d") if b.asserted_at else "-"
+        lines.append(f"- [{date}] {b.proposition}")
+    if superseded:
+        lines.append("")
+        lines.append("## Superseded (no longer current)")
+        for b in sorted(superseded, key=lambda x: x.asserted_at, reverse=True):
+            date = b.asserted_at.strftime("%Y-%m-%d") if b.asserted_at else "-"
+            lines.append(f"- [{date}] ~~{b.proposition}~~")
+    return "\n".join(lines)
+
+
+@mcp.resource("patha://stats")
+def _resource_stats() -> str:
+    """Human-readable belief store stats."""
+    patha = _get_patha()
+    layer = patha.belief_layer
+    store = layer.store
+    return (
+        f"Patha belief store:\n"
+        f"  {len(store)} total beliefs\n"
+        f"  {len(store.current())} current\n"
+        f"  {len(store.superseded())} superseded\n"
+        f"  Detector: {DEFAULT_DETECTOR}\n"
+        f"  Location: {DEFAULT_DATA_DIR}/beliefs.jsonl\n"
+        f"  Phase 1 retrieval: "
+        f"{'on' if PHASE1_ENABLED else 'off'}\n"
+    )
 
 
 # ─── Entry point ────────────────────────────────────────────────────

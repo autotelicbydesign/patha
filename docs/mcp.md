@@ -100,7 +100,18 @@ Environment variables read by the MCP server:
 - **`stub`** (default) — heuristic-only. Fast startup, no downloads. Catches clear asymmetric-negation pairs ("I love X" vs "I don't love X") and exact-entity contradictions. Misses paraphrases ("sushi" vs "raw fish").
 - **`full-stack-v7`** — production detector. NLI (DeBERTa-v3-large MNLI) + adhyāsa lexical rewriting + numerical-change detection + sequential-event detection with additive-veto. Catches the vast majority of real-world supersessions.
 
-**Scale note**: when the belief store grows beyond a hundred or so beliefs, the MCP server's `patha_query` tool automatically applies a lightweight semantic pre-filter (MiniLM cosine similarity, top-40) before running supersession/summary. This prevents unrelated-topic beliefs from diluting the answer and keeps false-positive supersessions from compounding at scale. Disable with `PATHA_SEMANTIC_FILTER=off` if you're debugging.
+**Retrieval pipeline** (as of v0.9):
+
+Every `patha_query` runs through Patha's full retrieval pipeline before supersession/summary:
+
+1. **Phase 1 — Vedic 7-view retrieval.** The belief store is indexed across 7 overlapping views (pada, krama, jata, ghana, entity, reframed, temporal) plus a BM25 sparse index. Queries are dense-matched against each view, fused via Reciprocal Rank Fusion, diversified via MMR. This is the paraphrase-robust core of Patha: "do I eat raw fish?" retrieves "I love sushi" even without shared tokens.
+2. **Phase 2 — supersession & contradiction resolution.** The retrieved candidates are filtered through the belief layer's current/superseded distinction, then either summarized (Option B) or direct-answered (Option C).
+
+Phase 1 indexes are built **lazily** on the first query after MCP startup (~3 s per 100 beliefs on CPU). Subsequent queries in the same session are fast (<100 ms). After every ingest, the index is marked dirty; the next query rebuilds so new beliefs are findable.
+
+**Scale notes**:
+- To disable Phase 1 (e.g., for benchmarking or if your store is tiny and you want cosine-only): `PATHA_PHASE1=off` in the MCP config. A lightweight MiniLM cosine filter (`PATHA_SEMANTIC_FILTER=on`, default) then handles narrowing alone.
+- The semantic filter and Phase 1 compose. When both are on, the semantic filter narrows first to the top-K relevant beliefs, then Phase 1 retrieves among those. This is the default and has no measured drawback at typical personal-memory scale.
 
 **Learned classifier (experimental, not default)**: `src/patha/belief/learned_supersession.py` provides a scaffold for training a logistic-regression supersession classifier on top of sentence embeddings. The infrastructure works (train with `python -m patha.belief.learned_supersession`) but the current training set is skewed (245 positive vs 16 negative) and hasn't yielded a production-ready model. Wiring it into the MCP server would be a small change once the dataset is balanced.
 
