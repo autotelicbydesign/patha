@@ -2,6 +2,37 @@
 
 10-minute checklist to verify Patha works through a real Claude Desktop session. Use this after `uv sync && make mcp-install` and after a fresh Claude Desktop restart.
 
+## Live verification log (2026-04-20)
+
+This guide was dogfooded end-to-end against a real Claude Desktop install. Results:
+
+| Step | Result |
+|---|---|
+| `make mcp-install --install-detector stub -y` | ✓ config written to `~/Library/Application Support/Claude/claude_desktop_config.json` (existing keys preserved, old config backed up) |
+| Claude Desktop loads the MCP server | ✓ four tools (`patha_ingest`, `patha_query`, `patha_history`, `patha_stats`) become callable in every MCP-aware Claude session |
+| `patha_stats` on fresh store | ✓ returns `{total_beliefs: 0, detector: "stub", ...}` |
+| `patha_ingest` × 4 (Sofia, Anthropic work, vegetarian, moved-to-Lisbon) | ✓ each returns `action: "added"` with a UUID belief_id |
+| `patha_stats` after ingests | ✓ `total_beliefs: 4, current: 4, ingest_tick: 4` |
+| `patha_query("what do I do for work?")` | ✓ `strategy: "structured"`, semantic filter narrowed 4 beliefs → 1 (only the Anthropic work belief surfaced) |
+| `patha_history("Sofia")` | ✓ returns both Sofia beliefs (live + the moved-to-Lisbon mention) |
+| `~/.patha/beliefs.jsonl` on disk | ✓ 5 lines, plain JSON, grep-able, editable |
+| Supersession with `stub` detector | ✗ expected — stub is heuristic-only, doesn't catch paraphrastic contradictions. Upgrade to `full-stack-v7` or `full-stack-v8` (below) |
+| `full-stack-v7` on same pair via direct API | ✓ `"I live in Sofia"` vs `"I just moved to Lisbon"` → CONTRADICTS @ 0.85 |
+
+**Upgrading to production detector** — if the stub output is too limited, edit `~/Library/Application Support/Claude/claude_desktop_config.json` and change:
+
+```json
+"PATHA_DETECTOR": "full-stack-v8"
+```
+
+Pre-download the NLI weights (~1.7 GB) before restarting Claude Desktop so it doesn't appear to hang on first ingest:
+
+```bash
+PATHA_DETECTOR=full-stack-v8 uv run patha verify --preload
+```
+
+Full quit + reopen Claude Desktop. Subsequent ingests will catch paraphrastic supersessions, sequential events ("moved to", "passed away", "upgraded to"), numerical changes ("rent 1500 → 1800"), and fire the learned classifier on topically-similar supersession markers.
+
 ## What you're verifying
 
 1. Claude Desktop sees the Patha MCP server in its tools list.
