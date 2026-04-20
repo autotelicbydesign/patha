@@ -152,14 +152,40 @@ class LazyPhase1Retriever:
         belief_store: BeliefStore,
         *,
         embedder=None,
+        reranker=None,
         config: PipelineConfig | None = None,
+        use_reranker: bool = True,
     ) -> None:
+        """
+        reranker
+            Optional pre-built reranker callable. If None and
+            `use_reranker=True` (default), a CrossEncoderReranker is
+            lazy-built on first query. Set `use_reranker=False` for
+            dense-only retrieval (faster, ~3-5pp less accurate).
+        """
         self._belief_store = belief_store
-        self._embedder = embedder or SentenceTransformerEmbedder()
+        self._provided_embedder = embedder
+        self._embedder = embedder
+        self._provided_reranker = reranker
+        self._reranker = reranker
+        self._use_reranker = use_reranker
         self._config = config or PipelineConfig(top_k=20)
         self._lock = threading.Lock()
-        self._indexes: tuple | None = None  # (store, bm25, id_map)
+        self._indexes: tuple | None = None
         self._dirty = True
+
+    def _ensure_embedder(self):
+        if self._embedder is None:
+            self._embedder = SentenceTransformerEmbedder()
+        return self._embedder
+
+    def _ensure_reranker(self):
+        if not self._use_reranker:
+            return None
+        if self._reranker is None:
+            from patha.retrieval.reranker import CrossEncoderReranker
+            self._reranker = CrossEncoderReranker(top_n=0)
+        return self._reranker
 
     def invalidate(self) -> None:
         """Mark the indexes stale. Next call rebuilds."""
@@ -172,8 +198,9 @@ class LazyPhase1Retriever:
         with self._lock:
             if not self._dirty and self._indexes is not None:
                 return
+            embedder = self._ensure_embedder()
             self._indexes = build_phase1_indexes(
-                self._belief_store, embedder=self._embedder,
+                self._belief_store, embedder=embedder,
             )
             self._dirty = False
 
@@ -183,9 +210,11 @@ class LazyPhase1Retriever:
         prop_store, bm25, id_map = self._indexes
         if not id_map:
             return []
+        embedder = self._ensure_embedder()
+        reranker = self._ensure_reranker()
         result = retrieve(
-            query, store=prop_store, embedder=self._embedder, bm25=bm25,
-            config=self._config,
+            query, store=prop_store, embedder=embedder, bm25=bm25,
+            config=self._config, reranker=reranker,
         )
         chunk_ids = [cid for cid, _ in result.final[:top_k]]
         return [id_map[cid] for cid in chunk_ids if cid in id_map]

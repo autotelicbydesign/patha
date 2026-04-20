@@ -140,17 +140,58 @@ class Memory:
         path: str | Path | None = None,
         *,
         detector: str = "stub",
+        enable_phase1: bool = True,
+        phase1_top_k: int = 20,
     ) -> None:
+        """
+        enable_phase1
+            If True (default), every `.recall()` routes through the
+            full Phase 1 retrieval pipeline (7-view Vedic + BM25 + RRF)
+            before Phase 2's belief-layer filter. Disable only for
+            tiny stores where the lazy-build cost isn't worth it.
+        phase1_top_k
+            How many candidates Phase 1 returns to the belief layer.
+            Default 20 is fine for focused conversational memory.
+            For benchmark-style retrieval where many competing chunks
+            exist (LongMemEval), 100–200 gives the belief layer enough
+            room to find the answer. Trade-off: bigger summaries.
+        """
         path = Path(path) if path is not None else (Path.home() / ".patha" / "beliefs.jsonl")
         path.parent.mkdir(parents=True, exist_ok=True)
         self._path = path
         self._detector_name = detector
+        self._phase1_enabled = enable_phase1
+        self._phase1_top_k = phase1_top_k
 
         store = BeliefStore(persistence_path=path)
         layer = BeliefLayer(store=store, detector=make_detector(detector))
+
+        phase1_retrieve = None
+        self._phase1_retriever = None
+        if enable_phase1:
+            try:
+                from patha.phase1_bridge import LazyPhase1Retriever
+                from patha.retrieval.pipeline import PipelineConfig
+                # MMR caps the pipeline's intermediate output, so it
+                # must be at least as big as top_k (and big enough to
+                # survive session_cap=2 trimming on LongMemEval-scale
+                # data with ~40 sessions per question).
+                cfg = PipelineConfig(
+                    top_k=phase1_top_k,
+                    mmr_k=max(phase1_top_k, 30),
+                    mmr_session_cap=max(5, phase1_top_k // 20),
+                )
+                self._phase1_retriever = LazyPhase1Retriever(
+                    store, config=cfg,
+                )
+                phase1_retrieve = self._phase1_retriever
+            except Exception:
+                self._phase1_enabled = False
+
         self._patha = IntegratedPatha(
             belief_layer=layer,
             direct_answerer=DirectAnswerer(layer.store),
+            phase1_retrieve=phase1_retrieve,
         )
 
     # ─── Primary API ────────────────────────────────────────────────
@@ -179,6 +220,10 @@ class Memory:
             source_proposition_id=src,
             context=context,
         )
+        # Phase 1 index is now stale for the new belief; next recall()
+        # rebuilds. Cheap flag-flip.
+        if self._phase1_retriever is not None:
+            self._phase1_retriever.invalidate()
         return {
             "action": ev.action,
             "belief_id": ev.new_belief.id,
@@ -203,6 +248,7 @@ class Memory:
             question,
             at_time=at_time or datetime.now(),
             include_history=include_history,
+            phase1_top_k=self._phase1_top_k,
         )
         return Recall(response, include_history=include_history)
 

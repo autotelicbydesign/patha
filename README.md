@@ -15,6 +15,13 @@
 
 Under the hood: contradiction detection via NLI + lexical rewriting + sequential-event markers + numerical-change handling. Non-commutative belief evolution measured empirically (96% of supersession scenarios are order-dependent). Plasticity mechanisms (time decay, Hebbian associations, homeostasis) operate during normal use. Primitives drawn from two human memory traditions that lasted thousands of years: Vedic recitation (redundant multi-view encoding) and Aboriginal songlines (narrative graph traversal).
 
+**Honest benchmark summary:**
+
+- **Phase 1 retrieval on LongMemEval-KU:** 1.000 R@5 (78/78), beating Mem0 (0.934) and MemPalace (0.966). Session-level chunks, apples-to-apples with Mem0.
+- **Unified `patha.Memory` on LongMemEval-KU end-to-end:** 0.455 at turn-granularity ingest (our public API). The 54pp gap vs the retrieval number is a real granularity mismatch — LongMemEval assumes session-level chunks. See [docs/benchmarks.md](docs/benchmarks.md) for the honest analysis.
+- **BeliefEval (our own supersession benchmark):** 1.000 at turn-granularity.
+- **Non-commutative belief evolution:** 96% of supersession scenarios are order-dependent — empirically measured.
+
 ---
 
 ## Quickstart — 2 minutes

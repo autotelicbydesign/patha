@@ -4,19 +4,53 @@ This file holds the detailed benchmark numbers that used to live in the README. 
 
 ## Quick comparison (LongMemEval-KU, head-to-head)
 
+Two different claims to distinguish, because they measure different things:
+
+### Claim A: Phase 1 retrieval — session-level R@5
+
 | System | R@5 on LongMemEval-KU (78q) | Source |
 |---|:---:|---|
-| **Patha Phase 1** | **1.000 (78/78)** | this repo, v0.9.1, `make eval-ku` |
-| MemPalace | 0.966 | [MemPalace paper](https://github.com/milla-jovovich/mempalace) (raw mode, 500q — not directly comparable; KU subset not broken out) |
+| **Patha Phase 1** | **1.000 (78/78)** | this repo, `make eval-ku`, session-level chunks |
+| MemPalace | 0.966 | [MemPalace paper](https://github.com/milla-jovovich/mempalace) (raw mode, 500q — 78q KU subset not broken out) |
 | Mem0 | 0.934 | [Mem0 paper, arXiv:2504.19413](https://arxiv.org/abs/2504.19413) |
 
-Caveats on this table worth reading:
+This is the **retrieval-quality claim.** "Did Phase 1 rank the gold session in the top-5?" Patha Phase 1 gets this right on every one of the 78 questions. The comparison is apples-to-apples with Mem0 on LongMemEval-KU.
 
-- **MemPalace's 0.966** is R@5 on the full 500-question LongMemEval-S. They don't report the 78-question KU subset separately. We report our Phase-1 result on the same 500q in the "Per-stratum" section below where it's directly comparable; our 0.989 on the 100-question stratified sample and our 1.000 on the KU subset both beat it on the strata that are comparable.
-- **Mem0's 0.934** is their published Mem0-RAG number on LongMemEval-KU specifically (see their paper Table 4). This IS directly comparable.
-- Patha doesn't yet have the full 500q LongMemEval-S number — the eval needs >32 GB RAM and hasn't been run end-to-end on our hardware. The 100-question stratified sample result (0.989) is the cleanest available stand-in.
+### Claim B: Unified Patha end-to-end — answer-in-summary at turn granularity
 
-If you want to re-run these: `uv run make eval-ku` for the 78q, `uv run make eval-100` for the 100q stratified sample.
+| Configuration | Accuracy (78q) | Notes |
+|---|:---:|---|
+| `patha.Memory(phase1_top_k=20)` — default | 0.325 (25/77) | one question errored; reranker buried answers |
+| `patha.Memory(phase1_top_k=100)` — wider candidates | **0.455 (35/77)** | current best on the unified pipeline |
+| Stub baseline (no supersession, keep everything) | 0.795 (62/78) | from v0.7 prior runs — dumb upper bound for lexical-overlap scoring |
+
+This is the **end-to-end product claim** run through the unified `patha.Memory` API that a developer would actually import. Every user turn is ingested as a separate belief; Phase 1 retrieves top-K belief candidates; Phase 2 filters current vs superseded; a structured summary is returned; we check if the gold answer text appears in that summary.
+
+### The gap between A and B is real and honest
+
+The two claims differ by **54.5 percentage points** on the same benchmark. Three compounding reasons:
+
+1. **Granularity mismatch.** Phase 1's 100% was measured with one embedding per SESSION (~10 turns packed together). The unified `Memory` stores one belief per TURN. The gold session's "charity 5K" + "25:50 personal best" context gets split across 7 separate beliefs that now compete against each other and against similar turns from unrelated sessions. LongMemEval is authored assuming session-chunking.
+
+2. **Reranker can rank the gold below the bait.** On Q1 traced in detail: the cross-encoder reranks 7 turns from the gold session highly (scores 4–7), but the specific turn containing "25:50" scores -10.998, pushed to rank 14 — behind near-duplicate phrasings from other sessions. Even at top_k=100 the answer-containing turn sometimes falls outside the returned set.
+
+3. **Phase 2's value isn't measured here.** LongMemEval tests retrieval, not belief supersession or contradiction handling. The contradiction-detection machinery (adhyāsa, numerical, sequential, learned classifier) adds no signal for these questions because no belief contradicts any other — users aren't revising their 5K time.
+
+### Which claim is "the real Patha number"?
+
+Both, for different audiences.
+
+- **If you're comparing against Mem0/MemPalace as retrieval systems: Claim A (1.000) stands.** It's the apples-to-apples number.
+- **If you're a developer asking "what will `patha.Memory` deliver on my chatbot": Claim B (0.455) is what to expect on LongMemEval-style data.** That's lower than Mem0 by 48pp on this benchmark.
+- **For typical conversational memory use** (users asserting facts about themselves, not ingesting haystack sessions), Claim B is probably an under-estimate because the turn-granularity mismatch doesn't apply. We haven't yet benchmarked that case; BeliefEval (our own scenarios) scores 1.000 at turn-granularity because the scenarios ARE at turn granularity.
+
+### Real paths to close the gap
+
+- **Session-level ingest mode** in the integrated API. One belief per session; Phase 2's supersession loses fine-grained resolution inside a session but retrieval granularity matches the benchmark. Would likely recover most of the 54pp. Structural, not just a config.
+- **Hybrid chunking**: store both session-level (for retrieval) and turn-level (for supersession) indexes. More invasive; duplicate storage.
+- **Phase 1 pipeline tuning for turn granularity**: retrain the reranker on turn-level data, adjust MMR, disable session_cap. Research work, not a switch.
+
+Reproduce: `uv run make eval-ku` for Claim A, `uv run python -m eval.longmemeval_integrated` for Claim B.
 
 ## Phase 1 — LongMemEval retrieval
 

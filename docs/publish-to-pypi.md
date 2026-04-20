@@ -1,16 +1,17 @@
 # Publishing Patha to PyPI
 
-Status: wheel + sdist built locally at `dist/`. Final publish requires your PyPI credentials, so it's a manual step — not something Claude Code can do for you.
+Status: wheel + sdist built locally at `dist/` as **v0.9.1**. Final publish requires your PyPI credentials, so it's a manual step — not something Claude Code can do for you.
 
-## Pre-flight checks (already passing)
+## Pre-flight checks (all passing as of v0.9.1)
 
-- [x] **Name available.** `pypi.org/simple/patha/` → 404 and `pypi.org/simple/patha-memory/` → 404 verified today. `patha` is unclaimed; we go with the short name.
-- [x] **Build succeeds.** `uv build` produces both:
-  - `dist/patha-0.8.0.tar.gz` (sdist)
-  - `dist/patha-0.8.0-py3-none-any.whl` (wheel)
+- [x] **Name available.** `pypi.org/simple/patha/` → 404 verified; `patha` is unclaimed.
+- [x] **Build succeeds.** `uv build` produces:
+  - `dist/patha-0.9.1.tar.gz` (sdist)
+  - `dist/patha-0.9.1-py3-none-any.whl` (wheel)
 - [x] **Bundled model included.** The wheel contains `patha/belief/_models/supersession_classifier.joblib` (13 KB trained on 421 pairs).
 - [x] **Three console scripts registered.** `patha`, `patha-mcp`, `patha-viewer`.
-- [x] **All 638 tests pass.**
+- [x] **Top-level API.** `import patha; patha.Memory()` works out of the box.
+- [x] **All 656 tests pass** (+ 1 slow MCP e2e test).
 
 ## One-time account setup
 
