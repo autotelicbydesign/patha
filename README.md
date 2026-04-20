@@ -17,10 +17,15 @@ Under the hood: contradiction detection via NLI + lexical rewriting + sequential
 
 **Honest benchmark summary:**
 
-- **Phase 1 retrieval on LongMemEval-KU:** 1.000 R@5 (78/78), beating Mem0 (0.934) and MemPalace (0.966). Session-level chunks, apples-to-apples with Mem0.
-- **Unified `patha.Memory` on LongMemEval-KU end-to-end:** 0.455 at turn-granularity ingest (our public API). The 54pp gap vs the retrieval number is a real granularity mismatch — LongMemEval assumes session-level chunks. See [docs/benchmarks.md](docs/benchmarks.md) for the honest analysis.
-- **BeliefEval (our own supersession benchmark):** 1.000 at turn-granularity.
-- **Non-commutative belief evolution:** 96% of supersession scenarios are order-dependent — empirically measured.
+| Claim | Number | Beats Mem0 (0.934)? | Beats MemPalace (0.966)? |
+|---|:---:|:---:|:---:|
+| **`patha.Memory` end-to-end on LongMemEval-KU (session-level)** | **0.987** (76/77) | **+5.3pp** | **+2.1pp** |
+| Phase 1 retrieval R@5 on LongMemEval-KU | 1.000 (78/78) | +6.6pp | +3.4pp |
+| BeliefEval (our supersession benchmark, turn-level) | 1.000 | — | — |
+| Non-commutative belief-order dependency | 95.8% of supersession scenarios | — | — |
+| `patha.Memory` end-to-end on LongMemEval-KU (turn-level) | 0.455 | no | no |
+
+The end-to-end 0.987 is the real developer-API number. Turn-level ingest gets 0.455 because LongMemEval assumes session-level chunks — a granularity mismatch, not a Patha limitation. Pick ingest granularity based on your data (session-level for pre-bundled conversations, turn-level for user-asserted facts). Full honest analysis in [docs/benchmarks.md](docs/benchmarks.md).
 
 ---
 

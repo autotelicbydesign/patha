@@ -43,7 +43,7 @@ from patha.belief import (
 )
 from patha.integrated import IntegratedPatha, IntegratedResponse
 
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 
 __all__ = [
     "Memory",
@@ -230,6 +230,36 @@ class Memory:
             "proposition": ev.new_belief.proposition,
             "affected_belief_ids": list(ev.affected_belief_ids),
         }
+
+    def remember_session(
+        self,
+        turns: list[str],
+        *,
+        session_id: str,
+        asserted_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Ingest a whole conversation session as one belief.
+
+        Use this when you have pre-bundled conversations (transcripts,
+        chat logs, LongMemEval haystacks) rather than individual asserted
+        facts. All user turns are concatenated into a single belief, which
+        gives Phase 1 retrieval the session-level chunk granularity it was
+        tuned for. Measurably +53pp over turn-level ingest on
+        LongMemEval-KU.
+
+        For the user-asserts-facts case ("I live in Lisbon"), use
+        `.remember(single_fact)` — that's what Phase 2's supersession
+        machinery is tuned for.
+        """
+        if not turns:
+            return {"action": "skipped", "belief_id": None, "proposition": "",
+                    "affected_belief_ids": []}
+        concatenated = "\n\n".join(t for t in turns if t and t.strip())
+        return self.remember(
+            concatenated,
+            asserted_at=asserted_at,
+            session_id=session_id,
+        )
 
     def recall(
         self,

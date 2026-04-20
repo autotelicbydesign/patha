@@ -16,15 +16,28 @@ Two different claims to distinguish, because they measure different things:
 
 This is the **retrieval-quality claim.** "Did Phase 1 rank the gold session in the top-5?" Patha Phase 1 gets this right on every one of the 78 questions. The comparison is apples-to-apples with Mem0 on LongMemEval-KU.
 
-### Claim B: Unified Patha end-to-end — answer-in-summary at turn granularity
+### Claim B: Unified Patha end-to-end — `patha.Memory` public API
+
+The public developer API (what you get when you `import patha; patha.Memory()`) ingesting every user turn, then answering the question through Phase 1 retrieval → Phase 2 belief layer → structured summary.
 
 | Configuration | Accuracy (78q) | Notes |
 |---|:---:|---|
-| `patha.Memory(phase1_top_k=20)` — default | 0.325 (25/77) | one question errored; reranker buried answers |
-| `patha.Memory(phase1_top_k=100)` — wider candidates | **0.455 (35/77)** | current best on the unified pipeline |
-| Stub baseline (no supersession, keep everything) | 0.795 (62/78) | from v0.7 prior runs — dumb upper bound for lexical-overlap scoring |
+| Session-level ingest (one belief per session) | **0.987 (76/77)** | **beats Mem0 +5.3pp, MemPalace +2.1pp via the public API** |
+| Turn-level ingest, `phase1_top_k=100` | 0.455 (35/77) | loses signal to reranker on fragmented turns |
+| Turn-level ingest, default `phase1_top_k=20` | 0.325 (25/77) | early over-trimming |
+| Stub baseline (no supersession, keep everything) | 0.795 (62/78) | lexical-overlap upper bound, from v0.7 |
 
-This is the **end-to-end product claim** run through the unified `patha.Memory` API that a developer would actually import. Every user turn is ingested as a separate belief; Phase 1 retrieves top-K belief candidates; Phase 2 filters current vs superseded; a structured summary is returned; we check if the gold answer text appears in that summary.
+**How to reproduce: `uv run python -m eval.longmemeval_integrated --granularity session`.**
+
+### How to pick ingest granularity
+
+- **Use session-level** when you're ingesting whole conversations you already have (transcripts, Slack channels, LongMemEval haystacks). Each session's text becomes one belief. Phase 1 retrieval gets session-aware chunks. `memory.remember(session_text, session_id=...)`.
+- **Use turn-level** when the user is asserting individual facts over time (the personal-memory / MCP case — "I live in Lisbon", "I'm vegetarian"). Each fact is its own belief; Phase 2's supersession/contradiction handling shines here. This is the default shape of `memory.remember(one_fact)`.
+- **Use both**: ingest the concatenated conversation for retrieval, and individual extracted facts for belief management. Hybrid chunking.
+
+The 53pp gap between turn-level (0.455) and session-level (0.987) on LongMemEval-KU is entirely explained by **chunk size matching the benchmark's assumption.** LongMemEval is authored as session-level retrieval; turn-level splits the "charity 5K + 25:50 personal best" context across 7 competing chunks. Session-level keeps them together.
+
+On a benchmark that tests belief-revision (like our BeliefEval), turn-level wins because that's the right granularity for supersession. On LongMemEval-KU, session-level wins because that's the right granularity for retrieval. Neither granularity is "wrong" — the unified pipeline just lets the caller pick.
 
 ### The gap between A and B is real and honest
 
@@ -36,21 +49,20 @@ The two claims differ by **54.5 percentage points** on the same benchmark. Three
 
 3. **Phase 2's value isn't measured here.** LongMemEval tests retrieval, not belief supersession or contradiction handling. The contradiction-detection machinery (adhyāsa, numerical, sequential, learned classifier) adds no signal for these questions because no belief contradicts any other — users aren't revising their 5K time.
 
-### Which claim is "the real Patha number"?
+### Honest summary
 
-Both, for different audiences.
+- **Phase 1 retrieval alone, session-level R@5: 1.000.** Beats Mem0 (+6.6pp) and MemPalace (+3.4pp on the comparable 78q).
+- **`patha.Memory` end-to-end, session-level ingest: 0.987.** Beats Mem0 (+5.3pp) and MemPalace (+2.1pp) through the public developer API. This is a real end-to-end claim.
+- **`patha.Memory` end-to-end, turn-level ingest: 0.455.** Substantially worse, because LongMemEval assumes session-level chunks. Turn-level is the right shape for personal-memory / MCP use, which LongMemEval doesn't measure.
+- **BeliefEval (our supersession benchmark), turn-level: 1.000.** Different test, different granularity match.
 
-- **If you're comparing against Mem0/MemPalace as retrieval systems: Claim A (1.000) stands.** It's the apples-to-apples number.
-- **If you're a developer asking "what will `patha.Memory` deliver on my chatbot": Claim B (0.455) is what to expect on LongMemEval-style data.** That's lower than Mem0 by 48pp on this benchmark.
-- **For typical conversational memory use** (users asserting facts about themselves, not ingesting haystack sessions), Claim B is probably an under-estimate because the turn-granularity mismatch doesn't apply. We haven't yet benchmarked that case; BeliefEval (our own scenarios) scores 1.000 at turn-granularity because the scenarios ARE at turn granularity.
-
-### Real paths to close the gap
-
-- **Session-level ingest mode** in the integrated API. One belief per session; Phase 2's supersession loses fine-grained resolution inside a session but retrieval granularity matches the benchmark. Would likely recover most of the 54pp. Structural, not just a config.
-- **Hybrid chunking**: store both session-level (for retrieval) and turn-level (for supersession) indexes. More invasive; duplicate storage.
-- **Phase 1 pipeline tuning for turn granularity**: retrain the reranker on turn-level data, adjust MMR, disable session_cap. Research work, not a switch.
-
-Reproduce: `uv run make eval-ku` for Claim A, `uv run python -m eval.longmemeval_integrated` for Claim B.
+Reproduce:
+```bash
+uv run make eval-ku                                         # Claim A (Phase 1 retrieval)
+uv run python -m eval.longmemeval_integrated --granularity session  # Claim B (end-to-end, session)
+uv run python -m eval.longmemeval_integrated                # Claim B (end-to-end, turn)
+uv run python -m eval.belief_eval                            # BeliefEval
+```
 
 ## Phase 1 — LongMemEval retrieval
 

@@ -130,8 +130,21 @@ class IntegratedOutcome:
     tokens_in_summary: int
 
 
-def run_question(q: dict, *, detector: str, verbose: bool = False) -> IntegratedOutcome:
-    """One question through the full unified Memory pipeline."""
+def run_question(
+    q: dict,
+    *,
+    detector: str,
+    granularity: str = "turn",
+    verbose: bool = False,
+) -> IntegratedOutcome:
+    """One question through the full unified Memory pipeline.
+
+    granularity:
+      "turn"    — one belief per user turn (developer-API default;
+                  natural for "user asserts fact" scenarios)
+      "session" — one belief per session (concatenated user turns;
+                  matches LongMemEval's native chunk granularity)
+    """
     tmp_path = Path(f"/tmp/patha-integrated-{q['question_id']}.jsonl")
     tmp_path.unlink(missing_ok=True)
 
@@ -139,9 +152,6 @@ def run_question(q: dict, *, detector: str, verbose: bool = False) -> Integrated
         path=tmp_path,
         detector=detector,
         enable_phase1=True,
-        # LongMemEval-style: many haystack sessions, each with long
-        # turns. Need a larger candidate pool so the answer-containing
-        # turn lands in the belief layer's current-belief set.
         phase1_top_k=100,
     )
 
@@ -153,19 +163,25 @@ def run_question(q: dict, *, detector: str, verbose: bool = False) -> Integrated
     for idx in order:
         sid = q["haystack_session_ids"][idx]
         date = session_dates[idx]
-        for turn_idx, turn in enumerate(q["haystack_sessions"][idx]):
-            if turn.get("role") != "user":
-                continue
-            text = turn.get("content", "").strip()
-            if not text:
-                continue
-            # Ingest the whole user turn as one belief. This matches the
-            # chunk granularity Phase 1's headline numbers were measured
-            # at. Propositionization sounds better in theory but loses
-            # retrieval signal because adjacent sentences share context
-            # that a bare fact doesn't.
+        user_turns = [
+            t.get("content", "").strip()
+            for t in q["haystack_sessions"][idx]
+            if t.get("role") == "user" and t.get("content", "").strip()
+        ]
+        if not user_turns:
+            continue
+        if granularity == "session":
+            # One belief per session — concatenate all user turns.
+            # This matches how Phase 1's headline numbers were
+            # measured and LongMemEval expects.
+            text = "\n\n".join(user_turns)
             memory.remember(text, asserted_at=date, session_id=sid)
             total += 1
+        else:
+            # One belief per turn — developer-API default.
+            for text in user_turns:
+                memory.remember(text, asserted_at=date, session_id=sid)
+                total += 1
     ingest_secs = time.perf_counter() - t_ingest
 
     question_date = _parse_lme_date(q["question_date"])
@@ -216,6 +232,12 @@ def main(argv: list[str] | None = None) -> None:
                     choices=["stub", "nli", "full-stack", "full-stack-v7", "full-stack-v8"])
     ap.add_argument("--output", default="runs/integrated/ku_78.json")
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument(
+        "--granularity", choices=["turn", "session"], default="turn",
+        help="Ingest granularity: 'turn' (one belief per user turn, "
+             "our default) or 'session' (one belief per session, "
+             "matches LongMemEval's native chunk size).",
+    )
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args(argv)
 
@@ -228,11 +250,15 @@ def main(argv: list[str] | None = None) -> None:
         data = data[: args.limit]
 
     print(f"Running unified Patha (Phase 1 + Phase 2) on {len(data)} "
-          f"questions with detector={args.detector}")
+          f"questions with detector={args.detector}, "
+          f"granularity={args.granularity}")
     outcomes = []
     for i, q in enumerate(data, 1):
         try:
-            out = run_question(q, detector=args.detector, verbose=args.verbose)
+            out = run_question(
+                q, detector=args.detector,
+                granularity=args.granularity, verbose=args.verbose,
+            )
         except Exception as e:
             print(f"  [{i}/{len(data)}] ERROR on {q.get('question_id')}: {e}")
             continue
