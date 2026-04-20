@@ -1,3 +1,266 @@
-"""Patha — Vedic/Aboriginal-inspired AI memory system."""
+"""Patha — local-first AI memory with contradiction detection,
+non-destructive supersession, and paraphrase-robust retrieval.
 
-__version__ = "0.1.0"
+The 3-line developer quickstart:
+
+    >>> import patha
+    >>> memory = patha.Memory()
+    >>> memory.remember("I live in Lisbon")
+    >>> memory.recall("where do I live?").summary
+    'Current beliefs:\\n- [2026-04-20] I live in Lisbon'
+
+Or pass the compact summary straight into an LLM prompt:
+
+    >>> import anthropic
+    >>> client = anthropic.Anthropic()
+    >>> memory = patha.Memory(detector="full-stack-v8")
+    >>> user_msg = "What's a good coffee shop near me?"
+    >>> memory_context = memory.recall(user_msg).summary   # ~20 tokens
+    >>> client.messages.create(
+    ...     model="claude-sonnet-4",
+    ...     system=f"You are a helpful assistant. User memory:\\n{memory_context}",
+    ...     messages=[{"role": "user", "content": user_msg}],
+    ...     max_tokens=256,
+    ... )
+
+The `Memory` class is the high-level API. For low-level control, import
+`BeliefLayer`, `BeliefStore`, `IntegratedPatha`, and the detector
+factories directly.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from patha.belief import (
+    AVAILABLE_DETECTORS,
+    BeliefLayer,
+    BeliefStore,
+    DirectAnswerer,
+    make_detector,
+)
+from patha.integrated import IntegratedPatha, IntegratedResponse
+
+__version__ = "0.9.1"
+
+__all__ = [
+    "Memory",
+    "Recall",
+    # Low-level exports for power users
+    "BeliefLayer",
+    "BeliefStore",
+    "IntegratedPatha",
+    "IntegratedResponse",
+    "DirectAnswerer",
+    "make_detector",
+    "AVAILABLE_DETECTORS",
+    "__version__",
+]
+
+
+class Recall:
+    """Result of `Memory.recall()`. A thin view over IntegratedResponse.
+
+    Attributes:
+        answer:   short direct answer (possibly None if the system couldn't
+                  produce one — fall back to `.summary` then).
+        summary:  ~20-token structured string meant to drop into an LLM
+                  system prompt. Always present.
+        current:  list of {id, proposition, asserted_at, confidence} dicts
+                  for the currently valid beliefs.
+        history:  list of superseded beliefs (only populated when
+                  `include_history=True` was passed).
+        strategy: "direct_answer" | "structured" | "raw" — how the
+                  response was built.
+        tokens:   token count of the summary (for budgeting).
+    """
+
+    __slots__ = ("answer", "summary", "current", "history", "strategy", "tokens")
+
+    def __init__(self, response: IntegratedResponse, include_history: bool) -> None:
+        self.answer: str | None = response.answer or None
+        self.summary: str = response.prompt
+        self.strategy: str = response.strategy
+        self.tokens: int = response.tokens_in
+        rr = response.retrieval_result
+        self.current = [
+            {
+                "id": b.id,
+                "proposition": b.proposition,
+                "asserted_at": b.asserted_at.isoformat() if b.asserted_at else None,
+                "confidence": b.confidence,
+            }
+            for b in (rr.current if rr else [])
+        ]
+        self.history = [
+            {
+                "id": b.id,
+                "proposition": b.proposition,
+                "asserted_at": b.asserted_at.isoformat() if b.asserted_at else None,
+                "confidence": b.confidence,
+            }
+            for b in (rr.history if rr and include_history else [])
+        ]
+
+    def __repr__(self) -> str:
+        return (
+            f"Recall(strategy={self.strategy!r}, tokens={self.tokens}, "
+            f"current={len(self.current)}, history={len(self.history)})"
+        )
+
+
+class Memory:
+    """A local-first memory store with contradiction detection and
+    non-destructive supersession. This is the main developer-facing
+    API for Patha.
+
+    Parameters
+    ----------
+    path:
+        Where to persist the belief store as JSONL. Defaults to
+        ``~/.patha/beliefs.jsonl``. The file is append-only; concurrent
+        readers are safe.
+    detector:
+        Contradiction detector. One of:
+
+        - ``"stub"`` (default) — fast heuristic, no model downloads.
+          Good for CI and light use.
+        - ``"nli"`` — DeBERTa-v3-large MNLI (~1.7 GB on first use).
+        - ``"adhyasa-nli"`` — NLI + lexical rewriting.
+        - ``"full-stack"`` — NLI + adhyasa + numerical change detection.
+        - ``"full-stack-v7"`` — full-stack + sequential-event detection.
+        - ``"full-stack-v8"`` — full-stack-v7 + learned classifier.
+          Recommended for production.
+    """
+
+    def __init__(
+        self,
+        path: str | Path | None = None,
+        *,
+        detector: str = "stub",
+    ) -> None:
+        path = Path(path) if path is not None else (Path.home() / ".patha" / "beliefs.jsonl")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._path = path
+        self._detector_name = detector
+
+        store = BeliefStore(persistence_path=path)
+        layer = BeliefLayer(store=store, detector=make_detector(detector))
+        self._patha = IntegratedPatha(
+            belief_layer=layer,
+            direct_answerer=DirectAnswerer(layer.store),
+        )
+
+    # ─── Primary API ────────────────────────────────────────────────
+
+    def remember(
+        self,
+        proposition: str,
+        *,
+        asserted_at: datetime | None = None,
+        session_id: str | None = None,
+        source_id: str | None = None,
+        context: str | None = None,
+    ) -> dict[str, Any]:
+        """Add a belief. Returns {action, belief_id, affected_belief_ids}.
+
+        ``action`` is one of ``"added"`` (new), ``"reinforced"`` (matches
+        an existing belief → bumps confidence), ``"superseded"`` (contradicts
+        an existing belief → new becomes current, old moves to history)."""
+        at = asserted_at or datetime.now()
+        session = session_id or at.strftime("%Y-%m-%d")
+        src = source_id or f"api-{session}-{int(at.timestamp() * 1000)}"
+        ev = self._patha.ingest(
+            proposition=proposition,
+            asserted_at=at,
+            asserted_in_session=session,
+            source_proposition_id=src,
+            context=context,
+        )
+        return {
+            "action": ev.action,
+            "belief_id": ev.new_belief.id,
+            "proposition": ev.new_belief.proposition,
+            "affected_belief_ids": list(ev.affected_belief_ids),
+        }
+
+    def recall(
+        self,
+        question: str,
+        *,
+        at_time: datetime | None = None,
+        include_history: bool = False,
+    ) -> Recall:
+        """Return a compact memory summary for the question.
+
+        Drop ``.summary`` directly into an LLM system prompt. Uses
+        ~20 tokens vs the ~280–325 a naive conversation-history dump
+        would take.
+        """
+        response = self._patha.query(
+            question,
+            at_time=at_time or datetime.now(),
+            include_history=include_history,
+        )
+        return Recall(response, include_history=include_history)
+
+    def history(self, term: str) -> list[dict[str, Any]]:
+        """Every belief (current and superseded) mentioning ``term``.
+
+        Case-insensitive substring match. Returns a list of dicts with
+        ``id``, ``proposition``, ``status``, ``asserted_at``,
+        ``confidence``.
+        """
+        term_lower = term.lower()
+        matches = []
+        for belief in self._patha.belief_layer.store.all():
+            if term_lower in belief.proposition.lower():
+                matches.append({
+                    "id": belief.id,
+                    "proposition": belief.proposition,
+                    "status": belief.status.value,
+                    "asserted_at": belief.asserted_at.isoformat() if belief.asserted_at else None,
+                    "confidence": belief.confidence,
+                })
+        return matches
+
+    def stats(self) -> dict[str, Any]:
+        """Counts + storage info."""
+        store = self._patha.belief_layer.store
+        return {
+            "path": str(self._path),
+            "detector": self._detector_name,
+            "total": len(store),
+            "current": len(store.current()),
+            "superseded": len(store.superseded()),
+            "disputed": len(store.disputed()),
+            "archived": len(store.archived()),
+        }
+
+    # ─── Escape hatches for power users ─────────────────────────────
+
+    @property
+    def belief_layer(self) -> BeliefLayer:
+        """The underlying BeliefLayer — for plasticity, confidence tuning,
+        custom contradiction thresholds, etc."""
+        return self._patha.belief_layer
+
+    @property
+    def store(self) -> BeliefStore:
+        """The underlying BeliefStore — raw event-log access."""
+        return self._patha.belief_layer.store
+
+    @property
+    def path(self) -> Path:
+        """The JSONL file path. Copy this file to another machine to
+        move your memory."""
+        return self._path
+
+    def __repr__(self) -> str:
+        s = self.stats()
+        return (
+            f"<Memory path={self._path} detector={self._detector_name!r} "
+            f"total={s['total']} current={s['current']} superseded={s['superseded']}>"
+        )

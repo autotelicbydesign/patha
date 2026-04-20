@@ -83,30 +83,67 @@ patha stats                                   # store counts + plasticity state
 
 Use `--detector full-stack-v7` to switch to the production NLI + adhyāsa + numerical + sequential detector (downloads ~1.7 GB on first run). Default is `stub` for instant startup.
 
-### 3. As a Python library
+### 3. As a Python library (for developers building LLM apps)
 
-```python
-from datetime import datetime
-from patha.belief import BeliefLayer, BeliefStore, make_detector
-from patha.integrated import IntegratedPatha
+**Install:**
 
-layer = BeliefLayer(
-    store=BeliefStore(),                           # in-memory, or pass persistence_path
-    detector=make_detector("full-stack-v7"),       # or "stub" for fast CI
-)
-patha = IntegratedPatha(belief_layer=layer)
-
-patha.ingest(
-    proposition="I live in Berlin",
-    asserted_at=datetime.now(),
-    asserted_in_session="s1",
-    source_proposition_id="s1-p1",
-)
-response = patha.query("where do I live?", at_time=datetime.now())
-print(response.answer or response.prompt)
+```bash
+pip install patha
+# or:
+uv pip install patha
 ```
 
-See [examples/belief_layer_demo.py](examples/belief_layer_demo.py) for a full walkthrough.
+**Use (5 lines):**
+
+```python
+import patha
+
+memory = patha.Memory(detector="full-stack-v8")
+memory.remember("I live in Lisbon")
+memory.remember("I am avoiding raw fish on my doctor's advice")
+
+rec = memory.recall("where do I live?")
+print(rec.summary)          # ~20-token string to drop into an LLM system prompt
+print(rec.answer)            # direct answer (when the layer can produce one)
+```
+
+**Wire it into an Anthropic-API chatbot for 10–15× smaller memory context:**
+
+```python
+import anthropic, patha
+
+client = anthropic.Anthropic()
+memory = patha.Memory(detector="full-stack-v8")
+
+def on_user_message(text: str) -> str:
+    memory.remember(text)                      # auto-ingest user fact
+    mem = memory.recall(text).summary          # ~20 tokens instead of ~280
+    reply = client.messages.create(
+        model="claude-sonnet-4",
+        system=f"User memory:\n{mem}",
+        messages=[{"role": "user", "content": text}],
+        max_tokens=512,
+    )
+    return reply.content[0].text
+```
+
+**Why the library matters for developers:**
+
+- **Token bill.** Naive conversation-history dumping is ~280–325 tokens per turn. Patha's structured summary is ~20 tokens on the same benchmark — a 10–15× cut. At $3–15 / 1M tokens × many users × many turns, that's real money.
+- **Contradiction handling.** When a user changes their mind, `.remember()` resolves it via supersession. Your app doesn't overwrite facts silently.
+- **Local-only by default.** No SaaS, no API keys, no rate limits. The belief store is a JSONL file in `~/.patha/` that your user owns.
+- **Swap detectors.** Use `"stub"` in CI (instant, no models), `"full-stack-v8"` in prod (DeBERTa-large NLI + lexical + numerical + learned classifier, ~1.7 GB first-download).
+
+**Power-user APIs:**
+
+```python
+memory.store          # underlying BeliefStore — raw event log
+memory.belief_layer   # underlying BeliefLayer — plasticity, thresholds, etc.
+memory.history("X")   # every mention of X, current + superseded
+memory.stats()        # counts, plasticity state, data path
+```
+
+See [`examples/developer_quickstart.py`](examples/developer_quickstart.py) for a runnable walkthrough, and [docs/benchmarks.md](docs/benchmarks.md) for the head-to-head vs Mem0 and MemPalace.
 
 ### Streamlit viewer
 

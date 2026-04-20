@@ -75,6 +75,15 @@ eval-100:
 		--output runs/eval_100/results.json \
 		--verbose
 
+# LongMemEval-KU 78-question subset — the head-to-head vs Mem0
+eval-ku:
+	uv run python -m eval.runner \
+		--data data/longmemeval_ku_78.json \
+		--embedder minilm \
+		--reranker ce-mini \
+		--output runs/eval_ku/results.json \
+		--verbose
+
 # Full 500-question eval with pre-warming + cross-encoder
 eval:
 	uv run python -m eval.runner \

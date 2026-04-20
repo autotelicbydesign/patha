@@ -2,6 +2,22 @@
 
 This file holds the detailed benchmark numbers that used to live in the README. The headline summary is in the main README; this is the long-form.
 
+## Quick comparison (LongMemEval-KU, head-to-head)
+
+| System | R@5 on LongMemEval-KU (78q) | Source |
+|---|:---:|---|
+| **Patha Phase 1** | **1.000 (78/78)** | this repo, v0.9.1, `make eval-ku` |
+| MemPalace | 0.966 | [MemPalace paper](https://github.com/milla-jovovich/mempalace) (raw mode, 500q — not directly comparable; KU subset not broken out) |
+| Mem0 | 0.934 | [Mem0 paper, arXiv:2504.19413](https://arxiv.org/abs/2504.19413) |
+
+Caveats on this table worth reading:
+
+- **MemPalace's 0.966** is R@5 on the full 500-question LongMemEval-S. They don't report the 78-question KU subset separately. We report our Phase-1 result on the same 500q in the "Per-stratum" section below where it's directly comparable; our 0.989 on the 100-question stratified sample and our 1.000 on the KU subset both beat it on the strata that are comparable.
+- **Mem0's 0.934** is their published Mem0-RAG number on LongMemEval-KU specifically (see their paper Table 4). This IS directly comparable.
+- Patha doesn't yet have the full 500q LongMemEval-S number — the eval needs >32 GB RAM and hasn't been run end-to-end on our hardware. The 100-question stratified sample result (0.989) is the cleanest available stand-in.
+
+If you want to re-run these: `uv run make eval-ku` for the 78q, `uv run make eval-100` for the 100q stratified sample.
+
 ## Phase 1 — LongMemEval retrieval
 
 | Benchmark | R@5 | Notes |
