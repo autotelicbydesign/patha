@@ -238,37 +238,101 @@ def main(argv: list[str] | None = None) -> None:
              "our default) or 'session' (one belief per session, "
              "matches LongMemEval's native chunk size).",
     )
+    ap.add_argument(
+        "--filter-type", default=None,
+        help="Filter to a specific question_type (e.g. 'knowledge-update'). "
+             "Default: run on ALL questions in the input file.",
+    )
+    ap.add_argument(
+        "--checkpoint", default=None,
+        help="Path to a checkpoint JSON; resume from here if interrupted. "
+             "Default: <output>.checkpoint.json",
+    )
+    ap.add_argument(
+        "--checkpoint-every", type=int, default=5,
+        help="Save checkpoint every N questions (default 5).",
+    )
+    ap.add_argument(
+        "--fresh", action="store_true",
+        help="Ignore existing checkpoint and start from scratch.",
+    )
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args(argv)
 
     with open(args.data) as f:
         data = json.load(f)
-    # If the data is the full 500q dataset, filter to KU
-    if any("question_type" in q for q in data):
-        data = [q for q in data if q.get("question_type") == "knowledge-update"]
+    # Filter by question type only if explicitly requested.
+    # --filter-type knowledge-update | multi-session | ...
+    if args.filter_type:
+        data = [q for q in data if q.get("question_type") == args.filter_type]
     if args.limit:
         data = data[: args.limit]
 
     print(f"Running unified Patha (Phase 1 + Phase 2) on {len(data)} "
           f"questions with detector={args.detector}, "
-          f"granularity={args.granularity}")
-    outcomes = []
+          f"granularity={args.granularity}", flush=True)
+
+    # --- checkpoint / resume ------------------------------------------
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    ckpt_path = (
+        Path(args.checkpoint) if args.checkpoint
+        else output_path.with_suffix(".checkpoint.json")
+    )
+
+    outcomes: list[IntegratedOutcome] = []
+    done_qids: set[str] = set()
+    if not args.fresh and ckpt_path.exists():
+        try:
+            saved = json.loads(ckpt_path.read_text())
+            for o in saved.get("outcomes", []):
+                outcomes.append(IntegratedOutcome(**{
+                    k: v for k, v in o.items()
+                    if k in IntegratedOutcome.__annotations__
+                }))
+                done_qids.add(o["question_id"])
+            print(f"Resumed from {ckpt_path}: {len(done_qids)} questions done.",
+                  flush=True)
+        except Exception as e:
+            print(f"Checkpoint unreadable ({e}); starting fresh.", flush=True)
+
+    def _save_ckpt() -> None:
+        tmp = ckpt_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({
+            "outcomes": [asdict(o) for o in outcomes],
+        }, default=str, indent=2))
+        tmp.replace(ckpt_path)
+
+    # --- main loop ----------------------------------------------------
     for i, q in enumerate(data, 1):
+        if q["question_id"] in done_qids:
+            continue
         try:
             out = run_question(
                 q, detector=args.detector,
                 granularity=args.granularity, verbose=args.verbose,
             )
         except Exception as e:
-            print(f"  [{i}/{len(data)}] ERROR on {q.get('question_id')}: {e}")
+            print(f"  [{i}/{len(data)}] ERROR on {q.get('question_id')}: {e}",
+                  flush=True)
             continue
         outcomes.append(out)
+        done_qids.add(q["question_id"])
         c = "PASS" if out.correct_with_history else "fail"
         cur = "C" if out.answer_in_current else "-"
         his = "H" if out.answer_in_history else "-"
+        running_correct = sum(1 for o in outcomes if o.correct_with_history)
         print(f"  [{i}/{len(data)}] {c} [{cur}{his}] {out.question_id}: "
               f"ing={out.total_ingested} cur={out.current_count} "
-              f"t={out.ingest_seconds:.0f}s+{out.query_seconds:.1f}s")
+              f"t={out.ingest_seconds:.0f}s+{out.query_seconds:.1f}s "
+              f"running={running_correct}/{len(outcomes)}",
+              flush=True)
+
+        if i % args.checkpoint_every == 0:
+            _save_ckpt()
+
+    # Final checkpoint
+    _save_ckpt()
 
     n = len(outcomes)
     if n == 0:

@@ -84,23 +84,8 @@ jobs:
           "
 
       - name: Smoke test — MCP server initializes on stdio
-        run: |
-          # Spawn the server and send an initialize request; verify response.
-          timeout 30 uv run python -c "
-          import json, subprocess, sys
-          p = subprocess.Popen(
-              ['python', '-m', 'patha.mcp_server'],
-              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-              text=True, bufsize=1,
-          )
-          msg = {'jsonrpc':'2.0','id':1,'method':'initialize',
-                 'params':{'protocolVersion':'2024-11-05','capabilities':{},
-                           'clientInfo':{'name':'ci','version':'0'}}}
-          p.stdin.write(json.dumps(msg) + chr(10))
-          p.stdin.flush()
-          line = p.stdout.readline()
-          resp = json.loads(line)
-          assert resp['result']['serverInfo']['name'] == 'patha'
-          print('OK: MCP server initialized')
-          p.terminate()
-          "
+        # The existing pytest test in tests/test_mcp_protocol.py
+        # already spawns the server via sys.executable (not 'python'),
+        # does the full initialize + list tools + call all 4 tools +
+        # verify persistence. Run it here as the smoke test.
+        run: uv run pytest tests/test_mcp_protocol.py -v -m slow
