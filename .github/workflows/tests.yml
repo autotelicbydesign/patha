@@ -1,0 +1,102 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, phase-2-belief-layer, usability-sprint]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check src/ eval/ tests/
+        continue-on-error: true
+
+      - name: Run test suite (fast tests only)
+        env:
+          # Skip tests that download heavy NLI / embedder models in CI
+          # to keep the run under 10 min. Slow tests still run locally.
+          PATHA_CI_SKIP_HEAVY: "1"
+        run: uv run pytest tests/ -q -m "not slow"
+
+      - name: Verify wheel builds
+        run: uv build
+
+      - name: Verify bundled classifier in wheel
+        run: |
+          wheel=$(ls dist/patha-*.whl | head -1)
+          unzip -l "$wheel" | grep supersession_classifier.joblib
+
+  smoke-test:
+    runs-on: ubuntu-latest
+    needs: tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv python install 3.11
+      - run: uv sync
+
+      - name: Smoke test — CLI commands work
+        run: |
+          uv run patha --help
+          uv run patha verify
+          uv run patha stats
+
+      - name: Smoke test — Memory API loads and works end-to-end
+        run: |
+          uv run python -c "
+          import patha, tempfile
+          td = tempfile.mkdtemp()
+          m = patha.Memory(path=f'{td}/beliefs.jsonl', detector='stub', enable_phase1=False)
+          m.remember('I live in Lisbon')
+          rec = m.recall('where do I live?')
+          assert 'Lisbon' in rec.summary, f'expected Lisbon in {rec.summary!r}'
+          print('OK: Memory API end-to-end works')
+          "
+
+      - name: Smoke test — MCP server initializes on stdio
+        run: |
+          # Spawn the server and send an initialize request; verify response.
+          timeout 30 uv run python -c "
+          import json, subprocess, sys
+          p = subprocess.Popen(
+              ['python', '-m', 'patha.mcp_server'],
+              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+              text=True, bufsize=1,
+          )
+          msg = {'jsonrpc':'2.0','id':1,'method':'initialize',
+                 'params':{'protocolVersion':'2024-11-05','capabilities':{},
+                           'clientInfo':{'name':'ci','version':'0'}}}
+          p.stdin.write(json.dumps(msg) + chr(10))
+          p.stdin.flush()
+          line = p.stdout.readline()
+          resp = json.loads(line)
+          assert resp['result']['serverInfo']['name'] == 'patha'
+          print('OK: MCP server initialized')
+          p.terminate()
+          "
