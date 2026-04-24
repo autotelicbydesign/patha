@@ -19,13 +19,19 @@ Under the hood: contradiction detection via NLI + lexical rewriting + sequential
 
 | Claim | Number | Beats Mem0 (0.934)? | Beats MemPalace (0.966)? |
 |---|:---:|:---:|:---:|
-| **`patha.Memory` end-to-end on LongMemEval-KU (session-level)** | **0.987** (76/77) | **+5.3pp** | **+2.1pp** |
-| Phase 1 retrieval R@5 on LongMemEval-KU | 1.000 (78/78) | +6.6pp | +3.4pp |
-| BeliefEval (our supersession benchmark, turn-level) | 1.000 | — | — |
+| **`patha.Memory` end-to-end, LongMemEval-S 300q stratified** (Phase 1 + 2) | **0.950** (283/298) | **+1.6pp** | −1.6pp |
+| Phase 1 retrieval R@5 on LongMemEval-KU (78q) | 1.000 (78/78) | +6.6pp | +3.4pp |
+| KU slice of the 300q stratified run | 0.979 (46/47) | +4.5pp | +1.3pp |
+| Integrated BeliefEval (300 supersession scenarios, full-stack-v8) | 0.968 (336/347) | — | — |
 | Non-commutative belief-order dependency | 95.8% of supersession scenarios | — | — |
-| `patha.Memory` end-to-end on LongMemEval-KU (turn-level) | 0.455 | no | no |
+| Multi-session stratum (weakest) | 0.863 (69/80) | — | — |
 
-The end-to-end 0.987 is the real developer-API number. Turn-level ingest gets 0.455 because LongMemEval assumes session-level chunks — a granularity mismatch, not a Patha limitation. Pick ingest granularity based on your data (session-level for pre-bundled conversations, turn-level for user-asserted facts). Full honest analysis in [docs/benchmarks.md](docs/benchmarks.md).
+- On **stratified LongMemEval-S at 300q** the unified developer API beats Mem0 by +1.6pp and is within 1.6pp of MemPalace (both on their respective benchmarks).
+- On the **knowledge-update subset** (46 questions in our 300q stratified sample) Patha's end-to-end is 0.979 — clearly above Mem0's 0.934.
+- Phase 1 retrieval alone on LongMemEval-KU 78q is 1.000 — the apples-to-apples comparison with Mem0 for retrieval quality.
+- Multi-session is our current weakness (0.863); songline walks + cross-session linking are the next work.
+
+Full honest analysis in [docs/benchmarks.md](docs/benchmarks.md).
 
 ---
 

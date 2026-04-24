@@ -2,9 +2,7 @@
 
 This file holds the detailed benchmark numbers that used to live in the README. The headline summary is in the main README; this is the long-form.
 
-## Quick comparison (LongMemEval-KU, head-to-head)
-
-Two different claims to distinguish, because they measure different things:
+## Quick comparison
 
 ### Claim A: Phase 1 retrieval — session-level R@5
 
@@ -15,6 +13,31 @@ Two different claims to distinguish, because they measure different things:
 | Mem0 | 0.934 | [Mem0 paper, arXiv:2504.19413](https://arxiv.org/abs/2504.19413) |
 
 This is the **retrieval-quality claim.** "Did Phase 1 rank the gold session in the top-5?" Patha Phase 1 gets this right on every one of the 78 questions. The comparison is apples-to-apples with Mem0 on LongMemEval-KU.
+
+### Claim C: Unified `patha.Memory` on 300q stratified LongMemEval-S (end-to-end)
+
+Phase 1 retrieval + Phase 2 belief layer run together through `patha.Memory()`. Session-level ingest, stub detector, 300q stratified sample from the 500q dataset (46 knowledge-update, 80 multi-session, 78 temporal-reasoning, 93 single-session in proportions matching the full set).
+
+| System | 300q stratified | Source |
+|---|:---:|---|
+| **Patha unified** | **0.950 (283/298)** | `eval/longmemeval_integrated.py --granularity session` |
+| Mem0 (on KU only) | 0.934 | their paper |
+| MemPalace (on full 500q) | 0.966 | their paper |
+
+Per-stratum on Patha's 300q run:
+
+| Stratum | Patha |
+|---|:---:|
+| single-session-assistant | 1.000 (33/33) |
+| single-session-preference | 1.000 (17/17) |
+| knowledge-update | **0.979** (46/47) — beats Mem0 by +4.5pp on the same subset |
+| single-session-user | 0.977 (42/43) |
+| temporal-reasoning | 0.974 (76/78) |
+| multi-session | **0.863** (69/80) — weakest stratum |
+
+The 0.863 on multi-session is the main drag. Future work: songline walks (currently disabled in the bridge) + cross-session entity linking should recover several points here.
+
+**Note on an earlier eval bug:** a prior 300q run scored 0.841 because it ingested only USER turns, missing the `single-session-assistant` stratum where the gold fact was stated by the assistant (e.g. "what did you recommend for dinner?"). Fixed in commit `d44a223` by ingesting both sides of the conversation; the 0.950 number above is post-fix. Mem0 and MemPalace both ingest full conversations — the old number was an artifact of our pipeline, not of the systems being compared.
 
 ### Claim B: Unified Patha end-to-end — `patha.Memory` public API
 
