@@ -31,7 +31,7 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra mcp
 
       - name: Download spaCy en_core_web_sm (needed by NER tests)
         run: uv run python -m spacy download en_core_web_sm
@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
       - run: uv python install 3.11
-      - run: uv sync --extra dev
+      - run: uv sync --extra dev --extra mcp
       - run: uv run python -m spacy download en_core_web_sm
 
       - name: Smoke test — CLI commands work
