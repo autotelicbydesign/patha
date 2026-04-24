@@ -163,23 +163,24 @@ def run_question(
     for idx in order:
         sid = q["haystack_session_ids"][idx]
         date = session_dates[idx]
-        user_turns = [
-            t.get("content", "").strip()
+        # Ingest BOTH user + assistant turns. LongMemEval has a
+        # single-session-assistant stratum ("what did you recommend?")
+        # where the gold fact was stated by the assistant. Only-user
+        # ingest misses 58% of those. Mem0 / MemPalace both ingest
+        # full conversations for this reason.
+        all_turns = [
+            f"{t.get('role', '?')}: {t.get('content', '').strip()}"
             for t in q["haystack_sessions"][idx]
-            if t.get("role") == "user" and t.get("content", "").strip()
+            if t.get("content", "").strip()
         ]
-        if not user_turns:
+        if not all_turns:
             continue
         if granularity == "session":
-            # One belief per session — concatenate all user turns.
-            # This matches how Phase 1's headline numbers were
-            # measured and LongMemEval expects.
-            text = "\n\n".join(user_turns)
+            text = "\n\n".join(all_turns)
             memory.remember(text, asserted_at=date, session_id=sid)
             total += 1
         else:
-            # One belief per turn — developer-API default.
-            for text in user_turns:
+            for text in all_turns:
                 memory.remember(text, asserted_at=date, session_id=sid)
                 total += 1
     ingest_secs = time.perf_counter() - t_ingest
