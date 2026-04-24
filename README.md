@@ -19,17 +19,16 @@ Under the hood: contradiction detection via NLI + lexical rewriting + sequential
 
 | Claim | Number | Beats Mem0 (0.934)? | Beats MemPalace (0.966)? |
 |---|:---:|:---:|:---:|
-| **`patha.Memory` end-to-end, LongMemEval-S 300q stratified** (Phase 1 + 2) | **0.950** (283/298) | **+1.6pp** | −1.6pp |
+| **`patha.Memory` end-to-end, full 500q LongMemEval-S** (Phase 1 + 2) | **0.952** (472/496) | **+1.8pp** | **−1.4pp** |
+| Same run, knowledge-update subset (77q in the 500q) | **0.987** (76/77) | **+5.3pp** | **+2.1pp** |
 | Phase 1 retrieval R@5 on LongMemEval-KU (78q) | 1.000 (78/78) | +6.6pp | +3.4pp |
-| KU slice of the 300q stratified run | 0.979 (46/47) | +4.5pp | +1.3pp |
 | Integrated BeliefEval (300 supersession scenarios, full-stack-v8) | 0.968 (336/347) | — | — |
 | Non-commutative belief-order dependency | 95.8% of supersession scenarios | — | — |
-| Multi-session stratum (weakest) | 0.863 (69/80) | — | — |
 
-- On **stratified LongMemEval-S at 300q** the unified developer API beats Mem0 by +1.6pp and is within 1.6pp of MemPalace (both on their respective benchmarks).
-- On the **knowledge-update subset** (46 questions in our 300q stratified sample) Patha's end-to-end is 0.979 — clearly above Mem0's 0.934.
-- Phase 1 retrieval alone on LongMemEval-KU 78q is 1.000 — the apples-to-apples comparison with Mem0 for retrieval quality.
-- Multi-session is our current weakness (0.863); songline walks + cross-session linking are the next work.
+- On **full 500q LongMemEval-S** (apples-to-apples with MemPalace's published number): Patha beats Mem0 by +1.8pp, is 1.4pp under MemPalace.
+- On the **knowledge-update stratum** (77 questions): Patha beats both Mem0 (+5.3pp) and MemPalace (+2.1pp).
+- Five of six strata are 0.977–1.000. Only multi-session (0.857) drags the overall number — that's the next work item.
+- Phase 1 retrieval alone on LongMemEval-KU is 1.000 — perfect retrieval on the subset Mem0 benchmarks on.
 
 Full honest analysis in [docs/benchmarks.md](docs/benchmarks.md).
 

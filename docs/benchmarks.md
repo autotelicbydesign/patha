@@ -14,30 +14,41 @@ This file holds the detailed benchmark numbers that used to live in the README. 
 
 This is the **retrieval-quality claim.** "Did Phase 1 rank the gold session in the top-5?" Patha Phase 1 gets this right on every one of the 78 questions. The comparison is apples-to-apples with Mem0 on LongMemEval-KU.
 
-### Claim C: Unified `patha.Memory` on 300q stratified LongMemEval-S (end-to-end)
+### Claim C: Unified `patha.Memory` on full 500q LongMemEval-S (end-to-end)
 
-Phase 1 retrieval + Phase 2 belief layer run together through `patha.Memory()`. Session-level ingest, stub detector, 300q stratified sample from the 500q dataset (46 knowledge-update, 80 multi-session, 78 temporal-reasoning, 93 single-session in proportions matching the full set).
+Phase 1 retrieval + Phase 2 belief layer run together through `patha.Memory()`. Session-level ingest, stub detector, the full 500q LongMemEval-S. This is the direct apples-to-apples against MemPalace's published number.
 
-| System | 300q stratified | Source |
+| System | 500q LongMemEval-S | Source |
 |---|:---:|---|
-| **Patha unified** | **0.950 (283/298)** | `eval/longmemeval_integrated.py --granularity session` |
-| Mem0 (on KU only) | 0.934 | their paper |
-| MemPalace (on full 500q) | 0.966 | their paper |
+| MemPalace | 0.966 | their paper (raw mode) |
+| **Patha unified** | **0.952 (472/496)** | `eval/longmemeval_integrated.py --data data/longmemeval_s_cleaned.json --granularity session` |
+| Mem0 (on KU subset only) | 0.934 | their paper |
 
-Per-stratum on Patha's 300q run:
+Gap to MemPalace: **−1.4pp**. 4 of 500 questions skipped due to a datetime-tz edge case; scored over 496.
 
-| Stratum | Patha |
-|---|:---:|
-| single-session-assistant | 1.000 (33/33) |
-| single-session-preference | 1.000 (17/17) |
-| knowledge-update | **0.979** (46/47) — beats Mem0 by +4.5pp on the same subset |
-| single-session-user | 0.977 (42/43) |
-| temporal-reasoning | 0.974 (76/78) |
-| multi-session | **0.863** (69/80) — weakest stratum |
+Per-stratum on the 500q run:
 
-The 0.863 on multi-session is the main drag. Future work: songline walks (currently disabled in the bridge) + cross-session entity linking should recover several points here.
+| Stratum | Patha | Note |
+|---|:---:|---|
+| single-session-assistant | 1.000 (55/55) | perfect |
+| single-session-preference | 1.000 (30/30) | perfect |
+| **knowledge-update** | **0.987** (76/77) | **+5.3pp over Mem0 (0.934)** |
+| single-session-user | 0.986 (69/70) | near-perfect |
+| temporal-reasoning | 0.977 (128/131) | strong |
+| **multi-session** | **0.857** (114/133) | **sole weakness — drags overall down** |
 
-**Note on an earlier eval bug:** a prior 300q run scored 0.841 because it ingested only USER turns, missing the `single-session-assistant` stratum where the gold fact was stated by the assistant (e.g. "what did you recommend for dinner?"). Fixed in commit `d44a223` by ingesting both sides of the conversation; the 0.950 number above is post-fix. Mem0 and MemPalace both ingest full conversations — the old number was an artifact of our pipeline, not of the systems being compared.
+**Five of six strata are 0.977–1.000.** The 1.4pp gap to MemPalace is entirely in the multi-session stratum (0.857 vs the ~0.98 needed to clear). Two concrete follow-up items:
+
+1. Enable songline walks in the Phase 1 bridge (currently disabled — the bridge calls `retrieve()` without a songline_graph, which skips Pillar 2 entirely).
+2. Cross-session entity linking: many multi-session questions ask about a person / entity that appears in multiple sessions. Tagging beliefs with entity IDs and letting retrieval traverse would likely close the gap.
+
+Either on its own should push multi-session above 0.90, which would put the overall above MemPalace.
+
+### Claim D: Stratified 300q LongMemEval-S (subset of 500q)
+
+Same eval on a 300q stratified sample (reproducible with `eval/make_stratified.py --n 300`). Result: **0.950 (283/298)** — consistent with the 500q at 0.952.
+
+**Note on an earlier eval bug:** a prior 300q run scored 0.841 because it ingested only USER turns, missing the `single-session-assistant` stratum where the gold fact was stated by the assistant (e.g. "what did you recommend for dinner?"). Fixed in commit `d44a223` by ingesting both sides of the conversation; the 0.950 / 0.952 numbers above are post-fix. Mem0 and MemPalace both ingest full conversations — the old number was an artifact of our pipeline, not of the systems being compared.
 
 ### Claim B: Unified Patha end-to-end — `patha.Memory` public API
 
