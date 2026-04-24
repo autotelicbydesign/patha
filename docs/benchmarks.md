@@ -37,12 +37,32 @@ Per-stratum on the 500q run:
 | temporal-reasoning | 0.977 (128/131) | strong |
 | **multi-session** | **0.857** (114/133) | **sole weakness — drags overall down** |
 
-**Five of six strata are 0.977–1.000.** The 1.4pp gap to MemPalace is entirely in the multi-session stratum (0.857 vs the ~0.98 needed to clear). Two concrete follow-up items:
+**Five of six strata are 0.977–1.000.** The 1.4pp gap to MemPalace is entirely in the multi-session stratum (0.857 vs the ~0.98 needed to clear).
 
-1. Enable songline walks in the Phase 1 bridge (currently disabled — the bridge calls `retrieve()` without a songline_graph, which skips Pillar 2 entirely).
-2. Cross-session entity linking: many multi-session questions ask about a person / entity that appears in multiple sessions. Tagging beliefs with entity IDs and letting retrieval traverse would likely close the gap.
+### Songline walks — tried it, didn't help. Here's why.
 
-Either on its own should push multi-session above 0.90, which would put the overall above MemPalace.
+The Phase 1 bridge was originally calling `retrieve()` without a `songline_graph`, silently disabling Pillar 2 (Aboriginal songline traversal) in the unified pipeline. Hypothesis: enabling it should lift multi-session retrieval by walking shared-entity / shared-session edges across the haystack.
+
+**Re-ran 500q with songlines enabled. Score: 472/496 = 0.952, identical to the pre-songline run. Every stratum unchanged, including multi-session (114/133 = 0.857).**
+
+Why it didn't help: the multi-session failures **aren't retrieval failures**. Inspecting the 19 multi-session misses, they're all **arithmetic-synthesis questions**:
+
+- "How many weeks did it take me to watch all the MCU and Star Wars?" → gold: 3.5 weeks
+- "How much total money have I spent on bike expenses since the start of the year?" → gold: $185
+- "How many hours of jogging and yoga last week?" → gold: 0.5 hours
+
+The gold answer **never appears verbatim in the source text**. "$185" isn't written anywhere — it has to be derived by adding "$50 saddle + $75 helmet + $30 lights + $30 gloves" across 4 sessions.
+
+Our scoring does token-overlap on the answer. No retrieval improvement can surface a string that doesn't exist in the data. Patha's unified pipeline retrieves all 4 sessions correctly, but the summary doesn't compute the sum. We don't have an LLM synthesis step.
+
+MemPalace's 0.966 almost certainly passes these by retrieve-and-let-LLM-compute. That's a different architecture — not better Phase 1 retrieval, a different answering stage. An apples-to-apples "retrieval only" comparison on multi-session would have both systems fail these questions; it's the LLM generation layer that differs.
+
+### What we'd need to close the gap honestly
+
+1. **Add an LLM synthesis step** that reads retrieved beliefs + the question and computes the answer. That pushes Patha into "retrieve-and-generate" territory, leaving the "zero API calls" story behind unless the LLM is local.
+2. **A different scoring methodology** — e.g., LLM-as-judge over summary content — would credit Patha for retrieving all 4 correct sessions even when the summary doesn't do the arithmetic.
+
+Without either, 0.952 on 500q with our scoring is the real honest number. It's the retrieval + summary quality; it's not comparable to systems that include an LLM answering step.
 
 ### Claim D: Stratified 300q LongMemEval-S (subset of 500q)
 
