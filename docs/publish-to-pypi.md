@@ -20,6 +20,18 @@ Status: wheel + sdist built locally at `dist/` as **v0.9.1**. Final publish requ
 3. Generate an API token at https://pypi.org/manage/account/token/ with scope `Entire account` for the first upload (you can narrow it to `patha` after the project exists).
 4. Save the token. It starts with `pypi-` and looks like `pypi-AgEIcHlwaS5vcmc...`.
 
+## One-command publish (after setup)
+
+```bash
+# TestPyPI rehearsal (recommended first time):
+TEST_PYPI_TOKEN="pypi-AgEIcHlwaS5...your-token..." make publish-test
+
+# Real PyPI:
+PYPI_TOKEN="pypi-AgEIcHlwaS5...your-token..." make publish
+```
+
+`make build` is called automatically by both targets. The wheel at `dist/patha-0.9.2-py3-none-any.whl` includes the bundled supersession classifier, all 4 CLI scripts (`patha`, `patha-mcp`, `patha-viewer`), and the top-level `patha.Memory` developer API.
+
 ## Rehearsal on TestPyPI (recommended first)
 
 ```bash

@@ -1,5 +1,6 @@
 .PHONY: test eval eval-quick eval-32 lint typecheck clean setup-data \
-        verify demo mcp mcp-install viewer
+        verify demo mcp mcp-install viewer \
+        build publish-test publish
 
 # ── Quickstart targets ───────────────────────────────────────────────
 
@@ -20,6 +21,52 @@ mcp-install-dry:
 
 mcp-install-code:
 	uv run patha install-mcp --client claude-code
+
+# ── Release ──────────────────────────────────────────────────────────
+
+# Build wheel + sdist at the current pyproject.toml version.
+build:
+	@rm -rf dist/
+	@uv build
+	@echo ""
+	@echo "Built:"
+	@ls dist/
+	@echo ""
+	@echo "Next: TEST_PYPI_TOKEN=<your-token> make publish-test"
+	@echo "  or: PYPI_TOKEN=<your-token> make publish"
+
+# Rehearse the upload on TestPyPI. Requires TEST_PYPI_TOKEN env var
+# (get one from https://test.pypi.org/manage/account/token/).
+publish-test: build
+	@if [ -z "$$TEST_PYPI_TOKEN" ]; then \
+	    echo "error: set TEST_PYPI_TOKEN (from https://test.pypi.org/manage/account/token/)"; \
+	    exit 1; \
+	fi
+	@uv pip install twine
+	@TWINE_USERNAME=__token__ TWINE_PASSWORD=$$TEST_PYPI_TOKEN \
+	    uv run python -m twine upload --repository testpypi dist/*
+	@echo ""
+	@echo "TestPyPI upload done. Smoke-test with:"
+	@echo "  pip install --index-url https://test.pypi.org/simple/ \\"
+	@echo "              --extra-index-url https://pypi.org/simple/ patha"
+
+# Publish to real PyPI. Requires PYPI_TOKEN env var (get one from
+# https://pypi.org/manage/account/token/). This is irreversible — you
+# cannot unpublish a version, only yank it.
+publish: build
+	@if [ -z "$$PYPI_TOKEN" ]; then \
+	    echo "error: set PYPI_TOKEN (from https://pypi.org/manage/account/token/)"; \
+	    exit 1; \
+	fi
+	@echo "About to publish $$(ls dist/*.whl) to https://pypi.org/project/patha/"
+	@echo "Ctrl-C in 5s to abort..."
+	@sleep 5
+	@uv pip install twine
+	@TWINE_USERNAME=__token__ TWINE_PASSWORD=$$PYPI_TOKEN \
+	    uv run python -m twine upload dist/*
+	@echo ""
+	@echo "Published. Verify at https://pypi.org/project/patha/"
+	@echo "Smoke-test: pip install patha  (may take ~1 min to propagate)"
 
 viewer:
 	uv run patha viewer
