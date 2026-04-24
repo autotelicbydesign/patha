@@ -33,6 +33,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      - name: Download spaCy en_core_web_sm (needed by NER tests)
+        run: uv run python -m spacy download en_core_web_sm
+
       - name: Lint (ruff)
         run: uv run ruff check src/ eval/ tests/
         continue-on-error: true
@@ -60,6 +63,7 @@ jobs:
       - uses: astral-sh/setup-uv@v3
       - run: uv python install 3.11
       - run: uv sync
+      - run: uv run python -m spacy download en_core_web_sm
 
       - name: Smoke test — CLI commands work
         run: |
