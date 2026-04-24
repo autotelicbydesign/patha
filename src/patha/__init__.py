@@ -43,7 +43,7 @@ from patha.belief import (
 )
 from patha.integrated import IntegratedPatha, IntegratedResponse
 
-__version__ = "0.9.2"
+__version__ = "0.9.3"
 
 __all__ = [
     "Memory",
@@ -185,8 +185,23 @@ class Memory:
                     store, config=cfg,
                 )
                 phase1_retrieve = self._phase1_retriever
-            except Exception:
+            except ImportError as e:
+                # Phase 1 requires retrieval / embedder modules that
+                # may not be installed in minimal environments. That's
+                # recoverable — log and fall back to Phase 2 only.
+                import sys
+                print(
+                    f"[patha.Memory] warning: Phase 1 retrieval disabled — "
+                    f"missing dependency ({e.name}). Pass "
+                    f"enable_phase1=False to silence this warning, or "
+                    f"install the missing extra.",
+                    file=sys.stderr,
+                )
                 self._phase1_enabled = False
+            # Any other exception (programming error, disk issue,
+            # configuration bug) is NOT swallowed — let it propagate
+            # so the user sees a real traceback rather than silently
+            # getting a degraded pipeline.
 
         self._patha = IntegratedPatha(
             belief_layer=layer,

@@ -35,35 +35,39 @@ build:
 	@echo "Next: TEST_PYPI_TOKEN=<your-token> make publish-test"
 	@echo "  or: PYPI_TOKEN=<your-token> make publish"
 
-# Rehearse the upload on TestPyPI. Requires TEST_PYPI_TOKEN env var
-# (get one from https://test.pypi.org/manage/account/token/).
+# Rehearse the upload on TestPyPI. Requires TWINE_USERNAME / TWINE_PASSWORD
+# exported in your shell BEFORE running make (so the token never appears
+# on a command line or in a subprocess env set at spawn time, where
+# `ps auxe` could catch it briefly).
+#
+#     export TWINE_USERNAME=__token__
+#     export TWINE_PASSWORD=pypi-<your-test-pypi-token>
+#     make publish-test
 publish-test: build
-	@if [ -z "$$TEST_PYPI_TOKEN" ]; then \
-	    echo "error: set TEST_PYPI_TOKEN (from https://test.pypi.org/manage/account/token/)"; \
+	@if [ -z "$$TWINE_USERNAME" ] || [ -z "$$TWINE_PASSWORD" ]; then \
+	    echo "error: export TWINE_USERNAME=__token__ and TWINE_PASSWORD=<token>"; \
+	    echo "       TestPyPI token: https://test.pypi.org/manage/account/token/"; \
 	    exit 1; \
 	fi
-	@uv pip install twine
-	@TWINE_USERNAME=__token__ TWINE_PASSWORD=$$TEST_PYPI_TOKEN \
-	    uv run python -m twine upload --repository testpypi dist/*
+	@uv run --with twine python -m twine upload --repository testpypi dist/*
 	@echo ""
 	@echo "TestPyPI upload done. Smoke-test with:"
 	@echo "  pip install --index-url https://test.pypi.org/simple/ \\"
 	@echo "              --extra-index-url https://pypi.org/simple/ patha"
 
-# Publish to real PyPI. Requires PYPI_TOKEN env var (get one from
-# https://pypi.org/manage/account/token/). This is irreversible — you
-# cannot unpublish a version, only yank it.
+# Publish to real PyPI. Same auth approach — export TWINE_USERNAME /
+# TWINE_PASSWORD first. This is irreversible — you can yank a version
+# but not delete it.
 publish: build
-	@if [ -z "$$PYPI_TOKEN" ]; then \
-	    echo "error: set PYPI_TOKEN (from https://pypi.org/manage/account/token/)"; \
+	@if [ -z "$$TWINE_USERNAME" ] || [ -z "$$TWINE_PASSWORD" ]; then \
+	    echo "error: export TWINE_USERNAME=__token__ and TWINE_PASSWORD=<token>"; \
+	    echo "       PyPI token: https://pypi.org/manage/account/token/"; \
 	    exit 1; \
 	fi
 	@echo "About to publish $$(ls dist/*.whl) to https://pypi.org/project/patha/"
 	@echo "Ctrl-C in 5s to abort..."
 	@sleep 5
-	@uv pip install twine
-	@TWINE_USERNAME=__token__ TWINE_PASSWORD=$$PYPI_TOKEN \
-	    uv run python -m twine upload dist/*
+	@uv run --with twine python -m twine upload dist/*
 	@echo ""
 	@echo "Published. Verify at https://pypi.org/project/patha/"
 	@echo "Smoke-test: pip install patha  (may take ~1 min to propagate)"

@@ -22,15 +22,27 @@ Status: wheel + sdist built locally at `dist/` as **v0.9.1**. Final publish requ
 
 ## One-command publish (after setup)
 
+**Export auth in your shell first**, then run `make`. Exporting (not inlining) keeps the token out of make's command-line env where `ps auxe` could briefly catch it.
+
 ```bash
+# One-time (per shell session) — set for either target:
+export TWINE_USERNAME=__token__
+export TWINE_PASSWORD="pypi-AgEIcHlwaS5...your-token..."
+
 # TestPyPI rehearsal (recommended first time):
-TEST_PYPI_TOKEN="pypi-AgEIcHlwaS5...your-token..." make publish-test
+make publish-test
 
 # Real PyPI:
-PYPI_TOKEN="pypi-AgEIcHlwaS5...your-token..." make publish
+make publish
 ```
 
-`make build` is called automatically by both targets. The wheel at `dist/patha-0.9.2-py3-none-any.whl` includes the bundled supersession classifier, all 4 CLI scripts (`patha`, `patha-mcp`, `patha-viewer`), and the top-level `patha.Memory` developer API.
+`make build` is called automatically by both. The wheel at `dist/patha-0.9.3-py3-none-any.whl` includes the bundled supersession classifier, all 4 CLI scripts (`patha`, `patha-mcp`, `patha-viewer`), and the top-level `patha.Memory` developer API.
+
+**If you want to store the token in your shell's secret manager** (more secure, no env vars):
+```bash
+keyring set https://upload.pypi.org/legacy/ __token__
+# twine auto-reads from keyring when TWINE_PASSWORD is unset
+```
 
 ## Rehearsal on TestPyPI (recommended first)
 
