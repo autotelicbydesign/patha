@@ -61,6 +61,7 @@ from patha.belief.store import BeliefStore
 from patha.chunking.propositionizer import Proposition
 from patha.chunking.views import build_views, VIEW_NAMES
 from patha.indexing.bm25_index import SimpleBM25
+from patha.indexing.songline_graph import SonglineGraph, build_songline_graph
 from patha.indexing.store import InMemoryStore
 from patha.models.embedder_st import SentenceTransformerEmbedder
 from patha.retrieval.pipeline import PipelineConfig, retrieve
@@ -84,13 +85,17 @@ def build_phase1_indexes(
     belief_store: BeliefStore,
     *,
     embedder=None,
-) -> tuple[InMemoryStore, SimpleBM25, dict[str, str]]:
-    """Embed every belief across the 7 Vedic views + build a BM25 index.
+    enable_entities: bool = True,
+    enable_songline: bool = True,
+) -> tuple[InMemoryStore, SimpleBM25, dict[str, str], SonglineGraph | None]:
+    """Embed every belief across the 7 Vedic views + BM25 + optional
+    songline graph over entity / session / speaker / temporal channels.
 
     Returns:
-        store           — InMemoryStore populated with all beliefs' views
-        bm25            — SimpleBM25 index over proposition text
-        id_map          — dict mapping Phase-1 chunk_id → BeliefStore source_proposition_id
+        store    — InMemoryStore populated with all beliefs' views
+        bm25     — SimpleBM25 index over proposition text
+        id_map   — Phase-1 chunk_id → BeliefStore source_proposition_id
+        songline — SonglineGraph if enable_songline else None
     """
     if embedder is None:
         embedder = SentenceTransformerEmbedder()
@@ -101,7 +106,7 @@ def build_phase1_indexes(
 
     beliefs = list(belief_store.all())
     if not beliefs:
-        return store, bm25, id_map
+        return store, bm25, id_map, None
 
     propositions = [_belief_to_proposition(b, i) for i, b in enumerate(beliefs)]
     views_per_prop = build_views(propositions)
@@ -110,6 +115,24 @@ def build_phase1_indexes(
     for view_name in VIEW_NAMES:
         view_texts = [views_per_prop[i][view_name] for i in range(len(propositions))]
         embeddings_per_view[view_name] = embedder.embed(view_texts)
+
+    # Entity extraction via spaCy (for songline entity edges + v5 views).
+    # Fails gracefully if spacy / the model isn't available.
+    entities_per_prop: list[list[str]] = [[] for _ in propositions]
+    if enable_entities:
+        try:
+            from patha.query.entities import EntityEnricher
+            enricher = EntityEnricher()
+            entities_per_prop = enricher.extract_batch(
+                [p.text for p in propositions]
+            )
+        except Exception as e:
+            import sys
+            print(
+                f"[phase1_bridge] entity extraction unavailable ({e}); "
+                f"songline graph will lack entity edges.",
+                file=sys.stderr,
+            )
 
     rows: list[dict] = []
     for i, (prop, belief) in enumerate(zip(propositions, beliefs)):
@@ -128,7 +151,7 @@ def build_phase1_indexes(
             "text": prop.text,
             "speaker": prop.speaker,
             "timestamp": prop.timestamp,
-            "entities": [],
+            "entities": entities_per_prop[i],
             "views": view_payload,
         }
         rows.append(row)
@@ -136,7 +159,21 @@ def build_phase1_indexes(
         bm25.add(prop.chunk_id, prop.text)
 
     store.upsert(rows)
-    return store, bm25, id_map
+
+    songline: SonglineGraph | None = None
+    if enable_songline:
+        try:
+            songline = build_songline_graph(rows)
+        except Exception as e:
+            import sys
+            print(
+                f"[phase1_bridge] songline graph build failed ({e}); "
+                f"retrieval will skip graph walks.",
+                file=sys.stderr,
+            )
+            songline = None
+
+    return store, bm25, id_map, songline
 
 
 class LazyPhase1Retriever:
@@ -207,13 +244,15 @@ class LazyPhase1Retriever:
     def __call__(self, query: str, top_k: int) -> list[str]:
         self._ensure_built()
         assert self._indexes is not None
-        prop_store, bm25, id_map = self._indexes
+        # New v0.9.4 return shape: (store, bm25, id_map, songline).
+        prop_store, bm25, id_map, songline = self._indexes
         if not id_map:
             return []
         embedder = self._ensure_embedder()
         reranker = self._ensure_reranker()
         result = retrieve(
             query, store=prop_store, embedder=embedder, bm25=bm25,
+            songline_graph=songline,
             config=self._config, reranker=reranker,
         )
         chunk_ids = [cid for cid, _ in result.final[:top_k]]

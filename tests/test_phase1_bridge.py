@@ -37,20 +37,34 @@ def _populate(store: BeliefStore) -> None:
 class TestBuildPhase1Indexes:
     def test_empty_store_returns_empty_indexes(self, tmp_path):
         store = BeliefStore(persistence_path=tmp_path / "beliefs.jsonl")
-        prop_store, bm25, id_map = build_phase1_indexes(
-            store, embedder=StubEmbedder(),
+        prop_store, bm25, id_map, songline = build_phase1_indexes(
+            store, embedder=StubEmbedder(), enable_entities=False,
+            enable_songline=False,
         )
         assert id_map == {}
+        assert songline is None
 
     def test_populated_store_builds_id_map(self, tmp_path):
         store = BeliefStore(persistence_path=tmp_path / "beliefs.jsonl")
         _populate(store)
-        prop_store, bm25, id_map = build_phase1_indexes(
-            store, embedder=StubEmbedder(),
+        prop_store, bm25, id_map, songline = build_phase1_indexes(
+            store, embedder=StubEmbedder(), enable_entities=False,
+            enable_songline=False,
         )
-        # Every chunk maps to a source_proposition_id
         assert len(id_map) == 4
         assert set(id_map.values()) == {"src-0", "src-1", "src-2", "src-3"}
+        assert songline is None
+
+    def test_populated_store_builds_songline(self, tmp_path):
+        store = BeliefStore(persistence_path=tmp_path / "beliefs.jsonl")
+        _populate(store)
+        prop_store, bm25, id_map, songline = build_phase1_indexes(
+            store, embedder=StubEmbedder(), enable_entities=False,
+        )
+        # With enable_entities=False we skip spaCy (which may not be
+        # installed in CI); songline graph still builds from session/
+        # speaker/temporal channels.
+        assert songline is not None
 
 
 class TestBuildPhase1Retriever:
