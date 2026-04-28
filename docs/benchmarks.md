@@ -103,17 +103,28 @@ The two claims differ by **54.5 percentage points** on the same benchmark. Three
 
 3. **Phase 2's value isn't measured here.** LongMemEval tests retrieval, not belief supersession or contradiction handling. The contradiction-detection machinery (adhyāsa, numerical, sequential, learned classifier) adds no signal for these questions because no belief contradicts any other — users aren't revising their 5K time.
 
-### Vedic gaṇita (procedural arithmetic) — synthesis without LLM
+### Vedic gaṇita (procedural arithmetic) — scaffolding, honest about its limit
 
-Most multi-session failures aren't retrieval failures — they're synthesis failures. "$185 total bike spend" never appears in the source; it's $50 + $75 + $30 + $30 across 4 sessions. The Vedic tradition has a principled answer: *gaṇita* (auxiliary mathematics, used in the Sulbasūtras for ritual altar geometry). Procedural rule-application on preserved facts, not interpretation.
+Most multi-session failures aren't retrieval failures — they're synthesis failures. "$185 total bike spend" never appears in the source; it's $50 + $75 + $30 + $30 across 4 sessions. The Vedic tradition has a principled answer: *gaṇita* (auxiliary mathematics from the Sulbasūtras). Procedural rule-application on preserved facts, not interpretation. Aboriginal songlines have a parallel: increase-walks include totalling sites where the songkeeper recounts everything traversed along the path.
 
-`patha.Memory` now has a gaṇita layer (`src/patha/belief/ganita.py`):
+`patha.Memory` ships a gaṇita layer (`src/patha/belief/ganita.py`) with this shape:
 
-- **Ingest-time:** regex-based extraction of (entity, attribute, value, unit, time) tuples from each belief. Currency, durations, percentages, counts.
+- **Ingest-time:** regex-based extraction of (entity, attribute, value, unit, time) tuples. Currency, durations, percentages, counts. Sentence-scoped entity binding to avoid cross-topic contamination.
 - **Sidecar JSONL index** keyed by (entity, attribute). Append-only, mirrors the BeliefStore's persistence pattern.
-- **Query-time:** detect aggregation operator from question (`sum / count / average / difference / max / min`); restrict to retrieved-belief tuples (Phase 1 scopes the topic); run procedural arithmetic; return value + contributing belief_ids.
+- **Query-time:** detect aggregation operator from question wording; restrict to retrieved-belief tuples (Phase 1 scopes topic); run procedural arithmetic; return value + contributing belief_ids.
 
-This is the deterministic, no-LLM path to closing synthesis-bounded gaps. End-to-end test on the canonical case ("How much total spent on bike?" with $50 saddle + $75 helmet + $30 lights + $30 gloves) returns **$185.0 USD with 4 source belief ids** — exactly what the question asks for, computed deterministically.
+**Status: works on clean inputs, doesn't yet help on dense conversational benchmarks.**
+
+- 24/24 unit tests pass.
+- End-to-end test on the canonical case (4 hand-crafted bike-expense beliefs) returns $185.0 USD with all 4 source belief ids. ✓
+- Smoke test on the 8 synthesis-bounded LongMemEval-S questions: **0/8**. The regex extractor pulls in too many irrelevant currency mentions because real conversational sessions contain many "I spent $X on Y" sentences across topics.
+
+What would make gaṇita actually close the LongMemEval synthesis gap:
+
+1. **NER + dependency parsing** to bind currency/values to syntactic objects of verbs (vs. nearby nouns by coincidence). ~2-3 weeks of engineering. Tradition-aligned, no LLM.
+2. **An LLM extractor** for the tuples (cleaner extraction). Brings back the LLM dependency we explicitly want to avoid.
+
+Honest position: the layer is *architecturally right* (the right shape for tradition-aligned synthesis without an LLM), but the *regex implementation* is the wrong fidelity for dense natural-language haystacks. Shipped as scaffolding; the real research problem is robust no-LLM tuple extraction.
 
 ### Token economy (when paired with Claude or any LLM)
 
