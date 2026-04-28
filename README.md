@@ -15,20 +15,26 @@
 
 Under the hood: contradiction detection via NLI + lexical rewriting + sequential-event markers + numerical-change handling. Non-commutative belief evolution measured empirically (96% of supersession scenarios are order-dependent). Plasticity mechanisms (time decay, Hebbian associations, homeostasis) operate during normal use. Primitives drawn from two human memory traditions that lasted thousands of years: Vedic recitation (redundant multi-view encoding) and Aboriginal songlines (narrative graph traversal).
 
+**Architectural distinction Patha makes that no other AI memory system does:**
+
+Patha separates **retrieval** queries ("what did I say about the saddle?") from **synthesis** queries ("how much have I spent on bikes total?"). They flow through different paths:
+
+- **Retrieval** — pratyakṣa (perception): Phase 1 (7-view dense + BM25 + RRF + reranker + songlines) → Phase 2 (current-state filter) → direct-answer or structured summary.
+- **Synthesis** — anumāna (inference): the gaṇita layer queries the belief store directly. Phase 1 is never invoked. Pure deterministic arithmetic over preserved tuples. **Zero LLM tokens at recall.**
+
+Top-K retrieval is the wrong primitive for synthesis: top-100 of 1000 sessions misses 90% of the inputs you need to sum. Mainstream memory systems don't make this distinction; they force every question through the same funnel and let the LLM clean up.
+
 **Honest benchmark summary:**
 
-| Claim | Number | Beats Mem0 (0.934)? | Beats MemPalace (0.966)? |
-|---|:---:|:---:|:---:|
-| **`patha.Memory` end-to-end, full 500q LongMemEval-S** (Phase 1 + 2) | **0.952** (472/496) | **+1.8pp** | **−1.4pp** |
-| Same run, knowledge-update subset (77q in the 500q) | **0.987** (76/77) | **+5.3pp** | **+2.1pp** |
-| Phase 1 retrieval R@5 on LongMemEval-KU (78q) | 1.000 (78/78) | +6.6pp | +3.4pp |
-| Integrated BeliefEval (300 supersession scenarios, full-stack-v8) | 0.968 (336/347) | — | — |
-| Non-commutative belief-order dependency | 95.8% of supersession scenarios | — | — |
+| Claim | Number |
+|---|:---:|
+| `patha.Memory` end-to-end, full 500q LongMemEval-S (Phase 1 + 2) | **0.952** (472/496) |
+| Same run, knowledge-update subset (77q in the 500q) | **0.987** (76/77) |
+| Phase 1 retrieval R@5 on LongMemEval-KU (78q) | 1.000 (78/78) |
+| Integrated BeliefEval (300 supersession scenarios, full-stack-v8) | 0.968 (336/347) |
+| Non-commutative belief-order dependency | 95.8% of supersession scenarios |
 
-- On **full 500q LongMemEval-S** (apples-to-apples with MemPalace's published number): Patha beats Mem0 by +1.8pp, is 1.4pp under MemPalace.
-- On the **knowledge-update stratum** (77 questions): Patha beats both Mem0 (+5.3pp) and MemPalace (+2.1pp).
-- Five of six strata are 0.977–1.000. Only multi-session (0.857) drags the overall number — and 84% of those failures are *synthesis-bounded* (the gold answer is computed, e.g. "$185 total" = sum across 4 sessions; never in source). Closed by the `gaṇita` layer (in-tradition Vedic procedural arithmetic, no LLM).
-- Phase 1 retrieval alone on LongMemEval-KU is 1.000 — perfect retrieval on the subset Mem0 benchmarks on.
+- Five of six strata are 0.977–1.000. Multi-session (0.857) is dominated by *synthesis-bounded* questions (84% per `eval/multisession_diagnosis.py`) — the gold is a computed value never literally in source. Synthesis-intent routing + the karaṇa LLM extractor target this directly; quality scales with the karaṇa model (≥14B local or hosted recommended for synthesis-heavy use).
 
 **Token economy when paired with Claude or any LLM** (`eval/token_economy.py`):
 
@@ -175,7 +181,7 @@ memory.history("X")   # every mention of X, current + superseded
 memory.stats()        # counts, plasticity state, data path
 ```
 
-See [`examples/developer_quickstart.py`](examples/developer_quickstart.py) for a runnable walkthrough, and [docs/benchmarks.md](docs/benchmarks.md) for the head-to-head vs Mem0 and MemPalace.
+See [`examples/developer_quickstart.py`](examples/developer_quickstart.py) for a runnable walkthrough, and [docs/benchmarks.md](docs/benchmarks.md) for the full benchmark methodology.
 
 ### Streamlit viewer
 
@@ -216,14 +222,14 @@ Plus: plasticity mechanisms (time decay, Hebbian associations, homeostasis, LTP,
 
 Full numbers with caveats, ablations, and methodology live in [docs/benchmarks.md](docs/benchmarks.md). The headlines:
 
-| Benchmark | Result | Comparison |
+| Benchmark | Result | Notes |
 |---|---|---|
-| **LongMemEval-KU R@5 (Phase 1 retrieval)** | 1.000 (78/78) | Mem0 ECAI 2025: 0.934 |
+| **LongMemEval-KU R@5 (Phase 1 retrieval)** | 1.000 (78/78) | perfect retrieval on the public KU subset |
 | LongMemEval S 100q stratified R@5 | 0.989 | — |
 | BeliefEval 300-scenario / 347q (Phase 2) | 1.000 with full-stack-v7 | our own benchmark; see caveat |
 | **LongMemEval-KU answer-in-summary (Phase 2 alone)** | **0.885 (69/78)** | stub null baseline: 0.795 |
 | Non-commutativity on 240 supersession scenarios | 95.8% | 0% on reinforcement |
-| Test suite | 602 pass | — |
+| Test suite | 725 pass | — |
 
 **Caveat on the 1.000 BeliefEval:** the Phase 2 detector was iteratively tuned on the exact scenarios in our benchmark, so 1.000 on that set should be read as "no known misses" rather than "generalises everywhere." The honest external number is 0.885 on LongMemEval-KU, measured on a benchmark we didn't write.
 
