@@ -58,12 +58,36 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="data/longmemeval_s_cleaned.json")
     ap.add_argument("--qids", nargs="*", default=SYNTHESIS_QUESTIONS)
+    ap.add_argument(
+        "--karana", choices=["regex", "ollama"], default="regex",
+        help="Karaṇa extractor: regex (zero-deps baseline) or ollama "
+             "(local LLM at ingest, deterministic recall).",
+    )
+    ap.add_argument(
+        "--ollama-model", default="qwen2.5:7b-instruct",
+        help="Model tag when --karana ollama. Must already be pulled.",
+    )
+    ap.add_argument(
+        "--ollama-host", default="http://localhost:11434",
+    )
     args = ap.parse_args(argv)
 
     qs = json.load(open(args.data))
     qs_by_id = {q["question_id"]: q for q in qs}
 
+    if args.karana == "ollama":
+        from patha.belief.karana import OllamaKaranaExtractor
+        karana = OllamaKaranaExtractor(
+            model=args.ollama_model, host=args.ollama_host,
+            timeout_s=60.0,
+        )
+    else:
+        karana = None  # patha.Memory's default RegexKaranaExtractor
+
     print(f"Smoke-testing gaṇita on {len(args.qids)} synthesis-bounded questions...")
+    print(f"  karana extractor: {args.karana}")
+    if args.karana == "ollama":
+        print(f"  ollama model:     {args.ollama_model}")
     print()
 
     hits = 0
@@ -92,6 +116,7 @@ def main(argv: list[str] | None = None) -> None:
             enable_phase1=True,
             phase1_top_k=100,
             enable_ganita=True,
+            karana_extractor=karana,
         )
 
         # SESSION-LEVEL ingest — matches how the 500q benchmark
