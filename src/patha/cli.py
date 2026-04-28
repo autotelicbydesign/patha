@@ -304,6 +304,60 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_import(args: argparse.Namespace) -> int:
+    """Import files / folders / Obsidian vaults into the belief store."""
+    import patha as patha_pkg
+    from patha.importers import (
+        import_file, import_folder, import_obsidian_vault, ImportStats,
+    )
+
+    target = Path(args.path).expanduser().resolve()
+    if not target.exists():
+        print(f"error: {target} does not exist", file=sys.stderr)
+        return 1
+
+    # Use the developer-API Memory, which routes through Phase 1 +
+    # Phase 2 + gaṇita. Persists to the same store the rest of the
+    # CLI uses (data_dir/beliefs.jsonl).
+    args.data_dir.mkdir(parents=True, exist_ok=True)
+    store_path = args.data_dir / "beliefs.jsonl"
+    memory = patha_pkg.Memory(
+        path=store_path,
+        detector=args.detector,
+        # Phase 1 is built lazily — fine for one-shot import.
+        enable_phase1=False,
+    )
+
+    print(f"Importing {target} → {store_path}")
+    if args.kind == "obsidian-vault":
+        if target.is_dir():
+            stats = import_obsidian_vault(target, memory)
+        else:
+            print(f"error: {target} is not a directory", file=sys.stderr)
+            return 1
+    elif args.kind == "folder":
+        stats = import_folder(target, memory, obsidian=args.obsidian)
+    elif args.kind == "file":
+        stats = ImportStats()
+        import_file(target, memory, obsidian=args.obsidian, stats=stats)
+    else:
+        print(f"error: unknown import kind: {args.kind}", file=sys.stderr)
+        return 1
+
+    print(f"  files seen:           {stats.files_seen}")
+    print(f"  files imported:       {stats.files_imported}")
+    print(f"  files skipped:        {stats.files_skipped}")
+    print(f"  beliefs added:        {stats.beliefs_added}")
+    print(f"  beliefs reinforced:   {stats.beliefs_reinforced}")
+    print(f"  beliefs superseded:   {stats.beliefs_superseded}")
+    if stats.files_skipped and stats.files_skipped <= 5:
+        for p in stats.skipped_paths[:5]:
+            print(f"    skipped: {p}")
+    elif stats.files_skipped:
+        print(f"    (use --verbose to list skipped files)")
+    return 0
+
+
 # ─── Main ──────────────────────────────────────────────────────────
 
 def main(argv: list[str] | None = None) -> int:
@@ -437,6 +491,30 @@ def main(argv: list[str] | None = None) -> int:
     # stats
     p_stats = sub.add_parser("stats", help="Show store statistics")
     p_stats.set_defaults(fn=cmd_stats)
+
+    # import
+    p_import = sub.add_parser(
+        "import",
+        help="Import a file, folder, or Obsidian vault into the store. "
+             "Each Markdown / text file becomes one or more beliefs.",
+    )
+    p_import.add_argument(
+        "kind",
+        choices=["file", "folder", "obsidian-vault"],
+        help="What to import: a single file, a recursive folder, or an "
+             "Obsidian vault (frontmatter + wikilinks aware).",
+    )
+    p_import.add_argument(
+        "path",
+        help="Path to the file / folder / vault to import.",
+    )
+    p_import.add_argument(
+        "--obsidian", action="store_true",
+        help="When importing a folder/file, treat as Obsidian (parse "
+             "YAML frontmatter, extract wikilink + tag entity hints). "
+             "Implied by `obsidian-vault`.",
+    )
+    p_import.set_defaults(fn=cmd_import)
 
     args = parser.parse_args(argv)
     return args.fn(args)
