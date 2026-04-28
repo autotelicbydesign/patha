@@ -94,9 +94,9 @@ These don't block the branch; they motivate v0.10's roadmap.
 | Karaṇa+gemma4 smoke test on actual `gpt4_d84a3211` LongMemEval haystack (with all 3 fixes) | \$999 (single tuple) — closer than the original \$1039 (2 tuples) but still wrong | The remaining gap is gemma4:8b consistency: the LLM doesn't reliably emit "bike" as an alias on bike-shopping facts. Switching to a stronger model or refining the prompt is the next step. |
 | 717 unit tests + composition + slow live Ollama integration | All pass | Mechanisms compose; no regressions |
 
-### How the synthesis-bounded gap was actually solved (three-layer fix)
+### How the synthesis-bounded gap was actually solved (five-layer fix)
 
-The `gpt4_d84a3211` failure mode (gaṇita summed \$40 + \$999 = \$1039 instead of gold \$185) had three independent root causes; the fix is three independent commits.
+The `gpt4_d84a3211` failure mode (gaṇita summed \$40 + \$999 = \$1039 instead of gold \$185) had multiple independent root causes; iterative debugging revealed each one. Each fix is its own commit and has its own unit test.
 
 **Layer 1 — gaṇita aggregation trusts the precise index match.**
 The aggregation was *strictly* filtering tuples by `restrict_to_belief_ids`, so even when the LLM correctly extracted bike-expense tuples globally, only those whose beliefs Phase 1 retrieved survived. That violated the Vedic principle the layer is named after: gaṇita is exhaustive arithmetic on preserved facts, not retrieval-scoped arithmetic. Fix: when entity+attribute match yields ≤ `ambiguity_threshold` (default 30) tuples globally, trust the index; restriction kicks in only on large/ambiguous candidate sets.
@@ -107,14 +107,22 @@ The original alias-from-context code added every noun-like token from the surrou
 **Layer 3 — dedup repeated assertions of the same fact.**
 LongMemEval haystacks routinely re-state the same purchase across sessions ("the \$40 bike lights I got" mentioned 3× = 3 tuples for a single purchase). Fix: skip karaṇa extraction on `reinforced` ingest events; on `added` events, drop tuples whose (entity, attribute, value, unit) already exists in the index. The same fact asserted N times counts once.
 
-The unit tests prove each layer in isolation:
+**Layer 4 — temporal qualifiers don't leak into entity hints.**
+"How much have I spent on bike-related expenses **since the start of the year**?" extracted hints `["money", "bike", "related", "expense", "since", "start"]`. Then any tuple whose LLM-emitted aliases happened to include "start" (a generic word) falsely matched. A MacBook (\$999, aliases `["macbook", "air", "chip", "start", "base"]`) got pulled into a bike question. Fix: `_QUESTION_STOPWORDS` extended with temporal qualifiers (`since`, `start`, `before`, `after`, `during`) and other generics (`money`, `amount`, `expenses`, `related`).
+
+**Layer 5 — topic-proximity fallback rescues bad aliases.**
+Even with the explicit-alias prompt, gemma4:8b sometimes emitted `aliases: ["helmet", "safety"]` for a bike-shop helmet purchase, missing "bike". Fix: at recall time, additively pull tuples whose `raw_text` contains a non-stop topic word (e.g., "bike") within 60 chars of the value's text. Catches helmet-near-bike-shop legitimately while excluding incidental "rent on a flat near the bike path" (bike >40 chars from \$999).
+
+Unit tests prove each layer in isolation:
 
   - `test_dense_haystack_phase1_misses_some_bike_sessions` — Layer 1
   - `test_bike_query_misses_when_llm_omits_bike_alias` — Layer 2
   - `test_same_fact_across_multiple_sessions_dedups` — Layer 3
+  - (Layer 4 covered by `extract_entity_hints` regression: temporal words filtered)
+  - `test_proximity_fallback_catches_missed_alias` and `test_proximity_fallback_excludes_distant_mentions` — Layer 5
   - `test_bike_query_aggregates_via_explicit_aliases` — Layers 1+2 composed
 
-The live Ollama integration test (gemma4:8b) covers Layers 1+2 end-to-end; the smoke test on the actual `gpt4_d84a3211` haystack exercises all three.
+The live Ollama integration test (gemma4:8b) covers Layers 1+2 end-to-end. The smoke test on the actual `gpt4_d84a3211` haystack exercises all five.
 
 ### Where Hebbian still earns its keep
 
