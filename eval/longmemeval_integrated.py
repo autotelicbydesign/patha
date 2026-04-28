@@ -202,18 +202,33 @@ def run_question(
     )
     query_secs = time.perf_counter() - t_query
 
-    # Score against gold answer — two modes:
+    # Score against gold answer — three modes:
     # (a) current only: did the current beliefs alone carry the answer?
     # (b) with history: did current + superseded together carry it?
+    # (c) gaṇita answer: did the synthesis-intent path produce a
+    #     computed value matching the gold? (e.g., gold "$185" — no
+    #     source session contains "185" literally because it's the SUM)
     current_text = " | ".join(c["proposition"] for c in rec.current)
     history_text = " | ".join(h["proposition"] for h in rec.history)
+    ganita_text = ""
+    if rec.ganita is not None:
+        ganita_text = (
+            f"{rec.ganita.value} {rec.ganita.unit} "
+            f"({rec.ganita.operator}) "
+            f"{rec.ganita.explanation}"
+        )
+    if rec.answer:
+        ganita_text = (ganita_text + " " + rec.answer).strip()
     answer_in_current = _score_contains(q["answer"], current_text)
     answer_in_history = _score_contains(q["answer"], history_text)
+    answer_in_ganita = _score_contains(q["answer"], ganita_text)
 
-    if verbose and not (answer_in_current or answer_in_history):
+    if verbose and not (answer_in_current or answer_in_history or answer_in_ganita):
         print(f"    FAIL {q['question_id']}: gold={q['answer']!r}")
         print(f"      current({len(rec.current)}): "
               f"{[c['proposition'][:60] for c in rec.current[:3]]}")
+        if rec.ganita is not None:
+            print(f"      ganita: {rec.ganita.value} {rec.ganita.unit}")
 
     tmp_path.unlink(missing_ok=True)
     Path(str(tmp_path) + ".ganita.jsonl").unlink(missing_ok=True)
@@ -222,8 +237,10 @@ def run_question(
         question_id=q["question_id"],
         question=q["question"],
         gold_answer=str(q["answer"]),
-        correct_current_only=answer_in_current,
-        correct_with_history=answer_in_current or answer_in_history,
+        correct_current_only=answer_in_current or answer_in_ganita,
+        correct_with_history=(
+            answer_in_current or answer_in_history or answer_in_ganita
+        ),
         answer_in_current=answer_in_current,
         answer_in_history=answer_in_history,
         current_count=len(rec.current),

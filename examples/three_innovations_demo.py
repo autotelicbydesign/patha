@@ -1,28 +1,31 @@
-"""End-to-end demo of Patha's three innovations.
+"""End-to-end demo of Patha's architectural claim:
+
+  Patha separates retrieval queries from synthesis queries.
+  No mainstream AI memory system does this.
 
 Run with:
 
     uv run python examples/three_innovations_demo.py
 
-Or, if you have Ollama running and want to see Innovation #2 with a
-real local LLM:
+Or, if you have Ollama running and want to see karaṇa with a
+real local LLM (recommended ≥14B for synthesis-heavy use):
 
     OLLAMA_HOST=http://localhost:11434 \\
-    PATHA_KARANA_MODEL=qwen2.5:7b-instruct \\
-    uv run python examples/three_innovations_demo.py --karana ollama
+    PATHA_KARANA_MODEL=qwen2.5:14b-instruct \\
+    uv run python examples/three_innovations_demo.py --karana hybrid
 
 What you'll see:
 
-  Section 1: Hebbian-cluster-aware retrieval (Innovation #1)
-            — beliefs that surface together accumulate edges
-            — a future query that hits ONE of them surfaces the cluster
+  Section 1: Synthesis-intent routing
+            — "how much have I spent on bikes?" bypasses Phase 1
+            — gaṇita queries the belief store directly
+            — pure deterministic arithmetic, ZERO LLM tokens at recall
 
-  Section 2: Vedic karaṇa LLM ingest-time extraction (Innovation #2)
-            — local LLM reads each new belief at ingest
-            — recall answers aggregation questions with ZERO LLM tokens
-            — deterministic, source-cited
+  Section 2: Hebbian retrieval (no benchmark lift, no regression,
+            real for repeat-query workloads)
+            — co-retrieval edges accumulate from real usage
 
-  Section 3: Filesystem-native ingest (Innovation #3)
+  Section 3: Filesystem-native ingest
             — `patha import obsidian-vault` brings pre-existing
               writing into the belief store
             — frontmatter dates, wikilinks, tags all preserved
