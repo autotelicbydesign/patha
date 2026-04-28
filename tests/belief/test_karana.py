@@ -154,6 +154,89 @@ class TestRecordToTuple:
         assert t is not None
         assert t.attribute == "expense"
 
+    def test_aliases_supplemented_from_raw_text(self) -> None:
+        """When the LLM emits entity='saddle' but the source text mentions
+        'bike', the aliases should include 'bike' so a question that
+        asks about bike-related expenses still matches."""
+        t = _record_to_tuple(
+            {"entity": "saddle", "attribute": "expense",
+             "value": 50, "unit": "USD"},
+            belief_id="b1", time=None,
+            raw_text="I bought a $50 saddle for my bike",
+        )
+        assert t is not None
+        assert t.entity == "saddle"
+        assert "bike" in t.entity_aliases
+
+    def test_explicit_aliases_array_honored(self) -> None:
+        """If the LLM emits its own `aliases` array, use that instead
+        of pulling from raw text. (cycling canonicalises to bike via
+        ENTITY_ALIASES, so we use 'transport' which doesn't.)"""
+        t = _record_to_tuple(
+            {"entity": "saddle", "attribute": "expense",
+             "value": 50, "unit": "USD",
+             "aliases": ["bike", "transport"]},
+            belief_id="b1", time=None,
+            raw_text="I bought a $50 saddle",
+        )
+        assert t is not None
+        # canonical entity always first
+        assert t.entity_aliases[0] == "saddle"
+        assert "bike" in t.entity_aliases
+        assert "transport" in t.entity_aliases
+
+
+class TestEndToEndKaranaWithAliases:
+    """Verify the alias path works end-to-end through the gaṇita
+    aggregation pipeline — the LLM extracts saddle/helmet/light/glove
+    expenses, but a question about 'bike' still finds and sums them."""
+
+    def test_bike_query_aggregates_saddle_helmet_etc(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        # The LLM emits per-item entities (saddle, helmet, light, glove)
+        # but each tuple's raw_text mentions 'bike', so context aliases
+        # should pull them in for a 'bike' query.
+        canned_responses = [
+            '[{"entity":"saddle","attribute":"expense","value":50,"unit":"USD"}]',
+            '[{"entity":"helmet","attribute":"expense","value":75,"unit":"USD"}]',
+            '[{"entity":"light","attribute":"expense","value":30,"unit":"USD"}]',
+            '[{"entity":"glove","attribute":"expense","value":30,"unit":"USD"}]',
+        ]
+        idx = {"i": 0}
+
+        def _scripted_generate(self, prompt):
+            r = canned_responses[idx["i"] % len(canned_responses)]
+            idx["i"] += 1
+            return r
+
+        monkeypatch.setattr(
+            OllamaKaranaExtractor, "_generate", _scripted_generate,
+        )
+        ex = OllamaKaranaExtractor(host="http://localhost:1")
+        mem = patha.Memory(
+            path=tmp_path / "store.jsonl",
+            enable_phase1=False,
+            karana_extractor=ex,
+        )
+        for fact in [
+            "I bought a $50 saddle for my bike",
+            "I got a $75 helmet for the bike",
+            "$30 for new bike lights",
+            "I spent $30 on bike gloves",
+        ]:
+            mem.remember(fact)
+
+        # Aggregation question with 'bike' in it — should hit all 4
+        # expense tuples via the text-context aliases.
+        rec = mem.recall("how much total did I spend on bike-related expenses?")
+        assert rec.ganita is not None, (
+            "ganita didn't fire — text-context aliases must pull "
+            "saddle/helmet/light/glove tuples in for a 'bike' query"
+        )
+        assert abs(rec.ganita.value - 185.0) < 1.0
+        assert len(rec.ganita.contributing_belief_ids) == 4
+
 
 # ─── Ollama extractor (fallback path) ────────────────────────────────
 
