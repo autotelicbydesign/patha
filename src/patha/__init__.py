@@ -186,8 +186,16 @@ class Memory:
             If True (default), after Phase 1 retrieval, expand the
             candidate set via the Hebbian co-retrieval graph. Beliefs
             that have surfaced together in past queries co-surface in
-            future ones, even if direct cosine similarity to the query
-            is borderline. Closes the multi-session retrieval gap.
+            future ones.
+
+            Empirically: no measurable lift on the LongMemEval-S 500q
+            multi-session benchmark (paired A/B = identical). Also no
+            regression. The benefit shows up in **repeat-query
+            workloads** — real users hitting the same store over time
+            accumulate co-retrieval edges that Phase-1's static cosine
+            doesn't capture. LongMemEval is single-shot, so the
+            recorded signal can't accumulate.
+
             Disable for retrieval ablation studies.
         hebbian_top_k_per_seed
             Per Phase-1 seed belief, how many strongest Hebbian
@@ -391,23 +399,79 @@ class Memory:
     ) -> Recall:
         """Return a compact memory summary for the question.
 
+        Routing by question intent (the architectural distinction):
+
+          - **Synthesis** ("how much total spent on bikes", "how many
+            books read this year") — gaṇita queries the belief store
+            DIRECTLY, bypassing Phase 1. Synthesis is *inference*
+            across many facts, not *perception* of one. Top-K retrieval
+            is the wrong primitive: top-100 of 1000 sessions misses
+            90% of the inputs you need to sum. Pramāṇa-aligned: this
+            is anumāna (inference), not pratyakṣa (direct perception).
+
+          - **Retrieval** ("what did I say about the saddle?") — Phase 1
+            finds the relevant session, Phase 2 filters to current
+            beliefs, summary or direct-answer renders the result.
+            Pramāṇa-aligned: pratyakṣa.
+
         Drop ``.summary`` directly into an LLM system prompt. Uses
         ~20 tokens vs the ~280–325 a naive conversation-history dump
         would take.
         """
+        at = at_time or datetime.now()
+
+        # ── Synthesis-intent gate ─────────────────────────────────
+        # Detect first; if it's synthesis, skip Phase 1 entirely and
+        # answer over the belief store directly. This is the gaṇita
+        # path the architecture is named for.
+        ganita_result = None
+        is_synthesis = False
+        if self._ganita_index is not None:
+            from patha.belief.ganita import (
+                answer_aggregation_question, detect_aggregation,
+            )
+            try:
+                if detect_aggregation(question) is not None:
+                    is_synthesis = True
+                    # Synthesis: query the index directly. No
+                    # restrict_to_belief_ids — gaṇita is exhaustive
+                    # arithmetic over ALL preserved facts that match
+                    # the question's entity+attribute. Phase 1 isn't
+                    # the right primitive here.
+                    ganita_result = answer_aggregation_question(
+                        question, self._ganita_index,
+                        restrict_to_belief_ids=None,
+                    )
+            except Exception:
+                ganita_result = None
+
+        if is_synthesis and ganita_result is not None:
+            # Build a thin response: gaṇita answer with no Phase-1
+            # retrieval, no LLM-bound summary needed.
+            from patha.integrated import IntegratedResponse
+            response = IntegratedResponse(
+                query=question,
+                strategy="ganita",
+                prompt="",  # no LLM context required — gaṇita is deterministic
+                answer=str(ganita_result.value),
+                belief_ids=list(ganita_result.contributing_belief_ids),
+                source_proposition_ids=[],
+                tokens_in=0,
+                retrieval_result=None,
+            )
+            return Recall(response, include_history=include_history,
+                          ganita_result=ganita_result)
+
+        # ── Retrieval path ────────────────────────────────────────
         response = self._patha.query(
             question,
-            at_time=at_time or datetime.now(),
+            at_time=at,
             include_history=include_history,
             phase1_top_k=self._phase1_top_k,
         )
-        # Gaṇita pass: try procedural arithmetic for aggregation
-        # questions ("how much total", "how many"). Pure rule-based,
-        # no LLM. Restrict to the retrieved beliefs so we only sum
-        # topically-relevant numbers (e.g., bike-related expenses,
-        # not every currency mention in the haystack).
-        ganita_result = None
-        if self._ganita_index is not None:
+        # Even on the retrieval path, attempt gaṇita as a backstop
+        # for aggregation phrasings the operator detector missed.
+        if ganita_result is None and self._ganita_index is not None:
             from patha.belief.ganita import answer_aggregation_question
             retrieved_ids = None
             rr = response.retrieval_result

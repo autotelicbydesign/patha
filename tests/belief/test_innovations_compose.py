@@ -152,6 +152,103 @@ def test_hebbian_does_not_break_ganita(tmp_path: Path) -> None:
     assert rec.ganita.value == 100
 
 
+def test_synthesis_intent_bypasses_phase1(tmp_path: Path) -> None:
+    """The architectural distinction:
+       retrieval queries go through Phase 1; synthesis queries don't.
+
+    Patha's gaṇita layer detects synthesis intent (sum/count/avg/min/max)
+    and queries the belief store DIRECTLY — Phase 1 never gets called.
+    Top-K retrieval is the wrong primitive for synthesis: top-K of N
+    misses (N-K) of the inputs you need to sum.
+
+    This test installs a Phase-1 retriever that would mis-rank the
+    bike-shopping sessions out of the candidate set entirely. A
+    synthesis question still recovers \$185 because gaṇita bypasses
+    Phase 1.
+    """
+
+    class _ScriptedKarana:
+        """Emits a per-fact tuple with bike alias, like a real LLM."""
+
+        _facts = [
+            ("saddle", 50.0),
+            ("helmet", 75.0),
+            ("light", 30.0),
+            ("glove", 30.0),
+        ]
+        _i = 0
+
+        def extract(self, text, *, belief_id, time=None):
+            if self._i >= len(self._facts):
+                return []
+            entity, value = self._facts[self._i]
+            self._i += 1
+            return [GanitaTuple(
+                entity=entity, attribute="expense", value=value,
+                unit="USD", time=time, belief_id=belief_id,
+                raw_text=f"${value:.0f} {entity}",
+                entity_aliases=(entity, "bike"),
+            )]
+
+    mem = patha.Memory(
+        path=tmp_path / "store.jsonl",
+        enable_phase1=False,  # would be irrelevant anyway — synthesis bypasses
+        karana_extractor=_ScriptedKarana(),
+    )
+    # Ingest 4 bike-shopping facts across different sessions
+    for i, fact in enumerate([
+        "I bought a $50 saddle for my bike",
+        "I got a $75 helmet for the bike",
+        "$30 for new bike lights",
+        "I spent $30 on bike gloves",
+    ]):
+        mem.remember(fact, asserted_at=datetime(2024, 1, i + 1),
+                     session_id=f"bike-{i}")
+
+    # SABOTAGE Phase 2: replace the phase1_retrieve with one that
+    # returns NOTHING. This proves the synthesis-intent path doesn't
+    # touch retrieval — if it did, we'd get 0 here.
+    mem._patha._phase1_retrieve = lambda q, k: []
+
+    # Synthesis question — must recover $185 even with retrieval gone.
+    rec = mem.recall("how much have I spent on bike-related expenses?",
+                     at_time=datetime(2024, 6, 1))
+    assert rec.ganita is not None
+    assert rec.ganita.value == 185.0
+    assert rec.strategy == "ganita"
+    # No Phase-1 retrieval result should be attached (we bypassed)
+    assert len([c for c in rec.current]) == 0  # synthesis path doesn't fill .current
+
+
+def test_retrieval_intent_uses_phase1(tmp_path: Path) -> None:
+    """Conversely: a perception question goes through Phase 1.
+    No aggregation operator → no synthesis path → standard retrieval."""
+
+    class _NoOpKarana:
+        def extract(self, text, *, belief_id, time=None):
+            return []
+
+    mem = patha.Memory(
+        path=tmp_path / "store.jsonl",
+        enable_phase1=False,
+        karana_extractor=_NoOpKarana(),
+    )
+    mem.remember("I love sushi every week",
+                 asserted_at=datetime(2024, 1, 1),
+                 session_id="food")
+
+    # Mock Phase-1 to return the proposition by id
+    bid = mem._patha.belief_layer.store.all()[0].source_proposition_id
+    mem._patha._phase1_retrieve = lambda q, k: [bid]
+
+    rec = mem.recall("what do I like to eat?",
+                     at_time=datetime(2024, 6, 1))
+    # Retrieval path: ganita didn't fire; got the structured/raw result
+    assert rec.ganita is None
+    assert rec.strategy in ("structured", "direct_answer", "raw")
+    assert any("sushi" in c["proposition"].lower() for c in rec.current)
+
+
 def test_dense_haystack_phase1_misses_some_bike_sessions(tmp_path: Path) -> None:
     r"""Reproduces the synthesis-bounded LongMemEval failure mode.
 

@@ -134,10 +134,13 @@ class IntegratedPatha:
             If True, after Phase 1 retrieves the candidate set, expand
             the candidates by walking each seed belief's strongest
             Hebbian co-retrieval edges (`belief_layer.hebbian.related`).
-            Default False (keeps backward compat). Pass True for
-            multi-session retrieval — beliefs that have surfaced
-            together before will surface together again, even if cosine
-            similarity for one of them is borderline.
+            Default False (keeps backward compat).
+
+            Empirically: no measurable lift on the LongMemEval-S 500q
+            multi-session benchmark (paired A/B = identical), no
+            regression either. Real for repeat-query workloads: a
+            store queried many times accumulates co-retrieval edges
+            that Phase-1's static cosine never sees.
         hebbian_top_k_per_seed
             Per Phase 1 seed belief, how many associated beliefs to
             pull in. Default 3.
