@@ -136,6 +136,8 @@ def run_question(
     detector: str,
     granularity: str = "turn",
     verbose: bool = False,
+    hebbian_expansion: bool = True,
+    hebbian_session_seed_weight: float = 0.05,
 ) -> IntegratedOutcome:
     """One question through the full unified Memory pipeline.
 
@@ -147,12 +149,16 @@ def run_question(
     """
     tmp_path = Path(f"/tmp/patha-integrated-{q['question_id']}.jsonl")
     tmp_path.unlink(missing_ok=True)
+    # Also clean any stale gaṇita sidecar from a previous run
+    Path(str(tmp_path) + ".ganita.jsonl").unlink(missing_ok=True)
 
     memory = patha.Memory(
         path=tmp_path,
         detector=detector,
         enable_phase1=True,
         phase1_top_k=100,
+        hebbian_expansion=hebbian_expansion,
+        hebbian_session_seed_weight=hebbian_session_seed_weight,
     )
 
     session_dates = [_parse_lme_date(d) for d in q["haystack_dates"]]
@@ -258,6 +264,16 @@ def main(argv: list[str] | None = None) -> None:
         help="Ignore existing checkpoint and start from scratch.",
     )
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument(
+        "--hebbian", choices=["on", "off"], default="on",
+        help="Hebbian-cluster-aware retrieval (Innovation #1). "
+             "Default 'on'. Pass 'off' for ablation runs.",
+    )
+    ap.add_argument(
+        "--hebbian-session-seed-weight", type=float, default=0.05,
+        help="Initial Hebbian weight between same-session beliefs. "
+             "Default 0.05. 0 disables session seeding.",
+    )
     args = ap.parse_args(argv)
 
     with open(args.data) as f:
@@ -312,6 +328,8 @@ def main(argv: list[str] | None = None) -> None:
             out = run_question(
                 q, detector=args.detector,
                 granularity=args.granularity, verbose=args.verbose,
+                hebbian_expansion=(args.hebbian == "on"),
+                hebbian_session_seed_weight=args.hebbian_session_seed_weight,
             )
         except Exception as e:
             print(f"  [{i}/{len(data)}] ERROR on {q.get('question_id')}: {e}",
