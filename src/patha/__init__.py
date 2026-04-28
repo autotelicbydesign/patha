@@ -161,6 +161,7 @@ class Memory:
         hebbian_top_k_per_seed: int = 3,
         hebbian_max_added: int = 30,
         hebbian_session_seed_weight: float = 0.05,
+        karana_extractor: "Any | None" = None,
     ) -> None:
         """
         enable_phase1
@@ -200,6 +201,18 @@ class Memory:
             in the same session. Lets cluster expansion produce signal
             from day-zero, before any queries have run. Default 0.05.
             Set to 0 to disable session seeding.
+        karana_extractor
+            Optional ingest-time numerical-tuple extractor. Pass an
+            instance of :class:`patha.belief.karana.OllamaKaranaExtractor`
+            (or any object with a `.extract(text, *, belief_id, time)`
+            method returning ``list[GanitaTuple]``) to spend a small
+            number of LLM tokens at ingest in exchange for ZERO LLM
+            tokens at recall on aggregation questions. The extracted
+            tuples persist in the same sidecar gaṇita index the
+            regex extractor populates. None (default) → use the
+            zero-dependency regex extractor. Vedic *karaṇa* model:
+            preparation work at ingest, deterministic performance
+            at recall.
         """
         path = Path(path) if path is not None else (Path.home() / ".patha" / "beliefs.jsonl")
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -215,10 +228,17 @@ class Memory:
         # Gaṇita layer — sidecar JSONL index next to beliefs.jsonl.
         # Lazy-instantiated; no model load required (pure regex).
         self._ganita_index = None
+        self._karana = None  # ingest-time tuple extractor
         if enable_ganita:
             from patha.belief.ganita import GanitaIndex
             ganita_path = path.parent / (path.stem + ".ganita.jsonl")
             self._ganita_index = GanitaIndex(persistence_path=ganita_path)
+            # Karaṇa extractor: explicit caller override > regex fallback.
+            if karana_extractor is not None:
+                self._karana = karana_extractor
+            else:
+                from patha.belief.karana import RegexKaranaExtractor
+                self._karana = RegexKaranaExtractor()
 
         phase1_retrieve = None
         self._phase1_retriever = None
@@ -298,10 +318,10 @@ class Memory:
         if self._phase1_retriever is not None:
             self._phase1_retriever.invalidate()
         # Gaṇita: extract numerical tuples and add to the sidecar index.
-        # Pure regex — no model, fast.
-        if self._ganita_index is not None:
-            from patha.belief.ganita import extract_tuples
-            tuples = extract_tuples(
+        # Routed through the configured karaṇa extractor (regex by
+        # default; OllamaKaranaExtractor for LLM-quality extraction).
+        if self._ganita_index is not None and self._karana is not None:
+            tuples = self._karana.extract(
                 proposition,
                 belief_id=ev.new_belief.id,
                 time=at.isoformat(),
