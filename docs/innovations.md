@@ -93,16 +93,27 @@ These are documented at the bottom of `docs/how-to-use-patha.md` and don't block
 | Dense-haystack synthesis test (`tests/belief/test_innovations_compose.py::test_dense_haystack_phase1_misses_some_bike_sessions`) | Recovers \$185 even when Phase 1 retrieves the wrong cluster | The aggregation fix (below) directly solves the synthesis-bounded failure mode |
 | 712 unit tests + composition + slow live Ollama integration | All pass | Mechanisms compose; no regressions |
 
-### How the synthesis-bounded gap was actually solved
+### How the synthesis-bounded gap was actually solved (three-layer fix)
 
-The `gpt4_d84a3211` failure mode was deeper than "Phase 1 picks the wrong cluster." The gaṇita aggregation was *strictly* filtering candidate tuples by `restrict_to_belief_ids`, so when the LLM correctly extracted 4 bike-expense tuples globally but Phase 1 only returned 2 of their beliefs, the arithmetic only summed those 2. That violated the Vedic principle the layer is named after: gaṇita arithmetic operates on **all preserved facts**.
+The `gpt4_d84a3211` failure mode (gaṇita summed \$40 + \$999 = \$1039 instead of gold \$185) had three independent root causes; the fix is three independent commits.
 
-The fix in `answer_aggregation_question`:
+**Layer 1 — gaṇita aggregation trusts the precise index match.**
+The aggregation was *strictly* filtering tuples by `restrict_to_belief_ids`, so even when the LLM correctly extracted bike-expense tuples globally, only those whose beliefs Phase 1 retrieved survived. That violated the Vedic principle the layer is named after: gaṇita is exhaustive arithmetic on preserved facts, not retrieval-scoped arithmetic. Fix: when entity+attribute match yields ≤ `ambiguity_threshold` (default 30) tuples globally, trust the index; restriction kicks in only on large/ambiguous candidate sets.
 
-  - When entity+attribute match yields ≤ `ambiguity_threshold` (default 30) tuples globally, **trust the index** — the LLM/regex extractor's per-fact entity plus the question's attribute filter is already a precise topical signal. Sum them all.
-  - Restriction to retrieved beliefs only kicks in when the candidate set is large enough to plausibly contain noise (50+ tuples), as a tiebreaker.
+**Layer 2 — karaṇa aliases come from the LLM's per-fact judgement, not raw-text noun-tokens.**
+The original alias-from-context code added every noun-like token from the surrounding text as an alias. Result: a rent tuple from a sentence that incidentally said "the bike path" got "bike" as an alias and surfaced for a "bike-related expenses" query, while real bike-shopping tuples (saddle, helmet) had only their canonical entity as alias and didn't match. Fix: the karaṇa prompt now asks the LLM to emit `aliases: ["bike", "cycling"]` per fact, with examples; the code honors those aliases and stops auto-pulling text words.
 
-This is the principled fix: the gaṇita layer is exhaustive arithmetic over preserved facts, not retrieval-scoped arithmetic. The unit test `test_dense_haystack_phase1_misses_some_bike_sessions` proves this works exactly on the LongMemEval failure mode — 4 bike-expense tuples globally, only 1 surfaced by Phase 1, fix recovers all 4 and sums to \$185.
+**Layer 3 — dedup repeated assertions of the same fact.**
+LongMemEval haystacks routinely re-state the same purchase across sessions ("the \$40 bike lights I got" mentioned 3× = 3 tuples for a single purchase). Fix: skip karaṇa extraction on `reinforced` ingest events; on `added` events, drop tuples whose (entity, attribute, value, unit) already exists in the index. The same fact asserted N times counts once.
+
+The unit tests prove each layer in isolation:
+
+  - `test_dense_haystack_phase1_misses_some_bike_sessions` — Layer 1
+  - `test_bike_query_misses_when_llm_omits_bike_alias` — Layer 2
+  - `test_same_fact_across_multiple_sessions_dedups` — Layer 3
+  - `test_bike_query_aggregates_via_explicit_aliases` — Layers 1+2 composed
+
+The live Ollama integration test (gemma4:8b) covers Layers 1+2 end-to-end; the smoke test on the actual `gpt4_d84a3211` haystack exercises all three.
 
 ### Where Hebbian still earns its keep
 
