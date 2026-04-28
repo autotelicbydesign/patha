@@ -157,6 +157,10 @@ class Memory:
         enable_phase1: bool = True,
         phase1_top_k: int = 20,
         enable_ganita: bool = True,
+        hebbian_expansion: bool = True,
+        hebbian_top_k_per_seed: int = 3,
+        hebbian_max_added: int = 30,
+        hebbian_session_seed_weight: float = 0.05,
     ) -> None:
         """
         enable_phase1
@@ -177,6 +181,25 @@ class Memory:
             "how many") by procedural arithmetic over the index.
             In-tradition with Vedic gaṇita / Sulbasūtra arithmetic and
             Aboriginal increase-walks. No LLM involved.
+        hebbian_expansion
+            If True (default), after Phase 1 retrieval, expand the
+            candidate set via the Hebbian co-retrieval graph. Beliefs
+            that have surfaced together in past queries co-surface in
+            future ones, even if direct cosine similarity to the query
+            is borderline. Closes the multi-session retrieval gap.
+            Disable for retrieval ablation studies.
+        hebbian_top_k_per_seed
+            Per Phase-1 seed belief, how many strongest Hebbian
+            neighbors to pull in. Default 3.
+        hebbian_max_added
+            Cap on total beliefs added by Hebbian expansion across all
+            seeds. Default 30. Prevents the candidate set ballooning
+            in dense graphs.
+        hebbian_session_seed_weight
+            Initial Hebbian weight for every pair of beliefs asserted
+            in the same session. Lets cluster expansion produce signal
+            from day-zero, before any queries have run. Default 0.05.
+            Set to 0 to disable session seeding.
         """
         path = Path(path) if path is not None else (Path.home() / ".patha" / "beliefs.jsonl")
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -238,6 +261,10 @@ class Memory:
             belief_layer=layer,
             direct_answerer=DirectAnswerer(layer.store),
             phase1_retrieve=phase1_retrieve,
+            hebbian_expansion=hebbian_expansion,
+            hebbian_top_k_per_seed=hebbian_top_k_per_seed,
+            hebbian_max_added=hebbian_max_added,
+            hebbian_session_seed_weight=hebbian_session_seed_weight,
         )
 
     # ─── Primary API ────────────────────────────────────────────────
