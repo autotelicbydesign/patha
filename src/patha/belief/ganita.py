@@ -207,6 +207,25 @@ def _detect_attribute(context: str, default: str = "value") -> str:
     return default
 
 
+def _sentences(text: str) -> list[tuple[int, str]]:
+    """Split text into sentences (with offsets). Sentence boundaries:
+    period, question mark, exclamation, paragraph break, or 'role:'
+    prefix that appears in our session-concatenation format."""
+    # Coarse: split on period/!/?/\n\n
+    pieces: list[tuple[int, str]] = []
+    pos = 0
+    for chunk in re.split(r"(?<=[.!?])\s+|\n{2,}", text):
+        if not chunk:
+            continue
+        # Skip role markers as their own "sentence"
+        idx = text.find(chunk, pos)
+        if idx < 0:
+            idx = pos
+        pieces.append((idx, chunk))
+        pos = idx + len(chunk)
+    return pieces
+
+
 def extract_tuples(
     text: str,
     *,
@@ -216,11 +235,20 @@ def extract_tuples(
 ) -> list[GanitaTuple]:
     """Extract numerical (entity, attribute, value, unit) tuples from text.
 
+    Entity binding is **sentence-scoped**: a number's entity_aliases come
+    from the SAME SENTENCE the number appears in, not the ±60 char
+    sliding window that crossed sentence boundaries. This prevents
+    false-positives where currency from one topic gets aliased with
+    nouns from a neighboring sentence about something else entirely.
+
     `entity_hints` is an optional list of entities (e.g. from spaCy NER
     or from the user's question context) — when provided, the extractor
     prefers them as the entity field.
     """
     tuples: list[GanitaTuple] = []
+    # Pre-segment into sentences; each extraction's context is the
+    # sentence containing the number.
+    sentences = _sentences(text) or [(0, text)]
 
     # Currency
     for m in _CURRENCY.finditer(text):
@@ -231,10 +259,14 @@ def extract_tuples(
             value = float(amt_str)
         except ValueError:
             continue
-        # Look at ±60 chars for entity/attribute context
-        ctx_start = max(0, m.start() - 60)
-        ctx_end = min(len(text), m.end() + 60)
-        ctx = text[ctx_start:ctx_end]
+        # Sentence-scoped context: find the sentence containing this match.
+        ctx = ""
+        for s_off, s_text in sentences:
+            if s_off <= m.start() < s_off + len(s_text):
+                ctx = s_text
+                break
+        if not ctx:
+            ctx = text[max(0, m.start()-60):min(len(text), m.end()+60)]
         attribute = _detect_attribute(ctx, default="expense")
         entity = _pick_entity(ctx, entity_hints)
         aliases = tuple(_all_entities(ctx))
@@ -305,11 +337,14 @@ def extract_tuples(
         if any(k in thing.lower() for k in ["hour", "minute", "second", "day", "week", "month", "year", "%"]):
             continue
         entity = _canonicalize_entity(thing)
-        # For counts, the "thing" itself is the primary entity.
-        # Add surrounding context entities as aliases (e.g. for
-        # "I bought 2 commuter bikes for the family" → entity="bike",
-        # aliases also include "commuter", "family").
-        ctx = text[max(0, m.start()-60):min(len(text), m.end()+60)]
+        # Sentence-scoped context for count aliases
+        ctx = ""
+        for s_off, s_text in sentences:
+            if s_off <= m.start() < s_off + len(s_text):
+                ctx = s_text
+                break
+        if not ctx:
+            ctx = text[max(0, m.start()-60):min(len(text), m.end()+60)]
         ctx_aliases = _all_entities(ctx)
         # ensure primary entity at front of alias list
         aliases_list = [entity] + [a for a in ctx_aliases if a != entity]

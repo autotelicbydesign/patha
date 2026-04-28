@@ -94,17 +94,25 @@ def main(argv: list[str] | None = None) -> None:
             enable_ganita=True,
         )
 
-        # Ingest entire haystack (both user + assistant turns)
+        # SESSION-LEVEL ingest — matches how the 500q benchmark
+        # actually runs (concatenate all turns per session into one
+        # belief). Crucial: at turn-level, retrieval only sees small
+        # fragments and can't aggregate across 40+ sessions.
         sess_dates = [_parse_lme_date(d) for d in q["haystack_dates"]]
         order = sorted(range(len(sess_dates)), key=lambda i: sess_dates[i])
         t0 = time.perf_counter()
         for idx in order:
+            turns_text = []
             for turn in q["haystack_sessions"][idx]:
                 content = turn.get("content", "").strip()
                 if not content:
                     continue
-                m.remember(content, asserted_at=sess_dates[idx],
-                           session_id=q["haystack_session_ids"][idx])
+                turns_text.append(f"{turn.get('role', '?')}: {content}")
+            if not turns_text:
+                continue
+            session_text = "\n\n".join(turns_text)
+            m.remember(session_text, asserted_at=sess_dates[idx],
+                       session_id=q["haystack_session_ids"][idx])
         ingest_secs = time.perf_counter() - t0
 
         rec = m.recall(q["question"], at_time=_parse_lme_date(q["question_date"]))
