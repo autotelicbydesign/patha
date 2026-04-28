@@ -147,7 +147,11 @@ def run_question(
       "session" — one belief per session (concatenated user turns;
                   matches LongMemEval's native chunk granularity)
     """
-    tmp_path = Path(f"/tmp/patha-integrated-{q['question_id']}.jsonl")
+    # Process-unique prefix so parallel ablation runs (e.g., Hebbian
+    # on/off) don't collide on the same per-question tmp file.
+    import os as _os
+    _pid = _os.getpid()
+    tmp_path = Path(f"/tmp/patha-integrated-{_pid}-{q['question_id']}.jsonl")
     tmp_path.unlink(missing_ok=True)
     # Also clean any stale gaṇita sidecar from a previous run
     Path(str(tmp_path) + ".ganita.jsonl").unlink(missing_ok=True)
@@ -212,6 +216,7 @@ def run_question(
               f"{[c['proposition'][:60] for c in rec.current[:3]]}")
 
     tmp_path.unlink(missing_ok=True)
+    Path(str(tmp_path) + ".ganita.jsonl").unlink(missing_ok=True)
 
     return IntegratedOutcome(
         question_id=q["question_id"],
