@@ -101,11 +101,12 @@ The first time the production detector is used, an NLI model (~1.7 GB) downloads
 
 ## Adding data to Patha
 
-Patha doesn't read folders. It reads facts you assert during conversation, or that you ingest deliberately. Three ways:
+There are now four ways to add data to Patha:
 
 1. **Through your AI** — say "remember that I live in Lisbon" or "remember my rent is $1500." Claude Desktop will call `patha_ingest`.
 2. **Through the CLI** — `patha ingest "I live in Lisbon"`. Useful for scripts, hotkeys, or shell pipelines.
 3. **Through the Python API** — `import patha; m = patha.Memory(); m.remember("I live in Lisbon")`. For developers building chatbots.
+4. **Through your existing notes** — `patha import obsidian-vault ~/MyVault` walks an Obsidian vault (or a plain Markdown folder, or a single text file) and turns it into beliefs. Frontmatter `date` becomes `asserted_at`. Wikilinks and tags become entity hints.
 
 Beliefs are time-stamped automatically and persisted to `~/.patha/beliefs.jsonl` immediately.
 
@@ -147,20 +148,45 @@ Both are local-first, MCP-served, audit-friendly. Different design choices:
 |---|---|---|
 | Metaphor | Greek method of loci (spatial) | Vedic recitation + Aboriginal songlines (information-theoretic) |
 | Storage | Wings → halls → rooms → drawers | Beliefs in JSONL, 7-view index, songline graph |
-| Retrieval | Spatial-index lookup | 7-view dense + BM25 + RRF + cross-encoder + songline walks |
-| Belief layer | Stores verbatim, no contradiction handling | Non-destructive supersession + contradiction detection + plasticity |
+| Retrieval | Spatial-index lookup | 7-view dense + BM25 + RRF + cross-encoder + songline walks + **Hebbian cluster expansion** |
+| Belief layer | Stores verbatim, no contradiction handling | Non-destructive supersession + contradiction detection + plasticity (now read at runtime) |
+| Synthesis layer | LLM at every recall | **Karaṇa**: LLM at ingest only (optional), zero LLM at recall on aggregation questions |
 | Token economy | Not measured (afaik) | Measured — 4.5× reduction on structured, ∞ on direct-answer |
 | LongMemEval-S 500q (R@5 / end-to-end) | 0.966 | 1.000 (Phase 1 R@5) / 0.952 (end-to-end) |
+| Filesystem-native ingest | Obsidian via separate workflow | `patha import obsidian-vault` built into CLI |
 | MCP integration | yes | yes (`make mcp-install`) |
 | Cross-tool | yes (MCP) | yes (MCP) |
 
 Patha is more architecturally complex on purpose: it's not just retrieval, it's also belief management (supersession, contradiction, plasticity, non-commutative belief-order tracking). MemPalace's spatial framing is more approachable; Patha's two-traditional framing comes with more depth at the cost of a steeper conceptual landing.
 
-## Where Patha is honestly weaker
+## Three innovations that target Patha's known weaknesses
 
-- **Synthesis-bounded questions** ("how much total" requiring arithmetic across multiple sessions). The gaṇita layer is scaffolding for this; works on clean inputs, still being hardened on dense conversational text via NER + dependency-parsing extraction.
-- **Multi-session retrieval**: 0.857 on the LongMemEval multi-session stratum. 84% of those failures are arithmetic-synthesis (gaṇita's job). The remaining ~16% are real retrieval misses on cross-session linking.
-- **First-time setup**: requires Python 3.11+ and a one-time `uv sync` step. MemPalace ships through Claude Code as a single conversation; Patha needs a clone.
+The honest gaps below have been the focus of recent work. Each gap got a tradition-faithful innovation aimed at it directly:
+
+### 1. Hebbian-cluster-aware retrieval (multi-session gap)
+
+Patha's belief layer already accumulated **Hebbian co-retrieval edges** between beliefs that surfaced in the same query — a neuroplasticity mechanism. That signal was recorded but never read back. Now it is. After Phase 1 retrieves the candidate set, we walk each seed belief's strongest Hebbian neighbors and add them. Beliefs that have surfaced together repeatedly co-surface again, even if cosine similarity to the new query is borderline. The first time the user asks something cross-session, plain Phase 1 has to find both. After that, the Hebbian edges remember they go together.
+
+To bootstrap a fresh store with no query history, every pair of beliefs asserted in the same session gets a small seed weight (`hebbian_session_seed_weight=0.05`).
+
+### 2. Vedic *karaṇa* ingest-time LLM extraction (synthesis-bounded gap)
+
+The Vedic word *karaṇa* means "preparation" — work done in advance so the moment of performance can be deterministic. For Patha, the same idea splits the gaṇita extractor:
+
+- **Ingest** — a small local LLM (default `qwen2.5:7b-instruct` via Ollama) reads each new belief and returns a structured list of `(entity, attribute, value, unit)` tuples. Once per belief.
+- **Recall** — pure deterministic arithmetic over the preserved index. **Zero LLM tokens.**
+
+This is the inverse of mainstream RAG, which spends tokens at recall every query. Most users ask the same things many times; spending tokens once at ingest is a strict win, plus recall is reproducible to the cent. Opt-in via `Memory(karana_extractor=OllamaKaranaExtractor())`. Falls back to the regex extractor when Ollama isn't reachable.
+
+### 3. Filesystem-native ingest (first-time setup gap)
+
+`patha import obsidian-vault ~/MyVault` (or `import folder ~/notes/`, or `import file ~/note.md`) walks pre-existing writing — Obsidian, plain Markdown, .txt — and ingests it. Frontmatter `date` becomes `asserted_at`. Wikilinks and `#tags` become entity hints for the gaṇita extractor. Long files split on H1/H2 boundaries. Hidden directories (`.git`, `.obsidian`) are skipped. Read-only — your source files are never touched. The friction of "what do I do after `uv sync`?" drops to "point Patha at the writing you already have."
+
+## Where Patha is still honestly weaker
+
+- **Synthesis-bounded questions on dense conversational text without an LLM** — the regex baseline gaṇita extractor handles clean facts ("I bought a $50 saddle for the bike") but isn't reliable on multi-paragraph LongMemEval haystacks. The karaṇa extractor (innovation #2) closes this when Ollama is available; without Ollama, this gap is real.
+- **Multi-session retrieval on the very first query** — Hebbian-cluster-aware retrieval (innovation #1) helps once any query history exists or session-seeding is on. A truly cold-start single query still relies entirely on Phase 1.
+- **First-time setup beyond filesystem import** — `uv sync` still required for now. Pip-install via `pip install patha-memory` lands when v0.10 publishes.
 
 These are honest gaps, documented in `docs/benchmarks.md` and on the issue tracker.
 

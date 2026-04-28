@@ -106,6 +106,11 @@ patha ingest "I am avoiding raw fish on my doctor's advice"
 patha ask "what do I currently eat?"          # routes through supersession
 patha history "sushi"                         # every mention, current + superseded
 patha stats                                   # store counts + plasticity state
+
+# Bring an existing Obsidian vault, Markdown folder, or single file:
+patha import obsidian-vault ~/MyVault
+patha import folder ~/Documents/notes
+patha import file ~/Desktop/recipe.md
 ```
 
 Use `--detector full-stack-v7` to switch to the production NLI + adhyāsa + numerical + sequential detector (downloads ~1.7 GB on first run). Default is `stub` for instant startup.
