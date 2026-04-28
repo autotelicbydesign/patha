@@ -491,7 +491,11 @@ class HybridKaranaExtractor:
     host: str = _DEFAULT_HOST
     temperature: float = 0.0
     timeout_s: float = 60.0
-    max_text_chars: int = 6000
+    # Chunking: long sessions (LongMemEval haystacks routinely run
+    # 10k+ chars) get split into overlapping chunks so no $X amount
+    # is lost to truncation. Each chunk is one LLM call.
+    chunk_chars: int = 4000
+    chunk_overlap: int = 400
 
     calls: int = 0
     failures: int = 0
@@ -506,7 +510,40 @@ class HybridKaranaExtractor:
     ) -> list[GanitaTuple]:
         if not text.strip():
             return []
-        truncated = text[: self.max_text_chars]
+        # Chunk long texts so we don't lose any $X amount to truncation.
+        chunks = self._chunk(text)
+        all_tuples: list[GanitaTuple] = []
+        for chunk in chunks:
+            all_tuples.extend(
+                self._extract_from_chunk(
+                    chunk, belief_id=belief_id, time=time,
+                )
+            )
+        return all_tuples
+
+    def _chunk(self, text: str) -> list[str]:
+        """Split text into overlapping chunks of ~chunk_chars each.
+        Overlap (chunk_overlap) ensures an amount near a boundary still
+        gets full context."""
+        if len(text) <= self.chunk_chars:
+            return [text]
+        chunks = []
+        step = self.chunk_chars - self.chunk_overlap
+        i = 0
+        while i < len(text):
+            chunks.append(text[i : i + self.chunk_chars])
+            i += step
+        return chunks
+
+    def _extract_from_chunk(
+        self,
+        text: str,
+        *,
+        belief_id: str,
+        time: str | None = None,
+    ) -> list[GanitaTuple]:
+        """One LLM call: regex finds amounts in `text`; LLM tags them."""
+        truncated = text  # already chunked upstream
         amounts = list(_HYBRID_AMOUNT_RE.finditer(truncated))
         if not amounts:
             return []
