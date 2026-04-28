@@ -64,26 +64,40 @@ class Recall:
     """Result of `Memory.recall()`. A thin view over IntegratedResponse.
 
     Attributes:
-        answer:   short direct answer (possibly None if the system couldn't
-                  produce one — fall back to `.summary` then).
-        summary:  ~20-token structured string meant to drop into an LLM
-                  system prompt. Always present.
-        current:  list of {id, proposition, asserted_at, confidence} dicts
-                  for the currently valid beliefs.
-        history:  list of superseded beliefs (only populated when
-                  `include_history=True` was passed).
-        strategy: "direct_answer" | "structured" | "raw" — how the
-                  response was built.
-        tokens:   token count of the summary (for budgeting).
+        answer:    short direct answer (possibly None if the system couldn't
+                   produce one — fall back to `.summary` then).
+        summary:   ~20-token structured string meant to drop into an LLM
+                   system prompt. Always present.
+        current:   list of {id, proposition, asserted_at, confidence} dicts
+                   for the currently valid beliefs.
+        history:   list of superseded beliefs (only populated when
+                   `include_history=True` was passed).
+        strategy:  "direct_answer" | "structured" | "raw" | "ganita" — how
+                   the response was built.
+        tokens:    token count of the summary (for budgeting).
+        ganita:    optional GanitaResult — when the question is an
+                   aggregation ("how much total", "how many", etc), the
+                   procedural-arithmetic layer fills this with the
+                   computed value and its contributing source belief ids.
+                   None if no aggregation operator was detected.
     """
 
-    __slots__ = ("answer", "summary", "current", "history", "strategy", "tokens")
+    __slots__ = (
+        "answer", "summary", "current", "history", "strategy", "tokens",
+        "ganita",
+    )
 
-    def __init__(self, response: IntegratedResponse, include_history: bool) -> None:
+    def __init__(
+        self,
+        response: IntegratedResponse,
+        include_history: bool,
+        ganita_result=None,
+    ) -> None:
         self.answer: str | None = response.answer or None
         self.summary: str = response.prompt
         self.strategy: str = response.strategy
         self.tokens: int = response.tokens_in
+        self.ganita = ganita_result  # GanitaResult | None
         rr = response.retrieval_result
         self.current = [
             {
@@ -142,6 +156,7 @@ class Memory:
         detector: str = "stub",
         enable_phase1: bool = True,
         phase1_top_k: int = 20,
+        enable_ganita: bool = True,
     ) -> None:
         """
         enable_phase1
@@ -155,6 +170,13 @@ class Memory:
             For benchmark-style retrieval where many competing chunks
             exist (LongMemEval), 100–200 gives the belief layer enough
             room to find the answer. Trade-off: bigger summaries.
+        enable_ganita
+            If True (default), ingest extracts numerical (entity,
+            attribute, value, unit) tuples into a sidecar gaṇita index;
+            recall() answers aggregation questions ("how much total",
+            "how many") by procedural arithmetic over the index.
+            In-tradition with Vedic gaṇita / Sulbasūtra arithmetic and
+            Aboriginal increase-walks. No LLM involved.
         """
         path = Path(path) if path is not None else (Path.home() / ".patha" / "beliefs.jsonl")
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -162,9 +184,18 @@ class Memory:
         self._detector_name = detector
         self._phase1_enabled = enable_phase1
         self._phase1_top_k = phase1_top_k
+        self._ganita_enabled = enable_ganita
 
         store = BeliefStore(persistence_path=path)
         layer = BeliefLayer(store=store, detector=make_detector(detector))
+
+        # Gaṇita layer — sidecar JSONL index next to beliefs.jsonl.
+        # Lazy-instantiated; no model load required (pure regex).
+        self._ganita_index = None
+        if enable_ganita:
+            from patha.belief.ganita import GanitaIndex
+            ganita_path = path.parent / (path.stem + ".ganita.jsonl")
+            self._ganita_index = GanitaIndex(persistence_path=ganita_path)
 
         phase1_retrieve = None
         self._phase1_retriever = None
@@ -239,6 +270,16 @@ class Memory:
         # rebuilds. Cheap flag-flip.
         if self._phase1_retriever is not None:
             self._phase1_retriever.invalidate()
+        # Gaṇita: extract numerical tuples and add to the sidecar index.
+        # Pure regex — no model, fast.
+        if self._ganita_index is not None:
+            from patha.belief.ganita import extract_tuples
+            tuples = extract_tuples(
+                proposition,
+                belief_id=ev.new_belief.id,
+                time=at.isoformat(),
+            )
+            self._ganita_index.add_many(tuples)
         return {
             "action": ev.action,
             "belief_id": ev.new_belief.id,
@@ -295,7 +336,23 @@ class Memory:
             include_history=include_history,
             phase1_top_k=self._phase1_top_k,
         )
-        return Recall(response, include_history=include_history)
+        # Gaṇita pass: try procedural arithmetic for aggregation
+        # questions ("how much total", "how many"). Pure rule-based,
+        # no LLM. Returns None if the question isn't an aggregation
+        # OR if no matching tuples exist.
+        ganita_result = None
+        if self._ganita_index is not None:
+            from patha.belief.ganita import answer_aggregation_question
+            try:
+                ganita_result = answer_aggregation_question(
+                    question, self._ganita_index,
+                )
+            except Exception:
+                ganita_result = None
+        return Recall(
+            response, include_history=include_history,
+            ganita_result=ganita_result,
+        )
 
     def history(self, term: str) -> list[dict[str, Any]]:
         """Every belief (current and superseded) mentioning ``term``.
