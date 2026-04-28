@@ -161,7 +161,7 @@ class Memory:
         hebbian_top_k_per_seed: int = 3,
         hebbian_max_added: int = 30,
         hebbian_session_seed_weight: float = 0.05,
-        karana_extractor: "Any | None" = None,
+        karana_extractor: Any = None,
     ) -> None:
         """
         enable_phase1
