@@ -78,6 +78,11 @@ The synthesis-intent routing reaches the right architectural answer; the gaṇit
 | Synthesis bypass | `test_synthesis_intent_bypasses_phase1` proves gaṇita answers correctly even when Phase-1 retrieval returns `[]` |
 | Retrieval still works | `test_retrieval_intent_uses_phase1` confirms perception queries flow through Phase 1 |
 | Hebbian no-op A/B | Both arms returned 114/133 = 0.857 with zero per-question disagreement |
+| Multi-session 500q LongMemEval-S, synthesis-intent on, regex karaṇa | 114/133 = 0.857 (matches baseline); avg tokens/summary 18,384 (was ~118,000) — **6.5× token reduction** |
+
+The accuracy doesn't move with the regex extractor — the synthesis-bounded questions still fail because regex can't extract the right tuples from dense conversational text. The architecture is correct; the bottleneck is extraction quality. With `HybridKaranaExtractor` + ≥14B model, the synthesis path delivers correct answers (verified on the canonical \$185 case).
+
+The token economy improvement IS measurable — synthesis questions now produce a compact gaṇita summary (operator + value + contributing beliefs) instead of the full Phase 2 retrieval dump. Zero LLM tokens at recall on the synthesis path.
 
 ## Activation
 

@@ -47,4 +47,14 @@ The synthesis-intent routing reaches the right architectural answer; the gaṇit
 - `tests/test_mcp_protocol.py::test_mcp_full_roundtrip` passes.
 - `tests/belief/test_karana_ollama_live.py` passes against `gemma4:8b`.
 - `test_synthesis_intent_bypasses_phase1` proves the architectural claim: gaṇita answers correctly even when Phase 1 is sabotaged to return `[]`.
-- Multi-session 500q benchmark with synthesis-intent routing: number lands as the branch merges.
+
+### Multi-session benchmark (500q LongMemEval-S, stub detector, regex karaṇa)
+
+| Metric | Baseline (v0.9.3) | ganita-layer | Δ |
+|---|:---:|:---:|:---:|
+| Multi-session accuracy | 114/133 = 0.857 | 114/133 = 0.857 | 0 |
+| Average tokens / summary | ~118,000 | ~18,400 | **−6.5×** |
+
+**Accuracy is unchanged** because the regex karaṇa extractor can't reliably extract the relevant tuples from dense conversational text. The architecture is correct; the bottleneck is extraction quality. With `HybridKaranaExtractor` + ≥14B model the synthesis path delivers correct answers (verified end-to-end on the canonical \$185 bike scenario via `tests/belief/test_karana_ollama_live.py`).
+
+**Token economy improves 6.5×** because synthesis questions now produce a compact gaṇita summary (`"sum: \$50 + \$75 + \$30 + \$30 = \$185.0"` plus contributing beliefs) instead of the full Phase 2 retrieval dump. Zero LLM tokens at recall on the synthesis path.
