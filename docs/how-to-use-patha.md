@@ -140,25 +140,6 @@ For paraphrase-robust retrieval, I asked: *"Do I eat raw fish?"*
 
 Patha returns "I love sushi every week" — even though "sushi" and "raw fish" share zero tokens. The 7-view index catches the semantic match.
 
-## How Patha compares to MemPalace
-
-Both are local-first, MCP-served, audit-friendly. Different design choices:
-
-| | MemPalace | Patha |
-|---|---|---|
-| Metaphor | Greek method of loci (spatial) | Vedic recitation + Aboriginal songlines (information-theoretic) |
-| Storage | Wings → halls → rooms → drawers | Beliefs in JSONL, 7-view index, songline graph |
-| Retrieval | Spatial-index lookup | 7-view dense + BM25 + RRF + cross-encoder + songline walks + **Hebbian cluster expansion** |
-| Belief layer | Stores verbatim, no contradiction handling | Non-destructive supersession + contradiction detection + plasticity (now read at runtime) |
-| Synthesis layer | LLM at every recall | **Karaṇa**: LLM at ingest only (optional), zero LLM at recall on aggregation questions |
-| Token economy | Not measured (afaik) | Measured — 4.5× reduction on structured, ∞ on direct-answer |
-| LongMemEval-S 500q (R@5 / end-to-end) | 0.966 | 1.000 (Phase 1 R@5) / 0.952 (end-to-end) |
-| Filesystem-native ingest | Obsidian via separate workflow | `patha import obsidian-vault` built into CLI |
-| MCP integration | yes | yes (`make mcp-install`) |
-| Cross-tool | yes (MCP) | yes (MCP) |
-
-Patha is more architecturally complex on purpose: it's not just retrieval, it's also belief management (supersession, contradiction, plasticity, non-commutative belief-order tracking). MemPalace's spatial framing is more approachable; Patha's two-traditional framing comes with more depth at the cost of a steeper conceptual landing.
-
 ## Three innovations that target Patha's known weaknesses
 
 The honest gaps below have been the focus of recent work. Each gap got a tradition-faithful innovation aimed at it directly:

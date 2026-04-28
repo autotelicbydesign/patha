@@ -551,17 +551,42 @@ def answer_aggregation_question(
     index: GanitaIndex,
     *,
     restrict_to_belief_ids: set[str] | None = None,
+    ambiguity_threshold: int = 30,
 ) -> GanitaResult | None:
-    """Try to answer ``question`` by procedural arithmetic over the index.
+    r"""Try to answer ``question`` by procedural arithmetic over the index.
 
     Returns None if no aggregation operator is detected, or if no
     matching tuples exist.
 
+    Filtering strategy (Vedic principle: arithmetic on preserved facts):
+
+      1. Pull every tuple whose entity OR aliases match a question hint.
+      2. Filter by the hinted attribute (e.g. "spent" → expense).
+      3. If the *post-attribute* candidate set is small enough that it
+         clearly identifies a single topic (≤ ``ambiguity_threshold``
+         tuples), TRUST IT — don't restrict by retrieved beliefs. The
+         LLM/regex extractor's entity match plus the attribute filter
+         is already a precise topical signal.
+      4. Only when the candidate set is large enough to contain noise
+         (LLM mis-extractions, regex over-matching across unrelated
+         currency mentions) does ``restrict_to_belief_ids`` kick in as a
+         tiebreaker.
+
+    This was the synthesis-bounded gap: the canonical \$185 bike
+    scenario produces exactly 4 tuples globally (saddle/helmet/light/
+    glove), all clearly bike-expense. Phase 1 may not retrieve every
+    bike-mentioning session of a 50-session haystack; restricting to
+    those misses the actual answer. With this fix, the global
+    entity+attribute match (the Vedic "preserved facts") is the
+    primary source of truth.
+
     restrict_to_belief_ids
-        When provided, only tuples whose `belief_id` is in this set are
-        considered. Use this to scope arithmetic to topically-relevant
-        beliefs (typically: the top-K beliefs from Phase 1 retrieval),
-        avoiding "sum every dollar in the haystack" failures.
+        When provided, used as a noise-reducing tiebreaker for
+        ambiguous queries. NOT a strict filter on the precise queries.
+    ambiguity_threshold
+        Maximum number of post-attribute candidates we'll trust without
+        retrieval-scope restriction. Default 30. Bigger value = more
+        permissive. 0 = always restrict.
     """
     op = detect_aggregation(question)
     if op is None:
@@ -571,27 +596,41 @@ def answer_aggregation_question(
     if not hints:
         return None
 
-    # Pull all tuples for any hint entity
+    # Pull all tuples for any hint entity. De-dup by object identity
+    # so a tuple that matches multiple hints (e.g. both "bike" and
+    # "expenses") isn't summed twice; but two distinct tuples that
+    # happen to share belief_id/value/text (legitimately separate
+    # extractions of repeated facts) stay separate.
     candidates: list[GanitaTuple] = []
+    seen_ids: set[int] = set()
     for h in hints:
-        candidates.extend(index.all_for(h))
+        for c in index.all_for(h):
+            if id(c) in seen_ids:
+                continue
+            seen_ids.add(id(c))
+            candidates.append(c)
 
     if not candidates:
         return None
 
-    # Topic restriction via retrieval scope
-    if restrict_to_belief_ids is not None:
-        candidates = [c for c in candidates if c.belief_id in restrict_to_belief_ids]
-        if not candidates:
-            return None
-
     # If the question implies a specific attribute (e.g. "spent" → expense),
-    # filter by it
+    # filter by it.
     hinted_attr = _detect_attribute(question)
     if hinted_attr != "value":
         attr_filtered = [c for c in candidates if c.attribute == hinted_attr]
         if attr_filtered:
             candidates = attr_filtered
+
+    # Topic restriction strategy: trust the index when entity+attribute
+    # match is precise enough; fall back to retrieval scope only on
+    # ambiguous queries with many global matches.
+    if (
+        restrict_to_belief_ids is not None
+        and len(candidates) > ambiguity_threshold
+    ):
+        restricted = [c for c in candidates if c.belief_id in restrict_to_belief_ids]
+        if restricted:
+            candidates = restricted
 
     # Filter by unit consistency: if any USD candidate exists, use only USD;
     # if any duration unit, normalize.

@@ -16,7 +16,7 @@ The three innovations target the three honestly-documented gaps from `docs/bench
 
 ## Why these three (in this tradition)
 
-Patha is built on Vedic recitation + Aboriginal songlines, not Greek method-of-loci. The three innovations stay in that lineage:
+Patha is built on Vedic recitation + Aboriginal songlines. The three innovations stay in that lineage:
 
 - **Hebbian** = Aboriginal walking-network: the songkeeper's path **is** the index, and walking it strengthens the link. Patha now **walks** the network at retrieval, not just records footsteps.
 - **Karaṇa** = Vedic ritual preparation: arithmetic happens at karaṇa-time so performance is reproducible. Patha applies the same to the gaṇita layer — LLM at ingest, deterministic at recall.

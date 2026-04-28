@@ -150,3 +150,112 @@ def test_hebbian_does_not_break_ganita(tmp_path: Path) -> None:
                      at_time=datetime(2024, 6, 1))
     assert rec.ganita is not None
     assert rec.ganita.value == 100
+
+
+def test_dense_haystack_phase1_misses_some_bike_sessions(tmp_path: Path) -> None:
+    r"""Reproduces the synthesis-bounded LongMemEval failure mode.
+
+    Setup: 50 sessions, of which:
+      - 4 are bike-shopping sessions ($50, $75, $30, $30 in expenses)
+      - 46 are random other topics (rent, groceries, dental, etc)
+
+    Phase 1 returns the wrong cluster — say, 10 random sessions plus
+    only 1 of the bike sessions. Without our fix, ``restrict_to_belief_ids``
+    would scope arithmetic to those 10 retrieved sessions and miss the
+    other 3 bike-expense tuples, returning a partial sum or worse —
+    the noise from one bike-mentioning random session.
+
+    With the fix, the global entity+attribute match recovers all 4
+    bike-expense tuples and returns \$185 deterministically.
+    """
+    from patha.belief.ganita import (
+        GanitaIndex, answer_aggregation_question,
+    )
+
+    idx = GanitaIndex()
+    # 4 bike-expense tuples (the gold answer)
+    for value, item, bid in [
+        (50, "saddle", "bike-1"),
+        (75, "helmet", "bike-2"),
+        (30, "light", "bike-3"),
+        (30, "glove", "bike-4"),
+    ]:
+        idx.add(GanitaTuple(
+            entity=item, attribute="expense", value=value, unit="USD",
+            time=None, belief_id=bid,
+            raw_text=f"${value} {item} bike",
+            entity_aliases=(item, "bike"),
+        ))
+
+    # 5 random other-topic expense tuples whose source text mentions "bike"
+    # in passing (e.g., "I rented a place near the bike path").
+    # These shouldn't be summed for "bike-related expenses".
+    for value, item, bid in [
+        (1500, "rent", "rent-1"),       # "rent for a flat near the bike path"
+        (200, "dentist", "dental-1"),
+        (120, "groceries", "grocery-1"),
+        (300, "concert", "music-1"),
+        (180, "gym", "gym-1"),
+    ]:
+        idx.add(GanitaTuple(
+            entity=item, attribute="expense", value=value, unit="USD",
+            time=None, belief_id=bid,
+            raw_text=f"${value} for {item}",
+            entity_aliases=(item,),  # NO "bike" alias — the LLM
+            # correctly didn't tag these as bike-related
+        ))
+
+    # Phase 1 retrieved ONLY some of the random beliefs and ONE bike belief
+    retrieved_belief_ids = {"rent-1", "dental-1", "music-1", "bike-3"}
+
+    # Question: how much spent on bike-related expenses?
+    rec = answer_aggregation_question(
+        "how much total did I spend on bike-related expenses?",
+        idx,
+        restrict_to_belief_ids=retrieved_belief_ids,
+    )
+
+    # With the fix:
+    # - Pull all bike-aliased expense tuples → 4 (saddle, helmet, light, glove)
+    # - Post-attribute filter still has 4
+    # - 4 ≤ ambiguity_threshold (30) → don't restrict by retrieved
+    # - Sum = $185
+    assert rec is not None
+    assert rec.value == 185.0, (
+        f"expected $185 (the global bike-expense sum), got "
+        f"${rec.value}. Restriction kicked in despite a precise "
+        f"4-tuple match."
+    )
+    assert len(rec.contributing_belief_ids) == 4
+
+
+def test_ambiguous_query_falls_back_to_retrieval_scope(tmp_path: Path) -> None:
+    """When the query is ambiguous (matches many tuples globally),
+    ``restrict_to_belief_ids`` is the right tiebreaker."""
+    from patha.belief.ganita import (
+        GanitaIndex, answer_aggregation_question,
+    )
+
+    idx = GanitaIndex()
+    # Many "expense" tuples that all alias to "money" (a deliberately
+    # broad query target).
+    for i in range(50):
+        idx.add(GanitaTuple(
+            entity="money", attribute="expense", value=10.0 * (i + 1),
+            unit="USD", time=None, belief_id=f"b-{i}",
+            raw_text=f"${10*(i+1)} item-{i}",
+            entity_aliases=("money", f"item{i}"),
+        ))
+
+    # Retrieved set scopes arithmetic to a topical cluster
+    retrieved = {"b-1", "b-2", "b-3"}  # values 20, 30, 40 → sum=90
+    rec = answer_aggregation_question(
+        "how much money did I spend total?", idx,
+        restrict_to_belief_ids=retrieved,
+        ambiguity_threshold=30,
+    )
+    assert rec is not None
+    # 50 candidates > ambiguity_threshold (30) → restriction kicks in
+    # Sum = 20 + 30 + 40 = 90
+    assert rec.value == 90.0
+    assert len(rec.contributing_belief_ids) == 3
