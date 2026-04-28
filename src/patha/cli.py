@@ -111,6 +111,9 @@ def cmd_verify(args: argparse.Namespace) -> int:
         ("patha.belief.sequential_detector", "SequentialEventDetector"),
         ("patha.belief.counterfactual", "reingest_order_sensitivity"),
         ("patha.integrated", "IntegratedPatha"),
+        ("patha.belief.ganita", "GanitaIndex"),
+        ("patha.belief.karana", "OllamaKaranaExtractor"),
+        ("patha.importers", "import_obsidian_vault"),
     ]
     for mod, attr in import_checks:
         try:
@@ -141,6 +144,12 @@ def cmd_verify(args: argparse.Namespace) -> int:
         print(f"  instantiation:    ✗  ({e})")
         return 1
 
+    # Probe Ollama if it's reachable — gives users a clear yes/no on
+    # whether Innovation #2 (karaṇa LLM extractor) is wired up.
+    print()
+    print("Optional services:")
+    _probe_ollama()
+
     print()
     print("All checks passed. You're good to go.")
     print()
@@ -148,7 +157,38 @@ def cmd_verify(args: argparse.Namespace) -> int:
     print("  patha demo                     # 10-second demo")
     print("  patha ingest 'I love sushi'")
     print("  patha ask 'what do I believe?'")
+    print("  patha import obsidian-vault ~/MyVault    # bring existing notes")
     return 0
+
+
+def _probe_ollama() -> None:
+    """Light reachability check for Ollama. Used by `patha verify` to
+    let users know whether the karaṇa LLM extractor will work."""
+    import json as _json
+    import os as _os
+    import urllib.error as _urle
+    import urllib.request as _urlr
+
+    host = _os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+    try:
+        req = _urlr.Request(f"{host.rstrip('/')}/api/tags", method="GET")
+        with _urlr.urlopen(req, timeout=2.0) as r:
+            body = r.read()
+        data = _json.loads(body)
+        models = data.get("models", [])
+        names = [m.get("name", "?") for m in models]
+        if not models:
+            print(f"  ollama at {host}: reachable, no models pulled "
+                  f"(`ollama pull qwen2.5:7b-instruct` to enable karaṇa)")
+        else:
+            shown = ", ".join(names[:3]) + (
+                f" (+{len(names)-3} more)" if len(names) > 3 else ""
+            )
+            print(f"  ollama at {host}: ✓ ({shown})")
+            print(f"    set PATHA_KARANA=ollama to enable LLM extraction at ingest")
+    except (_urle.URLError, OSError, _json.JSONDecodeError):
+        print(f"  ollama at {host}: not reachable "
+              f"(karaṇa falls back to regex; that's fine)")
 
 
 def cmd_demo(args: argparse.Namespace) -> int:
