@@ -448,17 +448,49 @@ class Memory:
                 ganita_result = None
 
         if ganita_result is not None:
-            # Synthesis path: gaṇita produced an answer. Build a
-            # response that surfaces it cleanly: the contributing
-            # source beliefs become `rec.current` (so the user sees
-            # what was summed), and `summary` carries a one-line
-            # rendering of the result.
+            # Synthesis path: gaṇita produced the ANSWER without
+            # depending on Phase 1 top-K. That's the architectural
+            # claim — gaṇita is exhaustive over the preserved tuple
+            # index, not retrieval-scoped.
+            #
+            # Phase 1 still runs in parallel for *context*: the user
+            # (and any downstream scorer) sees what retrieval would
+            # have surfaced AS WELL as gaṇita's contributing beliefs.
+            # The two roles are distinct: gaṇita owns "what's the
+            # answer?", Phase 1 owns "what's the relevant material?".
+            phase1_response = self._patha.query(
+                question,
+                at_time=at,
+                include_history=include_history,
+                phase1_top_k=self._phase1_top_k,
+            )
             store = self._patha.belief_layer.store
             contributing = []
+            seen = set()
+            # Contributing source beliefs (from gaṇita) come first —
+            # these are the ones that mattered for the answer.
             for bid in ganita_result.contributing_belief_ids:
+                if bid in seen:
+                    continue
+                seen.add(bid)
                 b = store.get(bid)
                 if b is not None:
                     contributing.append(b)
+            # Then Phase 1 retrieval context — the rest of what looks
+            # topically relevant, in retrieval order.
+            phase1_current = (
+                phase1_response.retrieval_result.current
+                if phase1_response.retrieval_result is not None else []
+            )
+            for b in phase1_current:
+                if b.id in seen:
+                    continue
+                seen.add(b.id)
+                contributing.append(b)
+            phase1_history = (
+                phase1_response.retrieval_result.history
+                if phase1_response.retrieval_result is not None else []
+            )
             summary_line = (
                 f"Computed via gaṇita arithmetic (no LLM): "
                 f"{ganita_result.operator} = {ganita_result.value} "
@@ -476,10 +508,10 @@ class Memory:
                 source_proposition_ids=[
                     b.source_proposition_id for b in contributing
                 ],
-                tokens_in=0,  # zero LLM tokens — that's the point
+                tokens_in=0,  # zero LLM tokens for the answer
                 retrieval_result=BeliefQueryResult(
                     current=contributing,
-                    history=[],
+                    history=list(phase1_history),
                     tokens_in_summary=0,
                 ),
             )
