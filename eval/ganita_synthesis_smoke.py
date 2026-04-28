@@ -84,11 +84,12 @@ def main(argv: list[str] | None = None) -> None:
     else:
         karana = None  # patha.Memory's default RegexKaranaExtractor
 
-    print(f"Smoke-testing gaṇita on {len(args.qids)} synthesis-bounded questions...")
-    print(f"  karana extractor: {args.karana}")
+    print(f"Smoke-testing gaṇita on {len(args.qids)} synthesis-bounded questions...",
+          flush=True)
+    print(f"  karana extractor: {args.karana}", flush=True)
     if args.karana == "ollama":
-        print(f"  ollama model:     {args.ollama_model}")
-    print()
+        print(f"  ollama model:     {args.ollama_model}", flush=True)
+    print(flush=True)
 
     hits = 0
     near_hits = 0
@@ -162,7 +163,7 @@ def main(argv: list[str] | None = None) -> None:
         n_tuples = len(m._ganita_index)
         print(f"  [{qid}] {tag:>4}  gold={gold_val:>10}  "
               f"ganita={predicted}  "
-              f"index={n_tuples}  ingest={ingest_secs:.0f}s")
+              f"index={n_tuples}  ingest={ingest_secs:.0f}s", flush=True)
         if rec.ganita and tag != "HIT":
             print(f"        explanation: {rec.ganita.explanation[:140]}")
         detail.append({
