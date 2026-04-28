@@ -26,7 +26,7 @@ Patha is built on Vedic recitation + Aboriginal songlines. The three innovations
 
 | Check | Result |
 |---|---|
-| Unit tests | 708 pass (was 598 before this branch) |
+| Unit tests | 717 pass (was 598 before this branch) |
 | Slow integration tests | `tests/test_mcp_protocol.py` passes; `tests/belief/test_karana_ollama_live.py` passes against gemma4:8b (real Ollama) |
 | Live $185 bike scenario | Karaṇa LLM extractor produces 4 expense tuples; aggregation returns $185.00 USD with 4 contributing belief ids and zero LLM tokens at recall |
 | Composition test | Obsidian import → karaṇa extraction → Hebbian expansion → gaṇita aggregation works end-to-end |
@@ -77,11 +77,11 @@ print(rec.summary)        # ~20 tokens for the LLM system prompt
 ## What's still honestly weak
 
 - **Cold-start single query** — Hebbian expansion needs either query history or session-seeding to do anything. A truly first-ever query on a brand-new store falls through to plain Phase 1.
-- **Karaṇa needs Phase 1 to find the right sessions first.** On a clean user store (Patha's actual use case — your beliefs from your conversations), karaṇa is unambiguously valuable: a query "how much have I spent on bikes?" sums every extracted bike-expense tuple. On a 50-session LongMemEval haystack, Phase 1 retrieval still has to surface the bike-related sessions; if it picks the wrong ones, gaṇita aggregates the wrong tuples. The single-question karaṇa+gemma4 smoke test on `gpt4_d84a3211` produced 332 extracted tuples across 50 sessions but Phase 1 picked the wrong cluster, so the deterministic sum was $40 + $999 = $1039 instead of the gold $185. The fix isn't more karaṇa — it's better retrieval (which is what Innovation #1 + better embedders target).
 - **Ingest cost for karaṇa** — when LLM extraction is on, every ingest does one Ollama call (~1–10s on consumer hardware, much faster on a GPU). Cheap per-ingest but adds up on bulk imports. Recall remains O(1) regardless.
+- **Karaṇa is gemma4-quality dependent** — the 1–3 broader-category aliases the prompt asks for are the LLM's call. A small/quantized model that emits sloppy aliases pollutes the index. We tested with `gemma4:latest` (8B Q4) and `qwen2.5:7b-instruct` and both produced clean enough output for the canonical \$185 case; cheaper models may need prompt-tuning.
 - **Pip install vs uv sync** — still requires `uv sync` until v0.10 publishes to pypi as `patha-memory`.
 
-These are documented at the bottom of `docs/how-to-use-patha.md` and don't block the branch; they motivate v0.10's roadmap.
+These don't block the branch; they motivate v0.10's roadmap.
 
 ## Empirical results
 
@@ -91,7 +91,7 @@ These are documented at the bottom of `docs/how-to-use-patha.md` and don't block
 | Multi-session 500q LongMemEval-S, **Hebbian on**, regex karaṇa baseline (detector=stub) | 114/133 = 0.857 | Matches v0.9.3 baseline |
 | Multi-session 500q LongMemEval-S, **Hebbian off** (paired ablation) | 114/133 = 0.857 | A/B comparison: **Hebbian is empirically a no-op on this configuration** (zero per-question disagreement) |
 | Dense-haystack synthesis test (`tests/belief/test_innovations_compose.py::test_dense_haystack_phase1_misses_some_bike_sessions`) | Recovers \$185 even when Phase 1 retrieves the wrong cluster | The aggregation fix (below) directly solves the synthesis-bounded failure mode |
-| 712 unit tests + composition + slow live Ollama integration | All pass | Mechanisms compose; no regressions |
+| 717 unit tests + composition + slow live Ollama integration | All pass | Mechanisms compose; no regressions |
 
 ### How the synthesis-bounded gap was actually solved (three-layer fix)
 
@@ -129,7 +129,7 @@ The mechanism is correctly implemented and tested; it just doesn't move the need
 The three innovations:
 
   - Provide real new capability (LLM-at-ingest extraction, filesystem-native ingest, runtime cluster expansion)
-  - Don't regress anything (0.857 multi-session = baseline; 712 tests pass)
+  - Don't regress anything (0.857 multi-session = baseline; 717 tests pass)
   - Solved the synthesis-bounded gap on `gpt4_d84a3211` via the gaṇita aggregation fix
   - Are documented honestly about where each helps
 
