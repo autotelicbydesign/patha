@@ -320,13 +320,31 @@ class Memory:
         # Gaṇita: extract numerical tuples and add to the sidecar index.
         # Routed through the configured karaṇa extractor (regex by
         # default; OllamaKaranaExtractor for LLM-quality extraction).
-        if self._ganita_index is not None and self._karana is not None:
+        # Skip extraction on reinforcement events — the same fact was
+        # already extracted on the original assertion, so re-extracting
+        # would over-count at aggregation time. (Same purchase
+        # mentioned across multiple sessions ought to count once, not N
+        # times.)
+        if (
+            self._ganita_index is not None
+            and self._karana is not None
+            and ev.action != "reinforced"
+        ):
             tuples = self._karana.extract(
                 proposition,
                 belief_id=ev.new_belief.id,
                 time=at.isoformat(),
             )
-            self._ganita_index.add_many(tuples)
+            # Additional dedup: drop tuples that match an existing
+            # (entity, attribute, value, unit) triple already in the
+            # index. Catches the "stub detector misses the duplicate
+            # but karaṇa shouldn't blindly add" case for benchmarks
+            # without a real NLI detector.
+            kept = []
+            for t in tuples:
+                if not self._ganita_index.has_equivalent(t):
+                    kept.append(t)
+            self._ganita_index.add_many(kept)
         return {
             "action": ev.action,
             "belief_id": ev.new_belief.id,

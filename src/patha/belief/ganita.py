@@ -460,6 +460,21 @@ class GanitaIndex:
     def __len__(self) -> int:
         return sum(len(ts) for ts in self._by_key.values())
 
+    def has_equivalent(self, t: GanitaTuple) -> bool:
+        """Return True if an existing tuple has the same
+        (entity, attribute, value, unit) — the fact, ignoring
+        belief_id / time / raw_text. Used for de-duplication when the
+        same fact is reasserted across multiple sessions and the
+        contradiction detector doesn't catch it via reinforcement."""
+        existing = self._by_key.get((t.entity, t.attribute), [])
+        for e in existing:
+            if (
+                abs(e.value - t.value) < 1e-9
+                and e.unit == t.unit
+            ):
+                return True
+        return False
+
     def _load(self) -> None:
         with open(self.persistence_path) as f:
             for line in f:

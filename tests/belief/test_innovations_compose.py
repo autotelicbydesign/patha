@@ -229,6 +229,55 @@ def test_dense_haystack_phase1_misses_some_bike_sessions(tmp_path: Path) -> None
     assert len(rec.contributing_belief_ids) == 4
 
 
+def test_same_fact_across_multiple_sessions_dedups(tmp_path: Path) -> None:
+    """The same purchase ($40 bike lights) mentioned across N sessions
+    must count once, not N times, in the aggregation arithmetic.
+
+    LongMemEval haystacks routinely repeat facts in different
+    sessions (the user reminisces). Without dedup, gaṇita would over-
+    count by a factor of N. The fix has two layers:
+      1. The belief layer reinforces (doesn't add) on duplicate
+         assertions when a real detector is in use.
+      2. The karaṇa pipeline drops tuples whose (entity, attribute,
+         value, unit) already exists, even if the belief layer added
+         a new belief (stub detector misses semantic duplicates).
+    """
+
+    class _BikeLightsKarana:
+        """Always emits the bike-lights tuple regardless of input —
+        simulates the LLM seeing the same fact restated."""
+
+        def extract(self, text, *, belief_id, time=None):
+            return [GanitaTuple(
+                entity="lights", attribute="expense",
+                value=40.0, unit="USD", time=time,
+                belief_id=belief_id,
+                raw_text="$40 bike lights",
+                entity_aliases=("lights", "bike"),
+            )]
+
+    mem = patha.Memory(
+        path=tmp_path / "store.jsonl",
+        enable_phase1=False,
+        karana_extractor=_BikeLightsKarana(),
+    )
+    # Same fact asserted in 3 different sessions
+    mem.remember("I got new bike lights for $40",
+                 asserted_at=datetime(2024, 1, 1), session_id="s1")
+    mem.remember("Speaking of my bike, the lights I got were $40",
+                 asserted_at=datetime(2024, 1, 15), session_id="s2")
+    mem.remember("Just to confirm: $40 was a great deal for the bike lights",
+                 asserted_at=datetime(2024, 2, 1), session_id="s3")
+
+    # Belief store still has 3 beliefs (stub detector doesn't NLI-merge).
+    # But the gaṇita index should dedup: only one $40 bike-lights tuple.
+    assert len(mem._ganita_index) == 1
+
+    rec = mem.recall("how much have I spent on bike-related expenses?")
+    assert rec.ganita is not None
+    assert rec.ganita.value == 40.0  # NOT $120 (over-counted 3x)
+
+
 def test_ambiguous_query_falls_back_to_retrieval_scope(tmp_path: Path) -> None:
     """When the query is ambiguous (matches many tuples globally),
     ``restrict_to_belief_ids`` is the right tiebreaker."""
