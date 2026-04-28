@@ -304,6 +304,13 @@ def _record_to_tuple(
 
     Lenient: missing optional fields default; fundamentally-broken
     records (no value or no entity) return None.
+
+    Entity aliases combine the LLM-canonical entity with all noun-like
+    tokens drawn from the surrounding raw text, so an LLM that says
+    `entity: "saddle"` for the sentence "I bought a $50 saddle for my
+    bike" still matches a question that asks about "bike". This is
+    the same alias-from-context approach the regex extractor uses,
+    just applied to LLM output.
     """
     entity_raw = str(record.get("entity", "")).strip().lower()
     attribute = str(record.get("attribute", "value")).strip().lower()
@@ -316,10 +323,23 @@ def _record_to_tuple(
         return None
     # Map common LLM-emitted attribute synonyms back to our canonical set.
     attribute = _ATTR_ALIASES.get(attribute, attribute)
-    # entity_aliases default to the canonical entity (LLM rarely emits
-    # alternates). The regex extractor's alias list comes from sentence
-    # nouns; LLM is precise, alias list is just the entity.
     canon = _canonicalize_entity(entity_raw)
+    # If the LLM emitted explicit aliases, honor them. Otherwise
+    # supplement the canonical entity with the noun-tokens from the
+    # surrounding raw text — same alias-from-context approach the
+    # regex extractor uses.
+    raw_aliases = record.get("aliases") or record.get("entity_aliases")
+    if isinstance(raw_aliases, list) and raw_aliases:
+        aliases = [canon]
+        for a in raw_aliases:
+            ca = _canonicalize_entity(str(a).strip().lower())
+            if ca and ca not in aliases:
+                aliases.append(ca)
+    else:
+        aliases = [canon]
+        for a in _aliases_from_text(raw_text):
+            if a not in aliases:
+                aliases.append(a)
     return GanitaTuple(
         entity=canon,
         attribute=attribute,
@@ -328,8 +348,18 @@ def _record_to_tuple(
         time=time,
         belief_id=belief_id,
         raw_text=raw_text[:200],
-        entity_aliases=(canon,),
+        entity_aliases=tuple(aliases),
     )
+
+
+# Entity-stop list shared with the regex extractor. Imported lazily
+# to avoid a hard dependency cycle: ganita imports from karana via
+# the public extract_tuples; we don't want karana → ganita at module
+# import time.
+def _aliases_from_text(text: str) -> list[str]:
+    """Pull noun-like tokens (3+ alpha chars) and canonicalise them."""
+    from patha.belief.ganita import _all_entities  # late import
+    return _all_entities(text or "")
 
 
 _ATTR_ALIASES = {
