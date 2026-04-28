@@ -229,6 +229,47 @@ def test_dense_haystack_phase1_misses_some_bike_sessions(tmp_path: Path) -> None
     assert len(rec.contributing_belief_ids) == 4
 
 
+def test_dedup_distinguishes_different_entities_same_value(
+    tmp_path: Path,
+) -> None:
+    """Two genuinely-different purchases at the same price ($40 bike
+    lights AND $40 bike pump) must NOT be deduped. Dedup only collapses
+    tuples that match on (entity, attribute, value, unit) — different
+    entities are different facts even at the same value."""
+
+    class _AlternatingKarana:
+        """Emits a different bike-related $40 expense per ingest."""
+        _items = [("lights", "bike"), ("pump", "bike")]
+        _i = 0
+
+        def extract(self, text, *, belief_id, time=None):
+            entity, alias = self._items[self._i % len(self._items)]
+            self._i += 1
+            return [GanitaTuple(
+                entity=entity, attribute="expense",
+                value=40.0, unit="USD", time=time,
+                belief_id=belief_id,
+                raw_text=f"$40 {entity}",
+                entity_aliases=(entity, alias),
+            )]
+
+    mem = patha.Memory(
+        path=tmp_path / "store.jsonl",
+        enable_phase1=False,
+        karana_extractor=_AlternatingKarana(),
+    )
+    mem.remember("Bought $40 bike lights")
+    mem.remember("Bought $40 bike pump")
+
+    # Both should remain — different entities, even though same value.
+    assert len(mem._ganita_index) == 2
+
+    rec = mem.recall("how much have I spent on bike-related expenses?")
+    assert rec.ganita is not None
+    assert rec.ganita.value == 80.0  # NOT $40 (deduped)
+    assert len(rec.ganita.contributing_belief_ids) == 2
+
+
 def test_same_fact_across_multiple_sessions_dedups(tmp_path: Path) -> None:
     """The same purchase ($40 bike lights) mentioned across N sessions
     must count once, not N times, in the aggregation arithmetic.
