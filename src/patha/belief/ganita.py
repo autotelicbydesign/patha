@@ -528,6 +528,15 @@ _QUESTION_STOPWORDS = {
     "spent", "spend", "earn", "earned", "made", "raised",
     "this", "that", "these", "those", "year", "month", "week",
     "ever", "all", "any", "some",
+    # Temporal qualifiers — "since the start of the year" should not
+    # produce hints like "since" / "start" / "year". Without these,
+    # any tuple whose LLM-emitted aliases happened to include "start"
+    # (a generic word) would falsely match.
+    "since", "start", "starts", "started", "starting", "beginning",
+    "until", "before", "after", "during", "throughout",
+    "money", "amount", "cost", "price", "value",  # generic
+    "expenses", "expense",  # caller filters by attribute=expense
+    "related",  # generic modifier
 }
 
 
@@ -559,6 +568,77 @@ class GanitaResult:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+# Topic words that are too generic to be meaningful proximity gates.
+# (Subset of _QUESTION_STOPWORDS plus the obvious non-topical ones.)
+_PROXIMITY_STOP = {
+    "money", "expense", "expenses", "spent", "spend", "total",
+    "since", "start", "year", "month", "week", "day",
+    "related", "anything", "all", "amount",
+}
+
+
+def _add_topic_proximity_matches(
+    question: str,
+    hints: list[str],
+    hinted_attr: str,
+    index: GanitaIndex,
+    *,
+    already: list[GanitaTuple],
+    proximity_chars: int = 60,
+) -> list[GanitaTuple]:
+    """Union the precise-match set with topic-proximity matches.
+
+    A topic-proximity match is a tuple whose `raw_text` contains a
+    non-stopword question-hint word within ``proximity_chars`` of the
+    value's text. Catches the case where the LLM extractor missed
+    a useful broader-category alias (e.g., emitted entity='saddle'
+    but didn't say aliases include 'bike').
+
+    The ``proximity_chars`` bound rejects incidental mentions —
+    "rent on a flat near the bike path" has 'bike' >40 chars from
+    "$999" so the rent tuple stays out.
+    """
+    topic_words = [
+        h for h in hints
+        if h not in _PROXIMITY_STOP and len(h) >= 3
+    ]
+    if not topic_words:
+        return already
+    seen_ids = {id(t) for t in already}
+    extra: list[GanitaTuple] = []
+    # Walk every tuple in the index for proximity match.
+    for ts in index._by_key.values():
+        for t in ts:
+            if id(t) in seen_ids:
+                continue
+            if hinted_attr != "value" and t.attribute != hinted_attr:
+                continue
+            text_lower = (t.raw_text or "").lower()
+            value_str = _format_value_for_search(t)
+            value_idx = text_lower.find(value_str)
+            if value_idx < 0:
+                continue
+            for word in topic_words:
+                wpos = text_lower.find(word)
+                if wpos < 0:
+                    continue
+                if abs(wpos - value_idx) <= proximity_chars:
+                    extra.append(t)
+                    seen_ids.add(id(t))
+                    break
+    return already + extra
+
+
+def _format_value_for_search(t: GanitaTuple) -> str:
+    """Render the tuple's value as it likely appears in raw_text.
+    Currency: '$50', '$1500'. Other: '50', '3.5'."""
+    v = t.value
+    s = f"{int(v)}" if v == int(v) else f"{v}"
+    if t.unit == "USD":
+        return f"${s}"
+    return s
 
 
 def answer_aggregation_question(
@@ -635,6 +715,23 @@ def answer_aggregation_question(
         attr_filtered = [c for c in candidates if c.attribute == hinted_attr]
         if attr_filtered:
             candidates = attr_filtered
+
+    # Topic-proximity gate: when the LLM's per-fact aliases are
+    # imperfect (the entity says "saddle" but the LLM forgot to add
+    # "bike" as an alias), the tuple won't match the precise lookup
+    # above. As a safety net, KEEP every tuple whose raw_text mentions
+    # one of the topical hints (a non-stop topic word like "bike" or
+    # "cycling") within `topic_proximity_chars` of the value's text.
+    # This is *additive* — we union it with the precise-match set,
+    # not a replacement — so we don't lose anything precise.
+    #
+    # The proximity bound prevents incidental mentions ("rent on a
+    # flat near the bike path" — bike >40 chars from $999) from
+    # polluting the result.
+    candidates = _add_topic_proximity_matches(
+        question, hints, hinted_attr, index,
+        already=candidates,
+    )
 
     # Topic restriction strategy: trust the index when entity+attribute
     # match is precise enough; fall back to retrieval scope only on

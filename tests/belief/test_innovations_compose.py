@@ -327,20 +327,21 @@ def test_ambiguous_query_falls_back_to_retrieval_scope(tmp_path: Path) -> None:
     )
 
     idx = GanitaIndex()
-    # Many "expense" tuples that all alias to "money" (a deliberately
-    # broad query target).
+    # Many "expense" tuples that all alias to "shopping" (a
+    # deliberately broad query target). Use a non-stopword so the
+    # hint extraction actually produces it.
     for i in range(50):
         idx.add(GanitaTuple(
-            entity="money", attribute="expense", value=10.0 * (i + 1),
+            entity="shopping", attribute="expense", value=10.0 * (i + 1),
             unit="USD", time=None, belief_id=f"b-{i}",
             raw_text=f"${10*(i+1)} item-{i}",
-            entity_aliases=("money", f"item{i}"),
+            entity_aliases=("shopping", f"item{i}"),
         ))
 
     # Retrieved set scopes arithmetic to a topical cluster
     retrieved = {"b-1", "b-2", "b-3"}  # values 20, 30, 40 → sum=90
     rec = answer_aggregation_question(
-        "how much money did I spend total?", idx,
+        "how much shopping spending did I do?", idx,
         restrict_to_belief_ids=retrieved,
         ambiguity_threshold=30,
     )
