@@ -107,13 +107,25 @@ Return ONLY a JSON array. Each element MUST have these keys:
 
   entity     — the concrete topic the number refers to (single word or
                short noun phrase, lowercase, e.g. "saddle", "rent")
-  aliases    — a JSON array of 1–3 BROADER topical categories this
-               fact directly belongs to. Be precise; only include
-               categories where the user might ask "how much have I
-               spent on <X>" and reasonably expect this fact to count.
-               If the entity itself is already a broad category, just
-               repeat it. NEVER include incidental words from the
-               text that aren't the fact's actual topic.
+  aliases    — a JSON array of 2–5 broader topical categories the user
+               might use to ask about this fact later. ALWAYS include
+               the higher-level category the entity belongs to.
+
+               STRICT RULES:
+               - If the entity is a part, accessory, or maintenance item
+                 of a larger thing, INCLUDE the larger thing.
+                 Examples: saddle/helmet/chain/lights/pump/gloves/wheel/
+                 tire/brake → ALWAYS include "bike" AND "cycling".
+               - If the entity is a service performed on a thing,
+                 INCLUDE the thing.
+                 Example: "chain replacement" → include "bike".
+               - If the entity is a hypothetical / range / not an actual
+                 transaction, SKIP this fact entirely.
+                 Example: "racks range from $100 to $500" → skip.
+               - If the source text mentions the topic word casually
+                 ("a flat near the bike path") and the entity is
+                 unrelated (rent), do NOT include the casual word.
+
   attribute  — what the number measures: one of
                "expense" "income" "fundraising" "savings" "weight" "age"
                "duration" "count" "percentage" "value"
@@ -122,25 +134,38 @@ Return ONLY a JSON array. Each element MUST have these keys:
   unit       — "USD" "EUR" "hour" "minute" "day" "week" "month" "year"
                "%" "item" "kg" "lb" or any other unit literally present
 
-If a number is not topical (e.g., a phone number, year, address) skip
-it. If you can't tell which entity a number refers to, skip it.
+If a number is not topical (a phone number, year, address, range, or
+hypothetical) skip it. If you can't tell which entity a number refers
+to, skip it.
 
 Examples:
 
 TEXT: "I bought a $50 saddle for my bike"
-JSON: [{"entity":"saddle","aliases":["bike","cycling"],"attribute":"expense","value":50,"unit":"USD"}]
+JSON: [{"entity":"saddle","aliases":["saddle","bike","cycling"],"attribute":"expense","value":50,"unit":"USD"}]
+
+TEXT: "Got new bike lights installed for $40"
+JSON: [{"entity":"lights","aliases":["lights","bike","cycling","accessories"],"attribute":"expense","value":40,"unit":"USD"}]
+
+TEXT: "Bell Zephyr helmet from the bike shop, $120"
+JSON: [{"entity":"helmet","aliases":["helmet","bike","cycling","safety"],"attribute":"expense","value":120,"unit":"USD"}]
+
+TEXT: "Mechanic replaced my chain for $25"
+JSON: [{"entity":"chain","aliases":["chain","bike","cycling","maintenance"],"attribute":"expense","value":25,"unit":"USD"}]
 
 TEXT: "I spent 3.5 hours practicing yoga and donated $20 to charity"
 JSON: [
-  {"entity":"yoga","aliases":["yoga","fitness"],"attribute":"duration","value":3.5,"unit":"hour"},
-  {"entity":"charity","aliases":["charity","donation"],"attribute":"fundraising","value":20,"unit":"USD"}
+  {"entity":"yoga","aliases":["yoga","fitness","exercise"],"attribute":"duration","value":3.5,"unit":"hour"},
+  {"entity":"charity","aliases":["charity","donation","giving"],"attribute":"fundraising","value":20,"unit":"USD"}
 ]
 
 TEXT: "I have 4 bikes and my favourite color is blue"
-JSON: [{"entity":"bike","aliases":["bike"],"attribute":"count","value":4,"unit":"item"}]
+JSON: [{"entity":"bike","aliases":["bike","cycling"],"attribute":"count","value":4,"unit":"item"}]
 
 TEXT: "Paid $1500 rent on a flat near the bike path"
 JSON: [{"entity":"rent","aliases":["rent","housing"],"attribute":"expense","value":1500,"unit":"USD"}]
+
+TEXT: "Bike racks range from $100 to $500 depending on size"
+JSON: []
 
 TEXT: "user: How are you?\\nassistant: Doing fine, thanks for asking."
 JSON: []
