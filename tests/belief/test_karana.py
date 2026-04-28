@@ -154,10 +154,13 @@ class TestRecordToTuple:
         assert t is not None
         assert t.attribute == "expense"
 
-    def test_aliases_supplemented_from_raw_text(self) -> None:
-        """When the LLM emits entity='saddle' but the source text mentions
-        'bike', the aliases should include 'bike' so a question that
-        asks about bike-related expenses still matches."""
+    def test_aliases_only_from_llm_explicit_field(self) -> None:
+        """Without an explicit `aliases` field from the LLM, the tuple
+        gets only the canonical entity as alias — no auto-pull from
+        raw text. (Auto-pull was over-matching: a rent tuple from a
+        sentence that incidentally mentioned the bike path would get
+        'bike' as an alias and falsely match a 'bike-related expenses'
+        query.)"""
         t = _record_to_tuple(
             {"entity": "saddle", "attribute": "expense",
              "value": 50, "unit": "USD"},
@@ -166,7 +169,25 @@ class TestRecordToTuple:
         )
         assert t is not None
         assert t.entity == "saddle"
+        # Canonical entity alone — no incidental "bike" pulled from text.
+        assert t.entity_aliases == ("saddle",)
+
+    def test_explicit_aliases_extend_canonical(self) -> None:
+        """The LLM is now prompted to emit broader-category aliases.
+        Verify we honor them and they extend the canonical entity."""
+        t = _record_to_tuple(
+            {"entity": "saddle", "attribute": "expense",
+             "value": 50, "unit": "USD",
+             "aliases": ["bike", "cycling"]},
+            belief_id="b1", time=None,
+            raw_text="$50 saddle",
+        )
+        assert t is not None
+        assert t.entity == "saddle"
+        assert "saddle" in t.entity_aliases
         assert "bike" in t.entity_aliases
+        # cycling canonicalises to bike via ENTITY_ALIASES, dedup
+        assert len(set(t.entity_aliases)) == len(t.entity_aliases)
 
     def test_explicit_aliases_array_honored(self) -> None:
         """If the LLM emits its own `aliases` array, use that instead
@@ -187,21 +208,22 @@ class TestRecordToTuple:
 
 
 class TestEndToEndKaranaWithAliases:
-    """Verify the alias path works end-to-end through the gaṇita
-    aggregation pipeline — the LLM extracts saddle/helmet/light/glove
-    expenses, but a question about 'bike' still finds and sums them."""
+    """Verify the LLM-emitted aliases path works end-to-end through
+    the gaṇita aggregation pipeline. The prompt asks the LLM for
+    broader-category aliases per fact; we honor them precisely
+    (no auto-supplementation from incidental text words)."""
 
-    def test_bike_query_aggregates_saddle_helmet_etc(
+    def test_bike_query_aggregates_via_explicit_aliases(
         self, tmp_path, monkeypatch
     ) -> None:
-        # The LLM emits per-item entities (saddle, helmet, light, glove)
-        # but each tuple's raw_text mentions 'bike', so context aliases
-        # should pull them in for a 'bike' query.
+        # The LLM (per the updated prompt) emits per-item entities
+        # AND broader-category aliases ['bike']. The aggregation
+        # arithmetic finds them via the alias match.
         canned_responses = [
-            '[{"entity":"saddle","attribute":"expense","value":50,"unit":"USD"}]',
-            '[{"entity":"helmet","attribute":"expense","value":75,"unit":"USD"}]',
-            '[{"entity":"light","attribute":"expense","value":30,"unit":"USD"}]',
-            '[{"entity":"glove","attribute":"expense","value":30,"unit":"USD"}]',
+            '[{"entity":"saddle","aliases":["bike"],"attribute":"expense","value":50,"unit":"USD"}]',
+            '[{"entity":"helmet","aliases":["bike"],"attribute":"expense","value":75,"unit":"USD"}]',
+            '[{"entity":"light","aliases":["bike"],"attribute":"expense","value":30,"unit":"USD"}]',
+            '[{"entity":"glove","aliases":["bike"],"attribute":"expense","value":30,"unit":"USD"}]',
         ]
         idx = {"i": 0}
 
@@ -227,15 +249,48 @@ class TestEndToEndKaranaWithAliases:
         ]:
             mem.remember(fact)
 
-        # Aggregation question with 'bike' in it — should hit all 4
-        # expense tuples via the text-context aliases.
         rec = mem.recall("how much total did I spend on bike-related expenses?")
         assert rec.ganita is not None, (
-            "ganita didn't fire — text-context aliases must pull "
-            "saddle/helmet/light/glove tuples in for a 'bike' query"
+            "ganita didn't fire — LLM-emitted aliases must include "
+            "'bike' so saddle/helmet/light/glove tuples match the query"
         )
         assert abs(rec.ganita.value - 185.0) < 1.0
         assert len(rec.ganita.contributing_belief_ids) == 4
+
+    def test_bike_query_misses_when_llm_omits_bike_alias(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """Conversely: if the LLM doesn't emit 'bike' as an alias on a
+        rent fact (correctly — rent isn't bike-related), a 'bike'
+        query doesn't pull the rent tuple. This is the fix for the
+        $999 false-positive on the LongMemEval haystack."""
+        canned_responses = [
+            '[{"entity":"rent","aliases":["rent","housing"],"attribute":"expense","value":999,"unit":"USD"}]',
+        ]
+        idx = {"i": 0}
+
+        def _scripted_generate(self, prompt):
+            r = canned_responses[idx["i"] % len(canned_responses)]
+            idx["i"] += 1
+            return r
+
+        monkeypatch.setattr(
+            OllamaKaranaExtractor, "_generate", _scripted_generate,
+        )
+        ex = OllamaKaranaExtractor(host="http://localhost:1")
+        mem = patha.Memory(
+            path=tmp_path / "store.jsonl",
+            enable_phase1=False,
+            karana_extractor=ex,
+        )
+        # Rent fact whose source text incidentally mentions 'bike path'
+        mem.remember("Paid $999 rent on a flat near the bike path")
+
+        rec = mem.recall("how much have I spent on bike-related expenses?")
+        # Expected: the rent tuple does NOT match the bike query
+        # because the LLM correctly tagged it with rent/housing aliases,
+        # not bike. So gaṇita doesn't fire.
+        assert rec.ganita is None or rec.ganita.value != 999.0
 
 
 # ─── Ollama extractor (fallback path) ────────────────────────────────

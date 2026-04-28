@@ -106,8 +106,14 @@ the basis of a future arithmetic question (sum, count, average, etc.).
 Return ONLY a JSON array. Each element MUST have these keys:
 
   entity     — the concrete topic the number refers to (single word or
-               short noun phrase, lowercase, e.g. "bike", "donation",
-               "rent")
+               short noun phrase, lowercase, e.g. "saddle", "rent")
+  aliases    — a JSON array of 1–3 BROADER topical categories this
+               fact directly belongs to. Be precise; only include
+               categories where the user might ask "how much have I
+               spent on <X>" and reasonably expect this fact to count.
+               If the entity itself is already a broad category, just
+               repeat it. NEVER include incidental words from the
+               text that aren't the fact's actual topic.
   attribute  — what the number measures: one of
                "expense" "income" "fundraising" "savings" "weight" "age"
                "duration" "count" "percentage" "value"
@@ -122,16 +128,19 @@ it. If you can't tell which entity a number refers to, skip it.
 Examples:
 
 TEXT: "I bought a $50 saddle for my bike"
-JSON: [{"entity":"saddle","attribute":"expense","value":50,"unit":"USD"}]
+JSON: [{"entity":"saddle","aliases":["bike","cycling"],"attribute":"expense","value":50,"unit":"USD"}]
 
 TEXT: "I spent 3.5 hours practicing yoga and donated $20 to charity"
 JSON: [
-  {"entity":"yoga","attribute":"duration","value":3.5,"unit":"hour"},
-  {"entity":"charity","attribute":"fundraising","value":20,"unit":"USD"}
+  {"entity":"yoga","aliases":["yoga","fitness"],"attribute":"duration","value":3.5,"unit":"hour"},
+  {"entity":"charity","aliases":["charity","donation"],"attribute":"fundraising","value":20,"unit":"USD"}
 ]
 
 TEXT: "I have 4 bikes and my favourite color is blue"
-JSON: [{"entity":"bike","attribute":"count","value":4,"unit":"item"}]
+JSON: [{"entity":"bike","aliases":["bike"],"attribute":"count","value":4,"unit":"item"}]
+
+TEXT: "Paid $1500 rent on a flat near the bike path"
+JSON: [{"entity":"rent","aliases":["rent","housing"],"attribute":"expense","value":1500,"unit":"USD"}]
 
 TEXT: "user: How are you?\\nassistant: Doing fine, thanks for asking."
 JSON: []
@@ -305,12 +314,12 @@ def _record_to_tuple(
     Lenient: missing optional fields default; fundamentally-broken
     records (no value or no entity) return None.
 
-    Entity aliases combine the LLM-canonical entity with all noun-like
-    tokens drawn from the surrounding raw text, so an LLM that says
-    `entity: "saddle"` for the sentence "I bought a $50 saddle for my
-    bike" still matches a question that asks about "bike". This is
-    the same alias-from-context approach the regex extractor uses,
-    just applied to LLM output.
+    Aliases come from the LLM's explicit `aliases` field only. We do
+    NOT auto-supplement from raw text noun-tokens — that adds
+    incidental context words ("the bike path was nearby" pollutes a
+    rent tuple with a bogus "bike" alias) which over-matches at query
+    time. Trust the LLM's per-fact judgement on broader categories;
+    the prompt explicitly asks for them.
     """
     entity_raw = str(record.get("entity", "")).strip().lower()
     attribute = str(record.get("attribute", "value")).strip().lower()
@@ -324,22 +333,16 @@ def _record_to_tuple(
     # Map common LLM-emitted attribute synonyms back to our canonical set.
     attribute = _ATTR_ALIASES.get(attribute, attribute)
     canon = _canonicalize_entity(entity_raw)
-    # If the LLM emitted explicit aliases, honor them. Otherwise
-    # supplement the canonical entity with the noun-tokens from the
-    # surrounding raw text — same alias-from-context approach the
-    # regex extractor uses.
+    # Aliases — canonical entity always first; LLM's explicit aliases
+    # added (deduplicated, canonicalised). No auto-supplementation
+    # from text words — that's noise, not signal.
+    aliases = [canon]
     raw_aliases = record.get("aliases") or record.get("entity_aliases")
-    if isinstance(raw_aliases, list) and raw_aliases:
-        aliases = [canon]
+    if isinstance(raw_aliases, list):
         for a in raw_aliases:
             ca = _canonicalize_entity(str(a).strip().lower())
             if ca and ca not in aliases:
                 aliases.append(ca)
-    else:
-        aliases = [canon]
-        for a in _aliases_from_text(raw_text):
-            if a not in aliases:
-                aliases.append(a)
     return GanitaTuple(
         entity=canon,
         attribute=attribute,
@@ -350,16 +353,6 @@ def _record_to_tuple(
         raw_text=raw_text[:200],
         entity_aliases=tuple(aliases),
     )
-
-
-# Entity-stop list shared with the regex extractor. Imported lazily
-# to avoid a hard dependency cycle: ganita imports from karana via
-# the public extract_tuples; we don't want karana → ganita at module
-# import time.
-def _aliases_from_text(text: str) -> list[str]:
-    """Pull noun-like tokens (3+ alpha chars) and canonicalise them."""
-    from patha.belief.ganita import _all_entities  # late import
-    return _all_entities(text or "")
 
 
 _ATTR_ALIASES = {
