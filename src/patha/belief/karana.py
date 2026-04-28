@@ -565,9 +565,14 @@ class HybridKaranaExtractor:
                 unit="USD",  # hybrid is currency-only for now
                 time=time,
                 belief_id=belief_id,
+                # Keep enough context so the recall-time topic-proximity
+                # fallback can see topical words within the configured
+                # window (default 80 chars). 100/100 gives 200 chars
+                # total — enough for the typical sentence-with-context
+                # scenario without bloating the index.
                 raw_text=truncated[
-                    max(0, m.start() - 40):
-                    min(len(truncated), m.end() + 60)
+                    max(0, m.start() - 100):
+                    min(len(truncated), m.end() + 100)
                 ],
                 entity_aliases=tuple(aliases),
             ))

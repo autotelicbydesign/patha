@@ -586,7 +586,7 @@ def _add_topic_proximity_matches(
     index: GanitaIndex,
     *,
     already: list[GanitaTuple],
-    proximity_chars: int = 60,
+    proximity_chars: int = 80,
 ) -> list[GanitaTuple]:
     """Union the precise-match set with topic-proximity matches.
 
