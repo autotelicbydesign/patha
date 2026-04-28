@@ -402,8 +402,211 @@ _ATTR_ALIASES = {
 }
 
 
+# ─── Hybrid: regex finds amounts, LLM tags them ──────────────────────
+
+
+_HYBRID_PROMPT = """You are tagging numerical amounts in a TEXT.
+
+The TEXT is a conversation. We have already located every dollar
+amount with regex; for each one we need YOUR semantic judgement on
+what it refers to.
+
+For each numbered AMOUNT, return ONE entry in the JSON array. Each
+entry MUST have these keys:
+
+  index      — the AMOUNT number (1, 2, 3, ...)
+  entity     — the concrete topic the amount refers to (single word
+               or short noun phrase, lowercase). If the amount is a
+               range, hypothetical, gift card, store credit, phone
+               number, or doesn't refer to a real purchase, set
+               entity to "skip" and we'll ignore it.
+  aliases    — a JSON array of 2–5 broader topical categories. If
+               the entity is a part/accessory/maintenance of a
+               larger thing, ALWAYS include the larger thing.
+               Examples: chain/helmet/saddle/lights/pump/wheel →
+               always include "bike". Drivers seat/headlights/tire
+               for car → always include "car". Plumber/electrician
+               for home → always include "home".
+  attribute  — what the amount measures: one of
+               "expense" (money out), "income" (money in), "savings",
+               "fundraising", "value" (descriptive, not a transaction).
+               Default to "expense" for purchases.
+
+Examples of TEXT + amounts → JSON:
+
+TEXT: "I spent $50 on a saddle for my bike. Got a $75 helmet too."
+AMOUNTS:
+  1. $50
+  2. $75
+JSON: [
+  {"index":1,"entity":"saddle","aliases":["saddle","bike","cycling"],"attribute":"expense"},
+  {"index":2,"entity":"helmet","aliases":["helmet","bike","cycling","safety"],"attribute":"expense"}
+]
+
+TEXT: "Bike racks range from $100 to $500."
+AMOUNTS:
+  1. $100
+  2. $500
+JSON: [
+  {"index":1,"entity":"skip","aliases":[],"attribute":"value"},
+  {"index":2,"entity":"skip","aliases":[],"attribute":"value"}
+]
+
+TEXT: "The mechanic replaced my chain for $25 and I got new bike
+lights for $40 the same day."
+AMOUNTS:
+  1. $25
+  2. $40
+JSON: [
+  {"index":1,"entity":"chain","aliases":["chain","bike","cycling","maintenance"],"attribute":"expense"},
+  {"index":2,"entity":"lights","aliases":["lights","bike","cycling","accessories"],"attribute":"expense"}
+]
+
+Now tag each AMOUNT in this TEXT and return ONLY the JSON array.
+
+TEXT: __TEXT__
+AMOUNTS:
+__AMOUNTS__
+JSON:"""
+
+
+_HYBRID_AMOUNT_RE = re.compile(r"\$\s*(\d+(?:,\d{3})*(?:\.\d+)?)")
+
+
+@dataclass
+class HybridKaranaExtractor:
+    """Hybrid: regex finds every \\$X amount; LLM only labels.
+
+    Solves the recall problem of the pure-LLM extractor: small models
+    routinely miss dollar amounts entirely. By letting regex enumerate
+    every match first and asking the LLM only for the semantic tag
+    (entity, aliases, attribute), we never lose an amount. The LLM can
+    explicitly say `entity: "skip"` for amounts that aren't real
+    transactions (ranges, gift cards, phone numbers, etc.).
+
+    Parameters mirror :class:`OllamaKaranaExtractor`.
+    """
+
+    model: str = _DEFAULT_MODEL
+    host: str = _DEFAULT_HOST
+    temperature: float = 0.0
+    timeout_s: float = 60.0
+    max_text_chars: int = 6000
+
+    calls: int = 0
+    failures: int = 0
+    total_latency_s: float = 0.0
+
+    def extract(
+        self,
+        text: str,
+        *,
+        belief_id: str,
+        time: str | None = None,
+    ) -> list[GanitaTuple]:
+        if not text.strip():
+            return []
+        truncated = text[: self.max_text_chars]
+        amounts = list(_HYBRID_AMOUNT_RE.finditer(truncated))
+        if not amounts:
+            return []
+        # Build the AMOUNTS section
+        amount_lines = []
+        for i, m in enumerate(amounts, 1):
+            amount_lines.append(f"  {i}. ${m.group(1)}")
+        prompt = _HYBRID_PROMPT.replace("__TEXT__", truncated)
+        prompt = prompt.replace("__AMOUNTS__", "\n".join(amount_lines))
+
+        try:
+            raw = self._generate(prompt)
+        except Exception:
+            self.failures += 1
+            return []
+        records = _parse_json_array(raw)
+        if records is None:
+            self.failures += 1
+            return []
+
+        tuples: list[GanitaTuple] = []
+        for r in records:
+            try:
+                idx = int(r.get("index", 0))
+            except (TypeError, ValueError):
+                continue
+            if idx < 1 or idx > len(amounts):
+                continue
+            entity = str(r.get("entity", "")).strip().lower()
+            if not entity or entity == "skip":
+                continue
+            attribute = str(r.get("attribute", "expense")).strip().lower()
+            attribute = _ATTR_ALIASES.get(attribute, attribute)
+            aliases_raw = r.get("aliases") or []
+            if not isinstance(aliases_raw, list):
+                aliases_raw = []
+
+            # Parse the value back from the regex match
+            m = amounts[idx - 1]
+            try:
+                value = float(m.group(1).replace(",", ""))
+            except ValueError:
+                continue
+
+            canon = _canonicalize_entity(entity)
+            aliases = [canon]
+            for a in aliases_raw:
+                ca = _canonicalize_entity(str(a).strip().lower())
+                if ca and ca not in aliases:
+                    aliases.append(ca)
+
+            tuples.append(GanitaTuple(
+                entity=canon,
+                attribute=attribute,
+                value=value,
+                unit="USD",  # hybrid is currency-only for now
+                time=time,
+                belief_id=belief_id,
+                raw_text=truncated[
+                    max(0, m.start() - 40):
+                    min(len(truncated), m.end() + 60)
+                ],
+                entity_aliases=tuple(aliases),
+            ))
+        return tuples
+
+    def _generate(self, prompt: str) -> str:
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": self.temperature,
+                "num_predict": 2048,  # bigger budget — multi-tag output
+            },
+        }
+        req = urllib.request.Request(
+            f"{self.host.rstrip('/')}/api/generate",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        start = time.monotonic()
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+                body = resp.read()
+        except urllib.error.URLError as e:
+            raise RuntimeError(
+                f"karana hybrid: Ollama call failed ({self.host}): {e}"
+            ) from e
+        finally:
+            self.calls += 1
+            self.total_latency_s += time.monotonic() - start
+        data = json.loads(body)
+        return str(data.get("response", "")).strip()
+
+
 __all__ = [
     "KaranaExtractor",
     "RegexKaranaExtractor",
     "OllamaKaranaExtractor",
+    "HybridKaranaExtractor",
 ]

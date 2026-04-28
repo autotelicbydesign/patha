@@ -29,6 +29,7 @@ import pytest
 import patha
 from patha.belief.ganita import GanitaTuple
 from patha.belief.karana import (
+    HybridKaranaExtractor,
     OllamaKaranaExtractor,
     RegexKaranaExtractor,
     _parse_json_array,
@@ -457,3 +458,90 @@ class TestMemoryWiring:
         assert rec.tokens == 0 or rec.strategy == "ganita" or rec.strategy in (
             "direct_answer", "structured", "raw"
         )
+
+
+# ─── HybridKaranaExtractor: regex finds amounts, LLM tags ──────────
+
+
+class TestHybridKaranaExtractor:
+    def test_no_amounts_returns_empty(self) -> None:
+        ex = HybridKaranaExtractor()
+        out = ex.extract(
+            "I rode my bike around Lisbon today.", belief_id="b1",
+        )
+        assert out == []
+
+    def test_extracts_every_amount_via_mocked_llm(self, monkeypatch) -> None:
+        """Hybrid guarantees regex catches every $X; LLM only tags."""
+        canned = (
+            '['
+            '{"index":1,"entity":"saddle","aliases":["bike"],"attribute":"expense"},'
+            '{"index":2,"entity":"helmet","aliases":["bike","safety"],"attribute":"expense"},'
+            '{"index":3,"entity":"chain","aliases":["bike","maintenance"],"attribute":"expense"}'
+            ']'
+        )
+        monkeypatch.setattr(
+            HybridKaranaExtractor, "_generate",
+            lambda self, prompt: canned,
+        )
+        ex = HybridKaranaExtractor(host="http://localhost:1")
+        out = ex.extract(
+            "I bought a $50 saddle, $75 helmet, and replaced the chain "
+            "for $25.",
+            belief_id="b1",
+        )
+        # All three amounts captured — regex didn't miss anything,
+        # LLM tagged each correctly.
+        assert len(out) == 3
+        values = sorted(t.value for t in out)
+        assert values == [25.0, 50.0, 75.0]
+        # Each tuple has 'bike' as an alias
+        for t in out:
+            assert "bike" in t.entity_aliases
+
+    def test_skip_marker_drops_amount(self, monkeypatch) -> None:
+        """LLM can mark an amount as 'skip' (range, hypothetical, etc.)
+        — that amount doesn't produce a tuple."""
+        canned = (
+            '['
+            '{"index":1,"entity":"skip","aliases":[],"attribute":"value"},'
+            '{"index":2,"entity":"skip","aliases":[],"attribute":"value"}'
+            ']'
+        )
+        monkeypatch.setattr(
+            HybridKaranaExtractor, "_generate",
+            lambda self, prompt: canned,
+        )
+        ex = HybridKaranaExtractor(host="http://localhost:1")
+        out = ex.extract(
+            "Bike racks range from $100 to $500 depending on size.",
+            belief_id="b1",
+        )
+        assert out == []
+
+    def test_unreachable_returns_empty(self) -> None:
+        ex = HybridKaranaExtractor(
+            host="http://localhost:1", timeout_s=0.5,
+        )
+        out = ex.extract("$50 saddle", belief_id="b1")
+        assert out == []
+        assert ex.failures >= 1
+
+    def test_index_out_of_range_skipped(self, monkeypatch) -> None:
+        """If the LLM emits an index that doesn't exist (hallucination),
+        we drop that record rather than crashing."""
+        canned = (
+            '['
+            '{"index":5,"entity":"saddle","aliases":["bike"],"attribute":"expense"},'
+            '{"index":1,"entity":"helmet","aliases":["bike"],"attribute":"expense"}'
+            ']'
+        )
+        monkeypatch.setattr(
+            HybridKaranaExtractor, "_generate",
+            lambda self, prompt: canned,
+        )
+        ex = HybridKaranaExtractor(host="http://localhost:1")
+        # Only one amount in the text, but LLM hallucinates index=5
+        out = ex.extract("$75 helmet for the bike", belief_id="b1")
+        assert len(out) == 1
+        assert out[0].entity == "helmet"
