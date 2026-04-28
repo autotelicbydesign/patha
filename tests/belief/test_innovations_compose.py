@@ -216,8 +216,12 @@ def test_synthesis_intent_bypasses_phase1(tmp_path: Path) -> None:
     assert rec.ganita is not None
     assert rec.ganita.value == 185.0
     assert rec.strategy == "ganita"
-    # No Phase-1 retrieval result should be attached (we bypassed)
-    assert len([c for c in rec.current]) == 0  # synthesis path doesn't fill .current
+    # `rec.current` is populated with the SOURCE beliefs that gaṇita
+    # summed — the user sees what was used to compute the answer.
+    # All 4 bike-shopping facts contributed.
+    assert len(rec.current) == 4
+    assert all("bike" in c["proposition"].lower() for c in rec.current)
+    assert rec.tokens == 0  # zero LLM tokens at recall — that's the point
 
 
 def test_retrieval_intent_uses_phase1(tmp_path: Path) -> None:

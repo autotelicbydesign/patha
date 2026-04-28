@@ -421,18 +421,20 @@ class Memory:
         at = at_time or datetime.now()
 
         # ── Synthesis-intent gate ─────────────────────────────────
-        # Detect first; if it's synthesis, skip Phase 1 entirely and
-        # answer over the belief store directly. This is the gaṇita
-        # path the architecture is named for.
+        # Detect first; if it's synthesis AND gaṇita can answer, skip
+        # Phase 1 entirely and answer over the belief store directly.
+        # If aggregation intent is detected but gaṇita finds no
+        # matching tuples (entity not in index), fall through to
+        # Phase 1 — the question may use an aggregation word but
+        # actually want retrieval ("how many books did I mention?"
+        # phrased as a count but answerable from text).
         ganita_result = None
-        is_synthesis = False
         if self._ganita_index is not None:
             from patha.belief.ganita import (
                 answer_aggregation_question, detect_aggregation,
             )
             try:
                 if detect_aggregation(question) is not None:
-                    is_synthesis = True
                     # Synthesis: query the index directly. No
                     # restrict_to_belief_ids — gaṇita is exhaustive
                     # arithmetic over ALL preserved facts that match
@@ -445,19 +447,41 @@ class Memory:
             except Exception:
                 ganita_result = None
 
-        if is_synthesis and ganita_result is not None:
-            # Build a thin response: gaṇita answer with no Phase-1
-            # retrieval, no LLM-bound summary needed.
+        if ganita_result is not None:
+            # Synthesis path: gaṇita produced an answer. Build a
+            # response that surfaces it cleanly: the contributing
+            # source beliefs become `rec.current` (so the user sees
+            # what was summed), and `summary` carries a one-line
+            # rendering of the result.
+            store = self._patha.belief_layer.store
+            contributing = []
+            for bid in ganita_result.contributing_belief_ids:
+                b = store.get(bid)
+                if b is not None:
+                    contributing.append(b)
+            summary_line = (
+                f"Computed via gaṇita arithmetic (no LLM): "
+                f"{ganita_result.operator} = {ganita_result.value} "
+                f"{ganita_result.unit}.\n"
+                f"{ganita_result.explanation}"
+            )
+            from patha.belief.layer import BeliefQueryResult
             from patha.integrated import IntegratedResponse
             response = IntegratedResponse(
                 query=question,
                 strategy="ganita",
-                prompt="",  # no LLM context required — gaṇita is deterministic
-                answer=str(ganita_result.value),
+                prompt=summary_line,
+                answer=f"{ganita_result.value} {ganita_result.unit}".strip(),
                 belief_ids=list(ganita_result.contributing_belief_ids),
-                source_proposition_ids=[],
-                tokens_in=0,
-                retrieval_result=None,
+                source_proposition_ids=[
+                    b.source_proposition_id for b in contributing
+                ],
+                tokens_in=0,  # zero LLM tokens — that's the point
+                retrieval_result=BeliefQueryResult(
+                    current=contributing,
+                    history=[],
+                    tokens_in_summary=0,
+                ),
             )
             return Recall(response, include_history=include_history,
                           ganita_result=ganita_result)
