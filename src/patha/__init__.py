@@ -338,14 +338,22 @@ class Memory:
         )
         # Gaṇita pass: try procedural arithmetic for aggregation
         # questions ("how much total", "how many"). Pure rule-based,
-        # no LLM. Returns None if the question isn't an aggregation
-        # OR if no matching tuples exist.
+        # no LLM. Restrict to the retrieved beliefs so we only sum
+        # topically-relevant numbers (e.g., bike-related expenses,
+        # not every currency mention in the haystack).
         ganita_result = None
         if self._ganita_index is not None:
             from patha.belief.ganita import answer_aggregation_question
+            retrieved_ids = None
+            rr = response.retrieval_result
+            if rr is not None:
+                retrieved_ids = {b.id for b in rr.current}
+                if include_history:
+                    retrieved_ids |= {b.id for b in rr.history}
             try:
                 ganita_result = answer_aggregation_question(
                     question, self._ganita_index,
+                    restrict_to_belief_ids=retrieved_ids,
                 )
             except Exception:
                 ganita_result = None

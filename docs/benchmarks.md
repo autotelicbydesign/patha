@@ -103,6 +103,44 @@ The two claims differ by **54.5 percentage points** on the same benchmark. Three
 
 3. **Phase 2's value isn't measured here.** LongMemEval tests retrieval, not belief supersession or contradiction handling. The contradiction-detection machinery (adhyāsa, numerical, sequential, learned classifier) adds no signal for these questions because no belief contradicts any other — users aren't revising their 5K time.
 
+### Vedic gaṇita (procedural arithmetic) — synthesis without LLM
+
+Most multi-session failures aren't retrieval failures — they're synthesis failures. "$185 total bike spend" never appears in the source; it's $50 + $75 + $30 + $30 across 4 sessions. The Vedic tradition has a principled answer: *gaṇita* (auxiliary mathematics, used in the Sulbasūtras for ritual altar geometry). Procedural rule-application on preserved facts, not interpretation.
+
+`patha.Memory` now has a gaṇita layer (`src/patha/belief/ganita.py`):
+
+- **Ingest-time:** regex-based extraction of (entity, attribute, value, unit, time) tuples from each belief. Currency, durations, percentages, counts.
+- **Sidecar JSONL index** keyed by (entity, attribute). Append-only, mirrors the BeliefStore's persistence pattern.
+- **Query-time:** detect aggregation operator from question (`sum / count / average / difference / max / min`); restrict to retrieved-belief tuples (Phase 1 scopes the topic); run procedural arithmetic; return value + contributing belief_ids.
+
+This is the deterministic, no-LLM path to closing synthesis-bounded gaps. End-to-end test on the canonical case ("How much total spent on bike?" with $50 saddle + $75 helmet + $30 lights + $30 gloves) returns **$185.0 USD with 4 source belief ids** — exactly what the question asks for, computed deterministically.
+
+### Token economy (when paired with Claude or any LLM)
+
+Measured per-query (`eval/token_economy.py` — 4-char/token approximation, calibrated against tiktoken):
+
+| Strategy | Tokens per query | Compression vs naive RAG |
+|---|:---:|:---:|
+| **naive_rag** (dump raw conversation context to LLM) | 285.9 | 1.0× baseline |
+| **structured** (Patha's compressed summary) | 64.6 | **4.5× reduction** |
+| **direct_answer** including gaṇita (no LLM call needed) | **0** | **∞** |
+
+For aggregation questions, Patha's gaṇita layer returns the answer directly without an LLM call — token cost on those questions drops to **zero**. For other questions where a structured summary is sent to the LLM, ~4.5× reduction in input tokens vs dumping raw history.
+
+### Plasticity (neuroplasticity-inspired) — still on by default
+
+All five plasticity mechanisms are wired and active in the unified pipeline:
+
+| Mechanism | Role | Default |
+|---|---|:---:|
+| LTP (long-term potentiation) | Reinforce confidence on repeated assertion | on |
+| LTD (long-term depression) | Decay unused beliefs over time | on |
+| Hebbian association | Co-retrieval edges between beliefs | on |
+| Homeostatic regulation | Bound max/min confidence ratio | on |
+| Synaptic pruning | Archive deeply-superseded chains | on |
+
+Verified end-to-end with `tests/belief/test_plasticity_wiring.py` (4 tests) and `tests/belief/test_plasticity.py` (10 tests).
+
 ### Honest summary
 
 - **Phase 1 retrieval alone, session-level R@5: 1.000.** Beats Mem0 (+6.6pp) and MemPalace (+3.4pp on the comparable 78q).

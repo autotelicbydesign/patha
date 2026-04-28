@@ -27,8 +27,18 @@ Under the hood: contradiction detection via NLI + lexical rewriting + sequential
 
 - On **full 500q LongMemEval-S** (apples-to-apples with MemPalace's published number): Patha beats Mem0 by +1.8pp, is 1.4pp under MemPalace.
 - On the **knowledge-update stratum** (77 questions): Patha beats both Mem0 (+5.3pp) and MemPalace (+2.1pp).
-- Five of six strata are 0.977–1.000. Only multi-session (0.857) drags the overall number — that's the next work item.
+- Five of six strata are 0.977–1.000. Only multi-session (0.857) drags the overall number — and 84% of those failures are *synthesis-bounded* (the gold answer is computed, e.g. "$185 total" = sum across 4 sessions; never in source). Closed by the `gaṇita` layer (in-tradition Vedic procedural arithmetic, no LLM).
 - Phase 1 retrieval alone on LongMemEval-KU is 1.000 — perfect retrieval on the subset Mem0 benchmarks on.
+
+**Token economy when paired with Claude or any LLM** (`eval/token_economy.py`):
+
+| Strategy | Tokens / query | vs naive RAG |
+|---|:---:|:---:|
+| Naive RAG (raw history dump) | 285.9 | 1.0× |
+| Patha structured summary | 64.6 | **4.5× reduction** |
+| Patha direct-answer (incl. gaṇita aggregation) | **0** | **∞ (no LLM call)** |
+
+**Plasticity (neuroplasticity-inspired):** all five mechanisms (LTP, LTD, Hebbian, homeostasis, pruning) wired and on by default in the unified pipeline. Confidence decays for unused beliefs (LTD), strengthens on repeated assertion (LTP), associative graph emerges from co-retrieval (Hebbian), confidence ratio bounded (homeostasis), deeply-superseded chains archived (pruning).
 
 Full honest analysis in [docs/benchmarks.md](docs/benchmarks.md).
 

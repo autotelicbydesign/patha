@@ -512,12 +512,21 @@ class GanitaResult:
 
 
 def answer_aggregation_question(
-    question: str, index: GanitaIndex,
+    question: str,
+    index: GanitaIndex,
+    *,
+    restrict_to_belief_ids: set[str] | None = None,
 ) -> GanitaResult | None:
     """Try to answer ``question`` by procedural arithmetic over the index.
 
     Returns None if no aggregation operator is detected, or if no
-    matching tuples exist in the index.
+    matching tuples exist.
+
+    restrict_to_belief_ids
+        When provided, only tuples whose `belief_id` is in this set are
+        considered. Use this to scope arithmetic to topically-relevant
+        beliefs (typically: the top-K beliefs from Phase 1 retrieval),
+        avoiding "sum every dollar in the haystack" failures.
     """
     op = detect_aggregation(question)
     if op is None:
@@ -534,6 +543,12 @@ def answer_aggregation_question(
 
     if not candidates:
         return None
+
+    # Topic restriction via retrieval scope
+    if restrict_to_belief_ids is not None:
+        candidates = [c for c in candidates if c.belief_id in restrict_to_belief_ids]
+        if not candidates:
+            return None
 
     # If the question implies a specific attribute (e.g. "spent" → expense),
     # filter by it
