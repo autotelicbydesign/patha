@@ -319,6 +319,77 @@ def test_same_fact_across_multiple_sessions_dedups(tmp_path: Path) -> None:
     assert rec.ganita.value == 40.0  # NOT $120 (over-counted 3x)
 
 
+def test_proximity_fallback_catches_missed_alias(tmp_path: Path) -> None:
+    """When an LLM misses tagging a fact with the expected category
+    alias, but the fact's source text mentions the topic word within
+    proximity_chars of the value, the proximity-fallback recovers it."""
+    from patha.belief.ganita import (
+        GanitaIndex, answer_aggregation_question,
+    )
+
+    idx = GanitaIndex()
+    # Fact 1: LLM correctly tagged $40 with bike alias.
+    idx.add(GanitaTuple(
+        entity="lights", attribute="expense", value=40.0, unit="USD",
+        time=None, belief_id="b-lights",
+        raw_text="I got new bike lights installed for $40",
+        entity_aliases=("lights", "bike", "cycling"),
+    ))
+    # Fact 2: LLM emitted entity='helmet' but FORGOT to add 'bike' as
+    # alias. However the raw_text mentions 'bike shop' near $120.
+    idx.add(GanitaTuple(
+        entity="helmet", attribute="expense", value=120.0, unit="USD",
+        time=None, belief_id="b-helmet",
+        raw_text="bought a Bell Zephyr helmet at the bike shop for $120",
+        entity_aliases=("helmet", "safety"),  # NO 'bike'!
+    ))
+    # Fact 3: rent — the source text mentions 'bike path' but >60 chars
+    # from $999. Should NOT be pulled by proximity fallback.
+    idx.add(GanitaTuple(
+        entity="rent", attribute="expense", value=999.0, unit="USD",
+        time=None, belief_id="b-rent",
+        raw_text=(
+            "Paid $999 rent on a flat. The location is great because "
+            "the building is right next to the bike path."
+        ),
+        entity_aliases=("rent", "housing"),
+    ))
+
+    rec = answer_aggregation_question(
+        "how much have I spent on bike-related expenses?", idx,
+    )
+    assert rec is not None
+    # $40 (alias match) + $120 (proximity match) = $160
+    # rent ($999) excluded because 'bike' is too far from '$999' in its text
+    assert rec.value == 160.0
+    contributing = set(rec.contributing_belief_ids)
+    assert contributing == {"b-lights", "b-helmet"}
+
+
+def test_proximity_fallback_excludes_distant_mentions(tmp_path: Path) -> None:
+    """The proximity bound rejects incidental mentions that are too
+    far from the value in the source text."""
+    from patha.belief.ganita import (
+        GanitaIndex, answer_aggregation_question,
+    )
+
+    idx = GanitaIndex()
+    # Rent fact, casual mention of bike >100 chars away from value
+    idx.add(GanitaTuple(
+        entity="rent", attribute="expense", value=1500.0, unit="USD",
+        time=None, belief_id="b1",
+        raw_text=(
+            "$1500 rent paid this month. " + "..." * 30 + " bike path"
+        ),
+        entity_aliases=("rent", "housing"),
+    ))
+    rec = answer_aggregation_question(
+        "how much have I spent on bike?", idx,
+    )
+    # No bike-aliased tuple AND no proximate bike-mention → no match
+    assert rec is None or rec.value != 1500.0
+
+
 def test_ambiguous_query_falls_back_to_retrieval_scope(tmp_path: Path) -> None:
     """When the query is ambiguous (matches many tuples globally),
     ``restrict_to_belief_ids`` is the right tiebreaker."""
