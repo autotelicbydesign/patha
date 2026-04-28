@@ -42,7 +42,7 @@ from pathlib import Path
 from textwrap import dedent
 
 import patha
-from patha.belief.karana import OllamaKaranaExtractor
+from patha.belief.karana import HybridKaranaExtractor, OllamaKaranaExtractor
 from patha.importers import import_obsidian_vault
 
 
@@ -144,7 +144,12 @@ def demo_karana(tmpdir: Path, mode: str, model: str) -> None:
     if mode == "ollama":
         karana = OllamaKaranaExtractor(model=model, timeout_s=60.0)
         print()
-        print(f"   Using Ollama at {karana.host}, model={karana.model}")
+        print(f"   Using Ollama (free-form extraction) at {karana.host}, model={karana.model}")
+    elif mode == "hybrid":
+        karana = HybridKaranaExtractor(model=model, timeout_s=90.0)
+        print()
+        print(f"   Using HYBRID (regex × LLM tagging) at {karana.host}, model={karana.model}")
+        print(f"   Recall preserved: regex catches every $X; LLM only labels semantically.")
 
     mem = patha.Memory(
         path=tmpdir / "karana.jsonl",
@@ -249,9 +254,11 @@ def demo_obsidian(tmpdir: Path) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
-        "--karana", choices=["regex", "ollama"], default="regex",
-        help="Karaṇa extractor: regex (zero-deps baseline) or ollama "
-             "(local LLM, requires Ollama running with the model pulled).",
+        "--karana", choices=["regex", "ollama", "hybrid"], default="regex",
+        help="Karaṇa extractor: regex (zero-deps baseline), ollama "
+             "(LLM extracts everything), or hybrid (regex finds every "
+             "$X amount, LLM only labels — best recall on dense text). "
+             "Both LLM modes require Ollama running with a model pulled.",
     )
     ap.add_argument(
         "--karana-model", default="qwen2.5:7b-instruct",
