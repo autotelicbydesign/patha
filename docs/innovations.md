@@ -87,10 +87,11 @@ These don't block the branch; they motivate v0.10's roadmap.
 
 | Test | Result | Interpretation |
 |---|---|---|
-| Live Ollama \$185 bike test (4 facts, gemma4:8b at ingest, deterministic recall) | \$185.00 USD, 4 contributing belief ids, 0 LLM tokens at recall | Karaṇa works on a clean user store |
+| Live Ollama \$185 bike test (4 clean user facts, gemma4:8b at ingest, deterministic recall) | \$185.00 USD, 4 contributing belief ids, 0 LLM tokens at recall | Karaṇa works on a clean user store |
 | Multi-session 500q LongMemEval-S, **Hebbian on**, regex karaṇa baseline (detector=stub) | 114/133 = 0.857 | Matches v0.9.3 baseline |
 | Multi-session 500q LongMemEval-S, **Hebbian off** (paired ablation) | 114/133 = 0.857 | A/B comparison: **Hebbian is empirically a no-op on this configuration** (zero per-question disagreement) |
-| Dense-haystack synthesis test (`tests/belief/test_innovations_compose.py::test_dense_haystack_phase1_misses_some_bike_sessions`) | Recovers \$185 even when Phase 1 retrieves the wrong cluster | The aggregation fix (below) directly solves the synthesis-bounded failure mode |
+| Dense-haystack synthesis unit test (`test_dense_haystack_phase1_misses_some_bike_sessions`) | Recovers \$185 even when Phase 1 retrieves the wrong cluster | The aggregation fix structurally addresses the failure mode |
+| Karaṇa+gemma4 smoke test on actual `gpt4_d84a3211` LongMemEval haystack (with all 3 fixes) | \$999 (single tuple) — closer than the original \$1039 (2 tuples) but still wrong | The remaining gap is gemma4:8b consistency: the LLM doesn't reliably emit "bike" as an alias on bike-shopping facts. Switching to a stronger model or refining the prompt is the next step. |
 | 717 unit tests + composition + slow live Ollama integration | All pass | Mechanisms compose; no regressions |
 
 ### How the synthesis-bounded gap was actually solved (three-layer fix)
