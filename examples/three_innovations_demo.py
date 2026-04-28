@@ -178,8 +178,9 @@ def demo_karana(tmpdir: Path, mode: str, model: str) -> None:
         print(f"   ingest-time LLM calls: {karana.calls} "
               f"({karana.total_latency_s:.1f}s total)")
 
-    subsection("Step 2 — Aggregation question, NO LLM at recall")
+    subsection("Step 2 — Synthesis question routes through gaṇita (no Phase 1)")
     rec = mem.recall("how much total did I spend on bike-related expenses?")
+    print(f"   strategy:         {rec.strategy}")
     if rec.ganita is not None:
         print(f"   answer:           ${rec.ganita.value:.2f} {rec.ganita.unit}")
         print(f"   contributing ids: "
@@ -187,10 +188,25 @@ def demo_karana(tmpdir: Path, mode: str, model: str) -> None:
         print(f"   explanation:      {rec.ganita.explanation}")
         if karana is not None and karana.calls > 0:
             print(f"   recall-time LLM calls: 0 (deterministic arithmetic)")
+        print()
+        print("   ✓ This is the architectural point: the answer didn't")
+        print("     come from Phase 1's top-K retrieval. It came from")
+        print("     EVERY tuple matching 'bike' in the gaṇita index,")
+        print("     summed deterministically. Top-K of N would miss")
+        print("     facts spread across many sessions.")
     else:
         print("   gaṇita didn't trigger — extractor produced no relevant tuples.")
-        print("   With --karana regex this happens on dense conversational text;")
-        print("   re-run with --karana ollama for the LLM-quality extraction.")
+        print("   Try --karana hybrid for regex × LLM tagging.")
+
+    subsection("Step 3 — Retrieval question still goes through Phase 1")
+    rec2 = mem.recall("what bike accessories did I buy?")
+    print(f"   strategy:         {rec2.strategy}")
+    print(f"   ganita fired:     {rec2.ganita is not None}")
+    print(f"   current beliefs:  {len(rec2.current)}")
+    print()
+    print("   ✓ A perception question (no aggregation operator) flows")
+    print("     through the standard retrieval pipeline. Same store,")
+    print("     different path — that's the architectural distinction.")
 
 
 # ─── Section 3: Filesystem-native ingest ─────────────────────────────
