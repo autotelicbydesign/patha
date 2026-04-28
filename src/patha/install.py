@@ -273,6 +273,17 @@ def install(
         print("On first ingest, Patha will download ~1.7 GB of NLI model weights.")
         print("To pre-download now:")
         print(f"  PATHA_DETECTOR={detector} uv run patha verify --preload")
+    if karana_mode == "ollama":
+        print()
+        print("Note: you set karana-mode = 'ollama'. The MCP server will call")
+        print("a local Ollama instance at every ingest. Make sure Ollama is")
+        print("running and the model is pulled BEFORE the next conversation:")
+        print()
+        print("    ollama serve                         # in another terminal")
+        print("    ollama pull qwen2.5:7b-instruct      # one-time, ~4 GB")
+        print()
+        print("To override the model used, set PATHA_KARANA_MODEL in the")
+        print("'env' block of the patha entry in your MCP config.")
     return 0
 
 
