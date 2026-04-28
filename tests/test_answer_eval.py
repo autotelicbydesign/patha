@@ -18,6 +18,7 @@ from eval.answer_eval import (
     AnswerEvalConfig,
     AnswerEvalReport,
     NullTemplateLLM,
+    OllamaLLM,
     QuestionOutcome,
     exact_match,
     normalised_match,
@@ -165,6 +166,15 @@ class TestRunAnswerEval:
         outcome = report.outcomes[0]
         assert outcome.strategy == "ganita"
         assert outcome.summary_tokens == 0  # zero LLM tokens at recall
+
+    def test_ollama_unreachable_raises(self):
+        """OllamaLLM raises a clear error when Ollama isn't running.
+        (CI-safe: we point at a port nothing listens on, expect failure.)"""
+        import pytest
+        llm = OllamaLLM(host="http://localhost:1", timeout_s=0.5)
+        with pytest.raises(RuntimeError, match="Ollama"):
+            llm("any prompt")
+        assert llm.calls == 1  # call counter still incremented
 
     def test_by_strategy_breakdown(self, tmp_path: Path):
         """Multiple questions across strategies aggregate by strategy."""

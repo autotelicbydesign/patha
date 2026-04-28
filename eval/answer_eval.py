@@ -276,9 +276,71 @@ def run_answer_eval(
     )
 
 
+# ─── Real LLM adapters ───────────────────────────────────────────────
+
+
+@dataclass
+class OllamaLLM:
+    """LLM adapter pointing at a local Ollama instance.
+
+    Uses urllib so we don't add a runtime dependency. Fails loudly
+    if Ollama isn't reachable — caller should handle the exception
+    or use NullTemplateLLM as a CI fallback.
+
+    Parameters mirror :class:`patha.belief.karana.OllamaKaranaExtractor`.
+    """
+
+    model: str = "qwen2.5:14b-instruct"
+    host: str = "http://localhost:11434"
+    temperature: float = 0.0
+    timeout_s: float = 60.0
+    num_predict: int = 256
+
+    calls: int = 0
+    total_latency_s: float = 0.0
+
+    def __call__(self, prompt: str) -> str:
+        import json as _json
+        import time as _time
+        import urllib.error
+        import urllib.request
+
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": self.temperature,
+                "num_predict": self.num_predict,
+            },
+        }
+        req = urllib.request.Request(
+            f"{self.host.rstrip('/')}/api/generate",
+            data=_json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        start = _time.monotonic()
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+                body = resp.read()
+        except urllib.error.URLError as e:
+            raise RuntimeError(
+                f"OllamaLLM: call failed ({self.host}, model={self.model}): {e}. "
+                f"Is Ollama running and the model pulled?"
+            ) from e
+        finally:
+            self.calls += 1
+            self.total_latency_s += _time.monotonic() - start
+
+        data = _json.loads(body)
+        return str(data.get("response", "")).strip()
+
+
 __all__ = [
     "LLM",
     "NullTemplateLLM",
+    "OllamaLLM",
     "AnswerEvalConfig",
     "AnswerEvalReport",
     "QuestionOutcome",
