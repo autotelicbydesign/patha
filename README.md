@@ -181,6 +181,26 @@ memory.history("X")   # every mention of X, current + superseded
 memory.stats()        # counts, plasticity state, data path
 ```
 
+**For synthesis-heavy workloads** ("how much have I spent on bikes?", "how many books read this year?"), enable the karaṇa LLM extractor at ingest. ≥14B local model or hosted LLM recommended for dense conversational text:
+
+```python
+import patha
+from patha.belief.karana import HybridKaranaExtractor
+
+memory = patha.Memory(
+    detector="full-stack-v8",
+    karana_extractor=HybridKaranaExtractor(
+        model="qwen2.5:14b-instruct",  # or your model
+    ),
+)
+memory.remember("I bought a $50 saddle for the bike")
+# ...
+rec = memory.recall("how much have I spent on bike-related expenses?")
+print(rec.ganita.value)  # 50.0 — deterministic, zero LLM tokens at recall
+```
+
+The synthesis path bypasses Phase 1's top-K (`docs/innovations.md` for the architectural explanation). Recall is exhaustive over preserved tuples — top-100 of 1000 sessions misses 90% of inputs you'd need to sum.
+
 See [`examples/developer_quickstart.py`](examples/developer_quickstart.py) for a runnable walkthrough, and [docs/benchmarks.md](docs/benchmarks.md) for the full benchmark methodology.
 
 ### Streamlit viewer
