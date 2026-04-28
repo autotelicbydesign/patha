@@ -93,24 +93,36 @@ def build_patha_server_entry(
     project_path: Path,
     store_path: Path,
     detector: str,
+    karana_mode: str | None = None,
+    hebbian_expansion: bool | None = None,
 ) -> dict:
-    """Return the JSON dict for the `patha` entry under mcpServers."""
+    """Return the JSON dict for the `patha` entry under mcpServers.
+
+    karana_mode: "regex" | "ollama" | "off" — only written into env if
+    explicitly set. Otherwise the server defaults to "regex".
+
+    hebbian_expansion: only written into env if explicitly set. Server
+    defaults to on; pass False to bake PATHA_HEBBIAN=off into the config.
+    """
+    env: dict[str, str] = {
+        "PATHA_STORE_PATH": str(store_path),
+        "PATHA_DETECTOR": detector,
+    }
+    if karana_mode is not None:
+        env["PATHA_KARANA"] = karana_mode
+    if hebbian_expansion is not None:
+        env["PATHA_HEBBIAN"] = "on" if hebbian_expansion else "off"
+
     if use_uvx:
         return {
             "command": "uvx",
             "args": ["patha-memory", "patha-mcp"],
-            "env": {
-                "PATHA_STORE_PATH": str(store_path),
-                "PATHA_DETECTOR": detector,
-            },
+            "env": env,
         }
     return {
         "command": "uv",
         "args": ["run", "--project", str(project_path), "patha-mcp"],
-        "env": {
-            "PATHA_STORE_PATH": str(store_path),
-            "PATHA_DETECTOR": detector,
-        },
+        "env": env,
     }
 
 
@@ -158,8 +170,17 @@ def install(
     detector: str = "stub",
     yes: bool = False,
     dry_run: bool = False,
+    karana_mode: str | None = None,
+    hebbian_expansion: bool | None = None,
 ) -> int:
-    """Perform the install. Returns 0 on success, non-zero on error."""
+    """Perform the install. Returns 0 on success, non-zero on error.
+
+    karana_mode: "regex" | "ollama" | "off" — only baked into the
+    config env if explicitly set. Otherwise the MCP server uses its
+    own default (regex), and users can edit later.
+
+    hebbian_expansion: similarly only written if explicitly set.
+    """
     if client not in CLIENTS:
         print(
             f"error: unknown client {client!r}; choose from {list(CLIENTS.keys())}",
@@ -185,6 +206,10 @@ def install(
     print(f"  Patha path:    {project_path}")
     print(f"  Store path:    {store}")
     print(f"  Detector:      {detector}")
+    if karana_mode:
+        print(f"  Karaṇa mode:   {karana_mode}")
+    if hebbian_expansion is False:
+        print(f"  Hebbian:       off (ablation)")
     print(f"  Install via:   {'uvx patha-memory' if use_uvx else 'uv run (local checkout)'}")
     print()
 
@@ -212,6 +237,8 @@ def install(
         project_path=project_path,
         store_path=store,
         detector=detector,
+        karana_mode=karana_mode,
+        hebbian_expansion=hebbian_expansion,
     )
     new_config = merge_into_config(existing, entry)
 

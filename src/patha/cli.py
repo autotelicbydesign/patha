@@ -216,6 +216,16 @@ def cmd_mcp(args: argparse.Namespace) -> int:
 def cmd_install_mcp(args: argparse.Namespace) -> int:
     """Merge Patha into the Claude Desktop / Claude Code MCP config."""
     from patha.install import install
+    karana_mode = getattr(args, "karana_mode", None)
+    if karana_mode == "default":
+        karana_mode = None
+    hebbian = getattr(args, "hebbian", None)
+    if hebbian == "default":
+        hebbian = None
+    elif hebbian == "on":
+        hebbian = True
+    elif hebbian == "off":
+        hebbian = False
     return install(
         client=args.client,
         use_uvx=args.uvx,
@@ -223,6 +233,8 @@ def cmd_install_mcp(args: argparse.Namespace) -> int:
         detector=args.install_detector,
         yes=args.yes,
         dry_run=args.dry_run,
+        karana_mode=karana_mode,
+        hebbian_expansion=hebbian,
     )
 
 
@@ -487,6 +499,23 @@ def main(argv: list[str] | None = None) -> int:
     p_install.add_argument(
         "--dry-run", action="store_true",
         help="Show what would be written, don't actually write.",
+    )
+    p_install.add_argument(
+        "--karana-mode",
+        choices=["default", "regex", "ollama", "off"],
+        default="default",
+        help="Bake PATHA_KARANA into the generated config. 'default' "
+             "leaves it unset (server uses 'regex'). Use 'ollama' to "
+             "enable Vedic karaṇa LLM ingest-time extraction; requires "
+             "Ollama running with a small model pulled.",
+    )
+    p_install.add_argument(
+        "--hebbian",
+        choices=["default", "on", "off"],
+        default="default",
+        help="Bake PATHA_HEBBIAN into the generated config. 'default' "
+             "leaves it unset (server uses 'on'). Use 'off' for "
+             "ablation studies of Hebbian-cluster-aware retrieval.",
     )
     p_install.set_defaults(fn=cmd_install_mcp)
 
