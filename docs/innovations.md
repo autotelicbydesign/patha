@@ -77,8 +77,17 @@ print(rec.summary)        # ~20 tokens for the LLM system prompt
 ## What's still honestly weak
 
 - **Cold-start single query** — Hebbian expansion needs either query history or session-seeding to do anything. A truly first-ever query on a brand-new store falls through to plain Phase 1.
-- **LLM-less synthesis on dense conversational text** — the regex baseline gaṇita extractor still struggles on multi-paragraph LongMemEval haystacks. The karaṇa LLM extractor closes this when Ollama is available; without Ollama, this gap is real.
-- **Ingest cost for karaṇa** — when LLM extraction is on, every ingest does one Ollama call (~1–10s on consumer hardware). Cheap per-ingest but adds up on bulk imports. Recall remains O(1) regardless.
+- **Karaṇa needs Phase 1 to find the right sessions first.** On a clean user store (Patha's actual use case — your beliefs from your conversations), karaṇa is unambiguously valuable: a query "how much have I spent on bikes?" sums every extracted bike-expense tuple. On a 50-session LongMemEval haystack, Phase 1 retrieval still has to surface the bike-related sessions; if it picks the wrong ones, gaṇita aggregates the wrong tuples. The single-question karaṇa+gemma4 smoke test on `gpt4_d84a3211` produced 332 extracted tuples across 50 sessions but Phase 1 picked the wrong cluster, so the deterministic sum was $40 + $999 = $1039 instead of the gold $185. The fix isn't more karaṇa — it's better retrieval (which is what Innovation #1 + better embedders target).
+- **Ingest cost for karaṇa** — when LLM extraction is on, every ingest does one Ollama call (~1–10s on consumer hardware, much faster on a GPU). Cheap per-ingest but adds up on bulk imports. Recall remains O(1) regardless.
 - **Pip install vs uv sync** — still requires `uv sync` until v0.10 publishes to pypi as `patha-memory`.
 
 These are documented at the bottom of `docs/how-to-use-patha.md` and don't block the branch; they motivate v0.10's roadmap.
+
+## Empirical results so far
+
+| Test | Result | Interpretation |
+|---|---|---|
+| Live Ollama \$185 bike test (4 facts, gemma4:8b at ingest, deterministic recall) | $185.00 USD, 4 contributing belief ids, 0 LLM tokens at recall | Karaṇa works on a clean user store |
+| Karaṇa smoke test on `gpt4_d84a3211` (50-session LongMemEval haystack, gemma4:8b) | 332 tuples extracted; Phase 1 picked the wrong sessions; gaṇita summed $1039 instead of gold $185 | Karaṇa works as designed; Phase 1 retrieval is the bottleneck on dense haystacks |
+| Multi-session benchmark (Hebbian on, regex karaṇa baseline detector=stub) | In progress, tracking ~86% partial vs 85.7% baseline | Hebbian session-seeding may give a small lift on multi-session; final number TBD |
+| 710 unit tests + composition + slow live integration | All pass | Mechanisms compose; no regressions |
