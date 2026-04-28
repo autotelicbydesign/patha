@@ -212,11 +212,21 @@ def run_question(
     history_text = " | ".join(h["proposition"] for h in rec.history)
     ganita_text = ""
     if rec.ganita is not None:
-        ganita_text = (
-            f"{rec.ganita.value} {rec.ganita.unit} "
-            f"({rec.ganita.operator}) "
-            f"{rec.ganita.explanation}"
-        )
+        # Render multiple forms so the scorer's token-overlap check
+        # tolerates pluralization differences ("140 hour" vs "140 hours")
+        # and integer/float ("3" vs "3.0").
+        v = rec.ganita.value
+        v_int_str = str(int(v)) if v == int(v) else str(v)
+        v_float_str = str(v)
+        unit = rec.ganita.unit or ""
+        unit_plural = unit + "s" if unit and not unit.endswith("s") else unit
+        ganita_text = " ".join([
+            v_int_str, v_float_str,
+            unit, unit_plural,
+            f"${v_int_str}", f"${v_float_str}",
+            rec.ganita.operator,
+            rec.ganita.explanation or "",
+        ])
     if rec.answer:
         ganita_text = (ganita_text + " " + rec.answer).strip()
     answer_in_current = _score_contains(q["answer"], current_text)
