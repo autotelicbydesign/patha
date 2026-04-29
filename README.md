@@ -143,6 +143,8 @@ uv pip install patha-memory
 
 The import name is `patha`; the PyPI distribution is `patha-memory`. If you see a `thinc`/`spacy` build error during install, you're likely on Python ≤ 3.10 — upgrade to 3.11+.
 
+`Memory()` defaults to a persistent store at `~/.patha/beliefs.jsonl`. For tests or smoke checks, pass `path=` explicitly (e.g. `Memory(path="/tmp/test.jsonl")`) so each run starts fresh and doesn't accumulate state across the host's other Patha invocations.
+
 **Use (5 lines):**
 
 ```python
