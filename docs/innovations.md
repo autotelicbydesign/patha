@@ -75,7 +75,7 @@ The synthesis-intent routing reaches the right architectural answer; the gaṇit
 |---|---|
 | Unit tests | 725 pass (was 598 before this branch) |
 | Slow integration | `tests/test_mcp_protocol.py::test_mcp_full_roundtrip` passes; `tests/belief/test_karana_ollama_live.py` passes against gemma4:8b |
-| Synthesis answer independent of Phase 1 top-K | `test_synthesis_intent_bypasses_phase1` proves gaṇita answers correctly even when Phase-1 retrieval is forced to return `[]` |
+| Synthesis answer independent of Phase 1 top-K | `test_synthesis_intent_independent_of_phase1` proves gaṇita answers correctly even when Phase-1 retrieval is forced to return `[]` |
 | Retrieval still works | `test_retrieval_intent_uses_phase1` confirms perception queries flow through Phase 1 |
 | Hebbian no-op A/B | Both arms returned 114/133 = 0.857 with zero per-question disagreement |
 | Multi-session 500q LongMemEval-S, synthesis-intent on, regex karaṇa | 114/133 = 0.857 (matches baseline); avg tokens/summary 18,384 (was ~118,000) — **6.5× token reduction** |

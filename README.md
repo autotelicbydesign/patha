@@ -36,7 +36,15 @@ Top-K retrieval is the wrong primitive for synthesis: top-100 of 1000 sessions m
 
 - Five of six strata are 0.977–1.000. Multi-session (0.857) is dominated by *synthesis-bounded* questions (84% per `eval/multisession_diagnosis.py`) — the gold is a computed value never literally in source. Synthesis-intent routing + the karaṇa LLM extractor target this directly; quality scales with the karaṇa model (≥14B local or hosted recommended for synthesis-heavy use).
 
-**v0.10 receipt — synthesis-intent routing:** on the same multi-session 500q stratum, accuracy stays at 0.857 with the regex extractor (bottlenecked by extraction quality, not architecture), but **average tokens/summary drops from ~118,000 to 18,384 — a 6.5× reduction** with **zero LLM tokens at recall on the synthesis path**. Phase 1 runs in parallel to populate retrieval context; the synthesis answer is computed by gaṇita exhaustively over the tuple index and is independent of Phase 1's top-K — verified by `test_synthesis_intent_bypasses_phase1`, which forces Phase 1 to return `[]` and the gaṇita layer still recovers \$185.
+**v0.10 receipt — synthesis answer is independent of Phase-1 top-K:**
+
+- **LongMemEval-KU Phase-1 retrieval R@5: 1.000 (78/78).**
+- **LongMemEval-KU end-to-end (Phase 1 + Phase 2) accuracy: 1.000 (77/77)** — up from 0.987 (76/77) with synthesis-intent routing on. ¹
+- **LongMemEval-S multi-session 500q accuracy: 0.857** with the regex extractor; ~84% of failures are synthesis-bounded (per `eval/multisession_diagnosis.py`). Full benchmark with stronger extractors (qwen2.5:14b, hosted LLM) is future work.
+- **Average tokens/summary on the multi-session run drops from 118,761 to 18,384 — a 6.5× reduction**, with **zero LLM tokens at recall on the synthesis path**.
+- Phase 1 still runs in parallel to populate retrieval context; the synthesis answer is computed by gaṇita exhaustively over the preserved tuple index and is **independent of what Phase 1's top-K returned** — verified by `test_synthesis_intent_independent_of_phase1`, which forces Phase 1 to return `[]` and the gaṇita layer still recovers the canonical \$185.
+
+¹ One question (out of 78) is excluded from end-to-end scoring due to a known datetime-tz edge case; scored over 77.
 
 **Token economy when paired with Claude or any LLM** (`eval/token_economy.py`):
 

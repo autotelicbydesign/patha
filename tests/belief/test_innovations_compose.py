@@ -152,7 +152,7 @@ def test_hebbian_does_not_break_ganita(tmp_path: Path) -> None:
     assert rec.ganita.value == 100
 
 
-def test_synthesis_intent_bypasses_phase1(tmp_path: Path) -> None:
+def test_synthesis_intent_independent_of_phase1(tmp_path: Path) -> None:
     r"""The architectural claim:
        the synthesis answer is independent of Phase 1's top-K.
 
@@ -166,8 +166,6 @@ def test_synthesis_intent_bypasses_phase1(tmp_path: Path) -> None:
     gaṇita's answer doesn't depend on what Phase 1 returns. (In
     production, Phase 1 still runs in parallel to populate retrieval
     context — that's separate from the answer source.)
-
-    The test name predates the language fix; kept for git-blame stability.
     """
 
     class _ScriptedKarana:
