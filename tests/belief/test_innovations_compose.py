@@ -153,18 +153,21 @@ def test_hebbian_does_not_break_ganita(tmp_path: Path) -> None:
 
 
 def test_synthesis_intent_bypasses_phase1(tmp_path: Path) -> None:
-    """The architectural distinction:
-       retrieval queries go through Phase 1; synthesis queries don't.
+    r"""The architectural claim:
+       the synthesis answer is independent of Phase 1's top-K.
 
     Patha's gaṇita layer detects synthesis intent (sum/count/avg/min/max)
-    and queries the belief store DIRECTLY — Phase 1 never gets called.
-    Top-K retrieval is the wrong primitive for synthesis: top-K of N
-    misses (N-K) of the inputs you need to sum.
+    and queries the preserved tuple index exhaustively. Top-K retrieval
+    is the wrong primitive for synthesis: top-K of N misses (N-K) of
+    the inputs you need to sum.
 
-    This test installs a Phase-1 retriever that would mis-rank the
-    bike-shopping sessions out of the candidate set entirely. A
-    synthesis question still recovers \$185 because gaṇita bypasses
-    Phase 1.
+    This test forces the Phase-1 retriever to return [] (the empty
+    candidate set). A synthesis question still recovers \$185 because
+    gaṇita's answer doesn't depend on what Phase 1 returns. (In
+    production, Phase 1 still runs in parallel to populate retrieval
+    context — that's separate from the answer source.)
+
+    The test name predates the language fix; kept for git-blame stability.
     """
 
     class _ScriptedKarana:
@@ -192,7 +195,7 @@ def test_synthesis_intent_bypasses_phase1(tmp_path: Path) -> None:
 
     mem = patha.Memory(
         path=tmp_path / "store.jsonl",
-        enable_phase1=False,  # would be irrelevant anyway — synthesis bypasses
+        enable_phase1=False,  # synthesis answer doesn't depend on Phase 1
         karana_extractor=_ScriptedKarana(),
     )
     # Ingest 4 bike-shopping facts across different sessions

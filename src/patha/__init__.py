@@ -403,11 +403,14 @@ class Memory:
 
           - **Synthesis** ("how much total spent on bikes", "how many
             books read this year") — gaṇita queries the belief store
-            DIRECTLY, bypassing Phase 1. Synthesis is *inference*
-            across many facts, not *perception* of one. Top-K retrieval
-            is the wrong primitive: top-100 of 1000 sessions misses
-            90% of the inputs you need to sum. Pramāṇa-aligned: this
-            is anumāna (inference), not pratyakṣa (direct perception).
+            directly and exhaustively over the preserved tuple index.
+            Phase 1 runs in parallel to populate retrieval context, but
+            the synthesis answer is independent of Phase 1's top-K.
+            Synthesis is *inference* across many facts, not *perception*
+            of one. Top-K retrieval is the wrong primitive: top-100 of
+            1000 sessions misses 90% of the inputs you need to sum.
+            Pramāṇa-aligned: this is anumāna (inference), not pratyakṣa
+            (direct perception).
 
           - **Retrieval** ("what did I say about the saddle?") — Phase 1
             finds the relevant session, Phase 2 filters to current

@@ -11,7 +11,7 @@ Two classes of question. Two pramāṇa. Two paths.
 | Class | Example | Pramāṇa | Path |
 |---|---|---|---|
 | **Retrieval** | "What did I say about the saddle?" | *pratyakṣa* — direct perception | Phase 1 (7-view dense + BM25 + RRF + reranker + songlines) → Phase 2 (current-state filter) → direct-answer or structured summary |
-| **Synthesis** | "How much have I spent on bikes total?" | *anumāna* — inference across many facts | Gaṇita queries the belief store DIRECTLY. Phase 1 is never invoked. Pure deterministic arithmetic over preserved tuples. Zero LLM tokens at recall. |
+| **Synthesis** | "How much have I spent on bikes total?" | *anumāna* — inference across many facts | Gaṇita queries the belief store directly and exhaustively over preserved tuples. Phase 1 runs in parallel to populate retrieval context, but the synthesis answer is independent of Phase 1's top-K. Zero LLM tokens at recall. |
 
 The reason: **top-K retrieval is the wrong primitive for synthesis.** A question like "how much have I spent on bikes" has no single right session. The answer requires every bike-aliased expense tuple, summed. Top-100 of 1000 sessions misses 90% of the inputs.
 
@@ -75,7 +75,7 @@ The synthesis-intent routing reaches the right architectural answer; the gaṇit
 |---|---|
 | Unit tests | 725 pass (was 598 before this branch) |
 | Slow integration | `tests/test_mcp_protocol.py::test_mcp_full_roundtrip` passes; `tests/belief/test_karana_ollama_live.py` passes against gemma4:8b |
-| Synthesis bypass | `test_synthesis_intent_bypasses_phase1` proves gaṇita answers correctly even when Phase-1 retrieval returns `[]` |
+| Synthesis answer independent of Phase 1 top-K | `test_synthesis_intent_bypasses_phase1` proves gaṇita answers correctly even when Phase-1 retrieval is forced to return `[]` |
 | Retrieval still works | `test_retrieval_intent_uses_phase1` confirms perception queries flow through Phase 1 |
 | Hebbian no-op A/B | Both arms returned 114/133 = 0.857 with zero per-question disagreement |
 | Multi-session 500q LongMemEval-S, synthesis-intent on, regex karaṇa | 114/133 = 0.857 (matches baseline); avg tokens/summary 18,384 (was ~118,000) — **6.5× token reduction** |

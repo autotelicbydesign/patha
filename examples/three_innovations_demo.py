@@ -17,8 +17,11 @@ real local LLM (recommended ≥14B for synthesis-heavy use):
 What you'll see:
 
   Section 1: Synthesis-intent routing
-            — "how much have I spent on bikes?" bypasses Phase 1
-            — gaṇita queries the belief store directly
+            — "how much have I spent on bikes?" → gaṇita queries the
+              tuple index exhaustively
+            — synthesis answer is independent of Phase 1's top-K
+              (Phase 1 still runs in parallel to populate retrieval
+              context, but the answer doesn't depend on it)
             — pure deterministic arithmetic, ZERO LLM tokens at recall
 
   Section 2: Hebbian retrieval (no benchmark lift, no regression,

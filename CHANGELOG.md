@@ -13,7 +13,7 @@ Two pramāṇa, two paths:
 
 ### What this changes in the codebase
 
-**`patha.Memory.recall()`** — detects aggregation intent (existing `detect_aggregation`); on synthesis, queries the gaṇita index globally without `restrict_to_belief_ids`. Phase 1 still runs in parallel for context. The architectural claim is preserved (gaṇita's answer doesn't depend on Phase 1's top-K — proven by `test_synthesis_intent_bypasses_phase1`).
+**`patha.Memory.recall()`** — detects aggregation intent (existing `detect_aggregation`); on synthesis, queries the gaṇita index globally without `restrict_to_belief_ids`. Phase 1 runs in parallel to populate retrieval context. The architectural claim: the synthesis answer is independent of Phase 1's top-K — proven by `test_synthesis_intent_bypasses_phase1` (forces Phase 1 to return `[]` and gaṇita still computes the right answer).
 
 **`answer_aggregation_question`** — bug fix: was strictly filtering by `restrict_to_belief_ids`. Violated the Vedic principle gaṇita is named for (arithmetic on **all** preserved facts). Now uses an `ambiguity_threshold` (default 30): trust the index when entity+attribute matches yield few enough tuples globally; restrict only on broad/ambiguous queries.
 
@@ -46,7 +46,7 @@ The synthesis-intent routing reaches the right architectural answer; the gaṇit
 - 725 unit tests pass (was 598 before this branch).
 - `tests/test_mcp_protocol.py::test_mcp_full_roundtrip` passes.
 - `tests/belief/test_karana_ollama_live.py` passes against `gemma4:8b`.
-- `test_synthesis_intent_bypasses_phase1` proves the architectural claim: gaṇita answers correctly even when Phase 1 is sabotaged to return `[]`.
+- `test_synthesis_intent_bypasses_phase1` proves the architectural claim: the synthesis answer is independent of Phase 1's top-K — gaṇita computes the right answer even when Phase 1 is forced to return `[]`.
 
 ### Multi-session benchmark (500q LongMemEval-S, stub detector, regex karaṇa)
 

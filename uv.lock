@@ -3661,8 +3661,8 @@ wheels = [
 ]
 
 [[package]]
-name = "patha"
-version = "0.9.3"
+name = "patha-memory"
+version = "0.10.0"
 source = { editable = "." }
 dependencies = [
     { name = "bm25s" },
