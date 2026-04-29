@@ -1,6 +1,6 @@
 [project]
-name = "patha"
-version = "0.9.3"
+name = "patha-memory"
+version = "0.10.0"
 description = "Local-first AI memory with contradiction detection, non-destructive supersession, and empirically non-commutative belief evolution. Plugs into any MCP-compatible AI tool."
 readme = "README.md"
 requires-python = ">=3.11"

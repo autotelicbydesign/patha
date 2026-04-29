@@ -36,6 +36,8 @@ Top-K retrieval is the wrong primitive for synthesis: top-100 of 1000 sessions m
 
 - Five of six strata are 0.977–1.000. Multi-session (0.857) is dominated by *synthesis-bounded* questions (84% per `eval/multisession_diagnosis.py`) — the gold is a computed value never literally in source. Synthesis-intent routing + the karaṇa LLM extractor target this directly; quality scales with the karaṇa model (≥14B local or hosted recommended for synthesis-heavy use).
 
+**v0.10 receipt — synthesis-intent routing:** on the same multi-session 500q stratum, accuracy stays at 0.857 with the regex extractor (bottlenecked by extraction quality, not architecture), but **average tokens/summary drops from ~118,000 to 18,384 — a 6.5× reduction** with **zero LLM tokens at recall on the synthesis path**. The architectural distinction (gaṇita queries the belief store directly, bypassing Phase-1 top-K) is verified by `test_synthesis_intent_bypasses_phase1`, which sabotages Phase 1 to return `[]` and still recovers \$185.
+
 **Token economy when paired with Claude or any LLM** (`eval/token_economy.py`):
 
 | Strategy | Tokens / query | vs naive RAG |
