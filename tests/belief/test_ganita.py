@@ -40,7 +40,128 @@ class TestCurrencyExtraction:
         assert earned[0].attribute == "income"
 
 
-class TestDurationExtraction:
+class TestFalsePositiveFilters:
+    """Three filter classes that prevent the most common spurious
+    extractions on real conversational text. All real purchases pass;
+    these specific shapes get dropped."""
+
+    # ─── Code fix 1: range filtering ─────────────────────────────
+
+    def test_range_with_to(self):
+        """'racks range from $100 to $500' → no purchases extracted."""
+        ts = extract_tuples(
+            "Bike racks range from $100 to $500 depending on size.",
+            belief_id="b1",
+        )
+        usd = [t for t in ts if t.unit == "USD"]
+        assert usd == [], (
+            f"expected no currency tuples from a range expression; "
+            f"got {[t.value for t in usd]}"
+        )
+
+    def test_range_with_dash(self):
+        ts = extract_tuples(
+            "Helmets typically run $50-$200.", belief_id="b1",
+        )
+        usd = [t for t in ts if t.unit == "USD"]
+        assert usd == []
+
+    def test_range_with_en_dash(self):
+        ts = extract_tuples(
+            "Around $80–$120 for decent brushes.", belief_id="b1",
+        )
+        usd = [t for t in ts if t.unit == "USD"]
+        assert usd == []
+
+    def test_range_does_not_swallow_unrelated_purchase(self):
+        """A range in one sentence shouldn't suppress a real purchase
+        in another."""
+        ts = extract_tuples(
+            "Bike racks run $100 to $500. I bought a $50 saddle.",
+            belief_id="b1",
+        )
+        values = sorted(t.value for t in ts if t.unit == "USD")
+        assert 50.0 in values  # saddle survives
+        assert 100.0 not in values  # range dropped
+        assert 500.0 not in values  # range dropped
+
+    # ─── Code fix 2: hypothetical / aspirational filter ──────────
+
+    def test_thinking_about(self):
+        ts = extract_tuples(
+            "I'm thinking about a $300 helmet but haven't decided.",
+            belief_id="b1",
+        )
+        usd = [t for t in ts if t.unit == "USD"]
+        assert usd == []
+
+    def test_would_cost(self):
+        ts = extract_tuples(
+            "A new wheelset would cost $450 — way out of budget.",
+            belief_id="b1",
+        )
+        usd = [t for t in ts if t.unit == "USD"]
+        assert usd == []
+
+    def test_considering(self):
+        ts = extract_tuples(
+            "Considering the $200 model from the bike shop.",
+            belief_id="b1",
+        )
+        usd = [t for t in ts if t.unit == "USD"]
+        assert usd == []
+
+    def test_if_i_bought(self):
+        ts = extract_tuples(
+            "If I bought the carbon frame, $1200 minimum.",
+            belief_id="b1",
+        )
+        usd = [t for t in ts if t.unit == "USD"]
+        assert usd == []
+
+    # ─── Code fix 3: negated-purchase filter ─────────────────────
+
+    def test_didnt_buy(self):
+        ts = extract_tuples(
+            "I didn't buy the $400 frame in the end.", belief_id="b1",
+        )
+        usd = [t for t in ts if t.unit == "USD"]
+        assert usd == []
+
+    def test_couldnt_afford(self):
+        ts = extract_tuples(
+            "Couldn't afford the $800 wheelset, sadly.", belief_id="b1",
+        )
+        usd = [t for t in ts if t.unit == "USD"]
+        assert usd == []
+
+    def test_returned(self):
+        ts = extract_tuples(
+            "Returned the $120 helmet — wrong size.", belief_id="b1",
+        )
+        usd = [t for t in ts if t.unit == "USD"]
+        assert usd == []
+
+    def test_decided_against(self):
+        ts = extract_tuples(
+            "Decided against the $250 lock.", belief_id="b1",
+        )
+        usd = [t for t in ts if t.unit == "USD"]
+        assert usd == []
+
+    # ─── Real purchases still pass ───────────────────────────────
+
+    def test_real_purchase_with_distant_range_in_other_sentence(self):
+        """A 'range' phrase >50 chars from a real purchase doesn't
+        pollute the extraction."""
+        long_text = (
+            "Bike rack prices vary; you can find them anywhere from "
+            "$100 to $500. " + ("Filler. " * 20) +
+            "Yesterday I actually bought a $50 saddle."
+        )
+        ts = extract_tuples(long_text, belief_id="b1")
+        values = sorted(t.value for t in ts if t.unit == "USD")
+        assert 50.0 in values
     def test_hours(self):
         ts = extract_tuples("I spent 3.5 hours on yoga today", belief_id="b1")
         durations = [t for t in ts if t.attribute == "duration"]

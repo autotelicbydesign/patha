@@ -123,6 +123,62 @@ _CURRENCY = re.compile(
     re.IGNORECASE,
 )
 
+# Ranges to skip: "$100 to $500", "$100-$500", "$100–$500".
+# Matches a hypothetical price band, NOT a real purchase. Both ends
+# get suppressed before single-value extraction runs.
+_RANGE = re.compile(
+    r"\$\s*\d+(?:,\d{3})*(?:\.\d+)?"
+    r"\s*(?:to|through|-|–|—)\s*"
+    r"\$?\s*\d+(?:,\d{3})*(?:\.\d+)?",
+    re.IGNORECASE,
+)
+
+# Hypothetical / aspirational / intent-only language. A currency
+# match within HYPOTHETICAL_WINDOW chars of any of these gets dropped.
+_HYPOTHETICAL = re.compile(
+    r"\b(?:thinking about|considering|wanted to|would cost|"
+    r"if I (?:bought|got|spent|had)|might (?:buy|get|spend)|"
+    r"maybe|perhaps|possibly|hoping to|planning to|"
+    r"would (?:be|cost)|could (?:cost|run)|"
+    r"around (?:\$|the))\b",
+    re.IGNORECASE,
+)
+
+# Negated / cancelled / reversed purchases. Same proximity treatment.
+_NEGATIVE = re.compile(
+    r"\b(?:didn'?t (?:buy|get|spend|pay)|did not (?:buy|get|spend|pay)|"
+    r"couldn'?t afford|could not afford|decided against|"
+    r"returned (?:it|them|for|the|a|my|this|that|those|these)|"
+    r"got a refund|refunded|"
+    r"cancelled|canceled|skipped (?:buying|getting)|"
+    r"chose not to)\b",
+    re.IGNORECASE,
+)
+
+# Window (chars) around a currency match in which a hypothetical or
+# negative marker disqualifies the extraction. 50 catches the typical
+# "I was thinking about a $300 helmet" sentence span without crossing
+# into an unrelated neighboring sentence.
+_FILTER_WINDOW = 50
+
+
+def _is_in_range(match_start: int, match_end: int, ranges: list[tuple[int, int]]) -> bool:
+    """True if the [match_start, match_end) span overlaps any range
+    span in `ranges`."""
+    for r_start, r_end in ranges:
+        if match_start < r_end and match_end > r_start:
+            return True
+    return False
+
+
+def _has_marker_nearby(
+    text: str, idx: int, pattern: re.Pattern, window: int = _FILTER_WINDOW,
+) -> bool:
+    """True if `pattern` matches within `window` chars of `idx`."""
+    lo = max(0, idx - window)
+    hi = min(len(text), idx + window)
+    return pattern.search(text, lo, hi) is not None
+
 # Hours / minutes / weeks / days / months / years
 _DURATION = re.compile(
     r"(?P<num>\d+(?:\.\d+)?)\s*(?P<unit>"
@@ -250,6 +306,12 @@ def extract_tuples(
     # sentence containing the number.
     sentences = _sentences(text) or [(0, text)]
 
+    # Pre-compute range spans so currency matches inside a "$X to $Y"
+    # range get suppressed (they're hypothetical bands, not purchases).
+    range_spans: list[tuple[int, int]] = [
+        (m.start(), m.end()) for m in _RANGE.finditer(text)
+    ]
+
     # Currency
     for m in _CURRENCY.finditer(text):
         amt_str = (m.group("amt") or m.group("amt2") or "").replace(",", "")
@@ -258,6 +320,17 @@ def extract_tuples(
         try:
             value = float(amt_str)
         except ValueError:
+            continue
+        # Skip if this match is inside a "$X to $Y" range expression.
+        if _is_in_range(m.start(), m.end(), range_spans):
+            continue
+        # Skip if a hypothetical / aspirational marker appears within
+        # _FILTER_WINDOW chars ("I'm thinking about a $300 helmet").
+        if _has_marker_nearby(text, m.start(), _HYPOTHETICAL):
+            continue
+        # Skip if a negated/cancelled-purchase marker appears nearby
+        # ("I didn't buy the $400 frame", "returned for $X").
+        if _has_marker_nearby(text, m.start(), _NEGATIVE):
             continue
         # Sentence-scoped context: find the sentence containing this match.
         ctx = ""
