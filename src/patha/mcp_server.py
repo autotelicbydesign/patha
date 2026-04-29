@@ -89,6 +89,26 @@ SEMANTIC_FILTER_ENABLED = (
 # 100 beliefs on CPU).
 PHASE1_ENABLED = os.environ.get("PATHA_PHASE1", "on").lower() != "off"
 
+# Hebbian-cluster-aware retrieval expands the Phase-1 candidate set
+# via the accumulated co-retrieval graph. Targets multi-session
+# retrieval: beliefs that have surfaced together repeatedly co-surface
+# again. PATHA_HEBBIAN=off to disable for ablations.
+HEBBIAN_ENABLED = os.environ.get("PATHA_HEBBIAN", "on").lower() != "off"
+
+# Gaṇita layer — sidecar JSONL index of (entity, attribute, value, unit)
+# tuples extracted at ingest. Recall-time aggregation is procedural
+# (no LLM tokens). PATHA_GANITA=off to disable.
+GANITA_ENABLED = os.environ.get("PATHA_GANITA", "on").lower() != "off"
+
+# Karaṇa extractor — choose what reads each ingested belief and emits
+# tuples for the gaṇita index:
+#   "regex" (default) — zero-dependency baseline; works on toy facts
+#   "ollama"          — local LLM (qwen2.5:7b-instruct) via Ollama;
+#                       handles dense conversational text. Requires
+#                       `ollama serve` + `ollama pull qwen2.5:7b-instruct`.
+#   "off"             — skip extraction entirely (still indexes beliefs).
+KARANA_MODE = os.environ.get("PATHA_KARANA", "regex").lower()
+
 
 # ─── Lazy-built singleton integrated instance ───────────────────────
 # Built on first tool call so the server can start (and Claude Desktop
@@ -97,10 +117,24 @@ PHASE1_ENABLED = os.environ.get("PATHA_PHASE1", "on").lower() != "off"
 _patha: IntegratedPatha | None = None
 _semantic_filter = None  # lazy-built on first filtered query
 _phase1_retriever = None  # LazyPhase1Retriever — need handle for invalidate()
+_ganita_index = None  # GanitaIndex; sidecar JSONL next to beliefs.jsonl
+_karana_extractor = None  # KaranaExtractor used at ingest
+
+
+def _build_karana_extractor():
+    """Build the configured karaṇa extractor. None if PATHA_KARANA=off."""
+    if KARANA_MODE == "off":
+        return None
+    if KARANA_MODE == "ollama":
+        from patha.belief.karana import OllamaKaranaExtractor
+        return OllamaKaranaExtractor()
+    # default = regex baseline
+    from patha.belief.karana import RegexKaranaExtractor
+    return RegexKaranaExtractor()
 
 
 def _get_patha() -> IntegratedPatha:
-    global _patha, _phase1_retriever
+    global _patha, _phase1_retriever, _ganita_index, _karana_extractor
     if _patha is None:
         DEFAULT_DATA_DIR.mkdir(parents=True, exist_ok=True)
         store_path = DEFAULT_DATA_DIR / "beliefs.jsonl"
@@ -125,10 +159,28 @@ def _get_patha() -> IntegratedPatha:
                     file=sys.stderr,
                 )
 
+        # Gaṇita sidecar index — aggregation questions answer with no LLM.
+        if GANITA_ENABLED:
+            try:
+                from patha.belief.ganita import GanitaIndex
+                ganita_path = store_path.parent / (
+                    store_path.stem + ".ganita.jsonl"
+                )
+                _ganita_index = GanitaIndex(persistence_path=ganita_path)
+                _karana_extractor = _build_karana_extractor()
+            except Exception as e:
+                print(
+                    f"[patha-mcp] warn: gaṇita layer disabled ({e}).",
+                    file=sys.stderr,
+                )
+                _ganita_index = None
+                _karana_extractor = None
+
         _patha = IntegratedPatha(
             phase1_retrieve=phase1_retrieve,
             belief_layer=layer,
             direct_answerer=answerer,
+            hebbian_expansion=HEBBIAN_ENABLED,
         )
     return _patha
 
@@ -232,6 +284,22 @@ def patha_ingest(
     # Mark the Phase 1 index dirty so the next query rebuilds with
     # the new belief included. Cheap flag-flip.
     _invalidate_phase1()
+
+    # Karaṇa pass: extract numerical tuples for the gaṇita index.
+    # Recall-time aggregation questions (sum, count, average) answer
+    # over this index with zero LLM tokens.
+    if _ganita_index is not None and _karana_extractor is not None:
+        try:
+            tuples = _karana_extractor.extract(
+                proposition,
+                belief_id=ev.new_belief.id,
+                time=at.isoformat(),
+            )
+            _ganita_index.add_many(tuples)
+        except Exception as e:
+            # Never fail an ingest because the karaṇa layer hiccupped.
+            print(f"[patha-mcp] karaṇa extract warning: {e}", file=sys.stderr)
+
     return {
         "action": ev.action,
         "belief_id": ev.new_belief.id,
@@ -318,6 +386,38 @@ def patha_query(
         for b in (qr.history if qr and include_history else [])
     ]
 
+    # Gaṇita pass — try procedural arithmetic for aggregation questions
+    # ("how much total", "how many"). Returns a structured result so the
+    # client can show the deterministic answer alongside the LLM-bound
+    # summary. Restricted to the retrieved beliefs to avoid summing
+    # unrelated currency mentions across the whole store.
+    ganita_block = None
+    if _ganita_index is not None:
+        try:
+            from patha.belief.ganita import answer_aggregation_question
+            retrieved_ids = None
+            qr_local = response.retrieval_result
+            if qr_local is not None:
+                retrieved_ids = {b.id for b in qr_local.current}
+                if include_history:
+                    retrieved_ids |= {b.id for b in qr_local.history}
+            gres = answer_aggregation_question(
+                question, _ganita_index,
+                restrict_to_belief_ids=retrieved_ids,
+            )
+            if gres is not None:
+                ganita_block = {
+                    "operator": gres.operator,
+                    "value": gres.value,
+                    "unit": gres.unit,
+                    "explanation": gres.explanation,
+                    "contributing_belief_ids": list(
+                        gres.contributing_belief_ids
+                    ),
+                }
+        except Exception:
+            ganita_block = None
+
     return {
         "strategy": response.strategy,
         "answer": response.answer or None,
@@ -327,6 +427,7 @@ def patha_query(
         "tokens_in_summary": response.tokens_in,
         "semantic_filter_applied": use_filter,
         "semantic_filter_kept": filter_kept,
+        "ganita": ganita_block,
     }
 
 
@@ -373,15 +474,20 @@ def patha_stats() -> dict[str, Any]:
     store = patha.belief_layer.store
     layer = patha.belief_layer
     hebbian_weights = getattr(layer.hebbian, "_weights", {})
+    ganita_n = len(_ganita_index) if _ganita_index is not None else 0
     return {
         "data_dir": str(DEFAULT_DATA_DIR),
         "detector": DEFAULT_DETECTOR,
+        "phase1_enabled": PHASE1_ENABLED,
+        "hebbian_expansion": HEBBIAN_ENABLED,
+        "karana_mode": KARANA_MODE,
         "total_beliefs": len(store),
         "current": len(store.current()),
         "superseded": len(store.superseded()),
         "disputed": len(store.disputed()),
         "archived": len(store.archived()),
         "hebbian_edges": len(hebbian_weights),
+        "ganita_tuples": ganita_n,
         "ingest_tick": getattr(layer, "_ingest_tick", 0),
     }
 

@@ -50,9 +50,8 @@ Five findings that should directly shape Phase 2 design:
 ### LangMem, LlamaIndex memory modules, OpenAI Memory
 - Similar pattern: add/replace memory via LLM, no belief semantics, no benchmark.
 
-### MemPalace (2025, current SOTA on LongMemEval)
-- Retrieval improvements via hierarchical clustering + rerank. 96.6% R@5.
-- Memory = retrieval; belief layer not in scope.
+### Spatial-metaphor memory systems (2025)
+- Recent academic work that achieves strong retrieval numbers on LongMemEval via hierarchical clustering + rerank, but treats memory ≡ retrieval; belief layer not in scope. We don't compete on this axis directly because our claim (separates retrieval from synthesis, non-destructive supersession) addresses a different surface.
 
 ---
 
@@ -154,7 +153,7 @@ Almost nobody. Surveying the systems in section A:
 - **Zep / Graphiti:** publishes retrieval latency and answer accuracy (DMR, LongMemEval). No tokens-per-query curve as graph grows.
 - **Mem0:** the Mem0 paper reports latency improvements over full-context baselines and claims "~90% token reduction" vs. sending the full conversation — but this is vs. the no-memory baseline, not vs. naive RAG, and is not broken out by memory size.
 - **Letta, LangMem, LlamaIndex memory, OpenAI Memory:** no published token-economy numbers.
-- **MemPalace:** retrieval metrics only (R@5, R@10, MRR).
+- **Spatial-metaphor systems on LongMemEval:** retrieval metrics only (R@5, R@10, MRR).
 
 The only numbers close to what Phase 2 needs come from *long-context benchmark papers* (LongBench, RULER) which measure cost per query but don't involve a memory system — they just vary context length.
 
@@ -261,7 +260,7 @@ If BeliefEval shows all three, Patha has a defensible claim that belief-layer �
 **"What do you currently believe about X, and when did that change?"** Build a ~10-step preference-shift scenario: user states a preference ("I love sushi"), later changes it ("avoiding raw fish for six months"), returns after supersession window. Demo shows Patha returning current belief *and* visible supersession lineage with timestamps. Contrast: Mem0 flat (destructive delete — no history), Letta (LLM-overwrite — no lineage), Zep (bi-temporal edges, but no explicit lineage query surface). Single concrete outcome; reproducible; beats the field because no open-source system ships this demo end-to-end.
 
 ### D6 — BeliefEval initial scope
-**~150 scenarios, hand-curated seeds with LLM-assisted expansion, human-QA'd.** Three families (50 each): (a) preference supersession, (b) factual supersession with temporal overlap, (c) temporally-bounded assertions (with and without explicit end). Modelled on ReviseQA's structure. Release: construction methodology, inter-annotator agreement, baselines on Mem0, Zep, LangMem, and Patha Phase-1-only. Submit to NeurIPS D&B or ICLR benchmark track — do not self-publish only. The MemPalace failure mode (inflated headline numbers that don't survive external review) is the cautionary precedent.
+**~150 scenarios, hand-curated seeds with LLM-assisted expansion, human-QA'd.** Three families (50 each): (a) preference supersession, (b) factual supersession with temporal overlap, (c) temporally-bounded assertions (with and without explicit end). Modelled on ReviseQA's structure. Release: construction methodology, inter-annotator agreement, baselines on Mem0, Zep, LangMem, and Patha Phase-1-only. Submit to NeurIPS D&B or ICLR benchmark track — do not self-publish only. Inflated headline numbers that don't survive external review are the cautionary precedent.
 
 ---
 

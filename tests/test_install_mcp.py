@@ -97,6 +97,48 @@ class TestBuildEntry:
         assert entry["args"][-1] == "patha-mcp"
         assert entry["env"]["PATHA_DETECTOR"] == "full-stack-v7"
 
+    def test_default_omits_innovation_env_vars(self):
+        """By default, PATHA_KARANA and PATHA_HEBBIAN aren't baked in;
+        the server uses its own defaults."""
+        entry = build_patha_server_entry(
+            use_uvx=False,
+            project_path=Path("/p"),
+            store_path=Path("/s"),
+            detector="stub",
+        )
+        assert "PATHA_KARANA" not in entry["env"]
+        assert "PATHA_HEBBIAN" not in entry["env"]
+
+    def test_explicit_karana_ollama_baked_in(self):
+        entry = build_patha_server_entry(
+            use_uvx=False,
+            project_path=Path("/p"),
+            store_path=Path("/s"),
+            detector="stub",
+            karana_mode="ollama",
+        )
+        assert entry["env"]["PATHA_KARANA"] == "ollama"
+
+    def test_explicit_hebbian_off_baked_in(self):
+        entry = build_patha_server_entry(
+            use_uvx=False,
+            project_path=Path("/p"),
+            store_path=Path("/s"),
+            detector="stub",
+            hebbian_expansion=False,
+        )
+        assert entry["env"]["PATHA_HEBBIAN"] == "off"
+
+    def test_explicit_hebbian_on_baked_in(self):
+        entry = build_patha_server_entry(
+            use_uvx=False,
+            project_path=Path("/p"),
+            store_path=Path("/s"),
+            detector="stub",
+            hebbian_expansion=True,
+        )
+        assert entry["env"]["PATHA_HEBBIAN"] == "on"
+
 
 class TestMergeIntoConfig:
     def test_empty_config(self):

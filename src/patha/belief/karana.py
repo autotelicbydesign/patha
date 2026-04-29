@@ -1,0 +1,654 @@
+"""Karaṇa — Vedic ingest-time LLM extraction for the gaṇita layer.
+
+The Vedic word *karaṇa* means "instrument" or "preparation": ritual
+work done in advance so the moment of performance can be deterministic
+and faithful. For Patha, the same idea splits the extractor in two:
+
+  - **Ingest-time (karaṇa)** — a small local LLM reads each new belief,
+    returns a structured list of `(entity, attribute, value, unit)`
+    tuples. This is **once per belief**, costs LLM tokens up front.
+  - **Recall-time (performance)** — pure deterministic arithmetic
+    over the preserved tuple index. **Zero LLM tokens.**
+
+This is the inverse of mainstream RAG architectures, which spend tokens
+at recall (re-prompt with retrieved context every query). Most users
+ask the same things many times; spending tokens once at ingest is a
+strict win, plus it means recall is reproducible to the cent.
+
+We don't replace the regex extractor — it stays as the zero-dependency
+fallback and runs in unit tests. The karaṇa extractor is opt-in via:
+
+    >>> from patha.belief.karana import OllamaKaranaExtractor
+    >>> mem = patha.Memory(karana_extractor=OllamaKaranaExtractor())
+
+When `OLLAMA_HOST` is reachable, every ingest goes through the LLM.
+When it isn't, ingest gracefully falls back to the regex extractor.
+
+Why Ollama / a small local LLM:
+  - Patha's "no hosted API" constraint stays intact.
+  - 7B-class models (Qwen2.5, Llama 3.1) handle structured extraction
+    well; tested with `qwen2.5:7b-instruct` in our LongMemEval runs.
+  - Latency is acceptable: ingest is offline; queries are still O(1).
+
+Honest scope:
+  - LLM extraction is not deterministic across model versions. The
+    saved `~/.patha/<store>.ganita.jsonl` IS deterministic — the
+    extracted tuples are immutable once written. Different LLM
+    versions produce slightly different tuples on the same input,
+    but that's a one-time choice at ingest, not a query-time problem.
+  - Failure modes: malformed JSON output, hallucinated values,
+    missing entities. We log + skip those; the regex extractor still
+    catches obvious currency/duration patterns as a backstop.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import time
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+from typing import Iterable, Protocol
+
+from patha.belief.ganita import (
+    GanitaTuple,
+    _canonicalize_entity,
+    extract_tuples as regex_extract_tuples,
+)
+
+
+# ─── Protocol ────────────────────────────────────────────────────────
+
+
+class KaranaExtractor(Protocol):
+    """Pluggable interface for ingest-time tuple extraction."""
+
+    def extract(
+        self,
+        text: str,
+        *,
+        belief_id: str,
+        time: str | None = None,
+    ) -> list[GanitaTuple]: ...
+
+
+# ─── Regex fallback ──────────────────────────────────────────────────
+
+
+class RegexKaranaExtractor:
+    """The zero-dependency baseline — wraps the existing regex extractor.
+
+    Used in unit tests and when no LLM is configured. Works on
+    obviously-numeric clean text (the demo cases). Documented to be
+    less reliable on dense conversational text — that's why the LLM
+    variant exists.
+    """
+
+    def extract(
+        self, text: str, *, belief_id: str, time: str | None = None,
+    ) -> list[GanitaTuple]:
+        return regex_extract_tuples(text, belief_id=belief_id, time=time)
+
+
+# ─── Ollama-backed LLM extractor ─────────────────────────────────────
+
+
+_DEFAULT_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+_DEFAULT_MODEL = os.environ.get("PATHA_KARANA_MODEL", "qwen2.5:7b-instruct")
+
+
+_KARANA_PROMPT = """You are a deterministic numerical-fact extractor.
+
+From the user-supplied TEXT, extract every numerical fact that could be
+the basis of a future arithmetic question (sum, count, average, etc.).
+Return ONLY a JSON array. Each element MUST have these keys:
+
+  entity     — the concrete topic the number refers to (single word or
+               short noun phrase, lowercase, e.g. "saddle", "rent")
+  aliases    — a JSON array of 2–5 broader topical categories the user
+               might use to ask about this fact later. ALWAYS include
+               the higher-level category the entity belongs to.
+
+               STRICT RULES:
+               - If the entity is a part, accessory, or maintenance item
+                 of a larger thing, INCLUDE the larger thing.
+                 Examples: saddle/helmet/chain/lights/pump/gloves/wheel/
+                 tire/brake → ALWAYS include "bike" AND "cycling".
+               - If the entity is a service performed on a thing,
+                 INCLUDE the thing.
+                 Example: "chain replacement" → include "bike".
+               - If the entity is a hypothetical / range / not an actual
+                 transaction, SKIP this fact entirely.
+                 Example: "racks range from $100 to $500" → skip.
+               - If the source text mentions the topic word casually
+                 ("a flat near the bike path") and the entity is
+                 unrelated (rent), do NOT include the casual word.
+
+  attribute  — what the number measures: one of
+               "expense" "income" "fundraising" "savings" "weight" "age"
+               "duration" "count" "percentage" "value"
+  value      — the numeric value as a JSON number (no commas, no
+               currency symbol)
+  unit       — "USD" "EUR" "hour" "minute" "day" "week" "month" "year"
+               "%" "item" "kg" "lb" or any other unit literally present
+
+If a number is not topical (a phone number, year, address, range, or
+hypothetical) skip it. If you can't tell which entity a number refers
+to, skip it.
+
+Examples:
+
+TEXT: "I bought a $50 saddle for my bike"
+JSON: [{"entity":"saddle","aliases":["saddle","bike","cycling"],"attribute":"expense","value":50,"unit":"USD"}]
+
+TEXT: "Got new bike lights installed for $40"
+JSON: [{"entity":"lights","aliases":["lights","bike","cycling","accessories"],"attribute":"expense","value":40,"unit":"USD"}]
+
+TEXT: "Bell Zephyr helmet from the bike shop, $120"
+JSON: [{"entity":"helmet","aliases":["helmet","bike","cycling","safety"],"attribute":"expense","value":120,"unit":"USD"}]
+
+TEXT: "Mechanic replaced my chain for $25"
+JSON: [{"entity":"chain","aliases":["chain","bike","cycling","maintenance"],"attribute":"expense","value":25,"unit":"USD"}]
+
+TEXT: "I spent 3.5 hours practicing yoga and donated $20 to charity"
+JSON: [
+  {"entity":"yoga","aliases":["yoga","fitness","exercise"],"attribute":"duration","value":3.5,"unit":"hour"},
+  {"entity":"charity","aliases":["charity","donation","giving"],"attribute":"fundraising","value":20,"unit":"USD"}
+]
+
+TEXT: "I have 4 bikes and my favourite color is blue"
+JSON: [{"entity":"bike","aliases":["bike","cycling"],"attribute":"count","value":4,"unit":"item"}]
+
+TEXT: "Paid $1500 rent on a flat near the bike path"
+JSON: [{"entity":"rent","aliases":["rent","housing"],"attribute":"expense","value":1500,"unit":"USD"}]
+
+TEXT: "Bike racks range from $100 to $500 depending on size"
+JSON: []
+
+TEXT: "user: How are you?\\nassistant: Doing fine, thanks for asking."
+JSON: []
+
+Now extract from this TEXT and return ONLY the JSON array:
+
+TEXT: __TEXT__
+JSON:"""
+
+
+def _build_karana_prompt(text: str) -> str:
+    """Substitute TEXT into the prompt without using str.format (which
+    chokes on the JSON braces in the in-context examples)."""
+    return _KARANA_PROMPT.replace("__TEXT__", text)
+
+
+@dataclass
+class OllamaKaranaExtractor:
+    """Karaṇa extractor backed by a locally-running Ollama model.
+
+    Parameters
+    ----------
+    model
+        Ollama model tag. Must already be pulled
+        (`ollama pull qwen2.5:7b-instruct`). Default
+        `qwen2.5:7b-instruct`.
+    host
+        Ollama HTTP endpoint. Default `http://localhost:11434`.
+    temperature
+        Sampling temperature. Default 0.0 — extraction should be
+        reproducible given the same input + model version.
+    timeout_s
+        Per-call timeout. Default 30.
+    fallback_to_regex
+        If the LLM call fails (network, parse error), fall through
+        to the regex extractor instead of returning [] so the user
+        always gets some signal. Default True.
+    max_text_chars
+        Truncate input text to this many chars. Default 6000 — fits
+        a single LME session in a 4k-context window with headroom
+        for prompt + output.
+    """
+
+    model: str = _DEFAULT_MODEL
+    host: str = _DEFAULT_HOST
+    temperature: float = 0.0
+    timeout_s: float = 30.0
+    fallback_to_regex: bool = True
+    max_text_chars: int = 6000
+
+    # Runtime stats
+    calls: int = 0
+    failures: int = 0
+    total_latency_s: float = 0.0
+
+    def extract(
+        self,
+        text: str,
+        *,
+        belief_id: str,
+        time: str | None = None,
+    ) -> list[GanitaTuple]:
+        if not text.strip():
+            return []
+
+        truncated = text[: self.max_text_chars]
+        prompt = _build_karana_prompt(truncated)
+
+        try:
+            raw = self._generate(prompt)
+        except Exception:
+            self.failures += 1
+            if self.fallback_to_regex:
+                return regex_extract_tuples(text, belief_id=belief_id, time=time)
+            return []
+
+        records = _parse_json_array(raw)
+        if records is None:
+            self.failures += 1
+            if self.fallback_to_regex:
+                return regex_extract_tuples(text, belief_id=belief_id, time=time)
+            return []
+
+        tuples: list[GanitaTuple] = []
+        for r in records:
+            t = _record_to_tuple(r, belief_id=belief_id, time=time, raw_text=truncated)
+            if t is not None:
+                tuples.append(t)
+        return tuples
+
+    def _generate(self, prompt: str) -> str:
+        """POST to Ollama /api/generate. Returns the raw response text."""
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": self.temperature,
+                "num_predict": 1024,  # enough for ~10-20 tuples
+            },
+        }
+        req = urllib.request.Request(
+            f"{self.host.rstrip('/')}/api/generate",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        start = time.monotonic()
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+                body = resp.read()
+        except urllib.error.URLError as e:
+            raise RuntimeError(
+                f"karana: Ollama call failed ({self.host}, model={self.model}): {e}. "
+                f"Is Ollama running? Try `ollama serve` and `ollama pull {self.model}`."
+            ) from e
+        finally:
+            self.calls += 1
+            self.total_latency_s += time.monotonic() - start
+
+        data = json.loads(body)
+        return str(data.get("response", "")).strip()
+
+
+# ─── Helpers ────────────────────────────────────────────────────────
+
+
+def _parse_json_array(raw: str) -> list[dict] | None:
+    """Best-effort JSON-array extraction from a possibly-noisy LLM output.
+
+    Handles three common forms:
+      1. clean array: '[{...}, {...}]'
+      2. wrapped in code fences: '```json\\n[...]\\n```'
+      3. prose + array: 'Here is the JSON: [...]'
+
+    Returns None if no parseable array is found.
+    """
+    s = raw.strip()
+    # Strip code fences
+    s = re.sub(r"^```(?:json)?\s*", "", s)
+    s = re.sub(r"\s*```$", "", s)
+    s = s.strip()
+    # Find the first '[' and the last ']' to handle prose-wrapped
+    # arrays. Cheap heuristic; works for our zero-temperature extractor.
+    if "[" not in s or "]" not in s:
+        return None
+    start = s.find("[")
+    end = s.rfind("]")
+    if end <= start:
+        return None
+    candidate = s[start : end + 1]
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, list):
+        return None
+    # Each element should be a dict; tolerate missing keys per element.
+    return [r for r in parsed if isinstance(r, dict)]
+
+
+def _record_to_tuple(
+    record: dict,
+    *,
+    belief_id: str,
+    time: str | None,
+    raw_text: str,
+) -> GanitaTuple | None:
+    """Convert one LLM-emitted record into a GanitaTuple.
+
+    Lenient: missing optional fields default; fundamentally-broken
+    records (no value or no entity) return None.
+
+    Aliases come from the LLM's explicit `aliases` field only. We do
+    NOT auto-supplement from raw text noun-tokens — that adds
+    incidental context words ("the bike path was nearby" pollutes a
+    rent tuple with a bogus "bike" alias) which over-matches at query
+    time. Trust the LLM's per-fact judgement on broader categories;
+    the prompt explicitly asks for them.
+    """
+    entity_raw = str(record.get("entity", "")).strip().lower()
+    attribute = str(record.get("attribute", "value")).strip().lower()
+    unit = str(record.get("unit", "")).strip()
+    if not entity_raw:
+        return None
+    try:
+        value = float(record.get("value"))
+    except (TypeError, ValueError):
+        return None
+    # Map common LLM-emitted attribute synonyms back to our canonical set.
+    attribute = _ATTR_ALIASES.get(attribute, attribute)
+    canon = _canonicalize_entity(entity_raw)
+    # Aliases — canonical entity always first; LLM's explicit aliases
+    # added (deduplicated, canonicalised). No auto-supplementation
+    # from text words — that's noise, not signal.
+    aliases = [canon]
+    raw_aliases = record.get("aliases") or record.get("entity_aliases")
+    if isinstance(raw_aliases, list):
+        for a in raw_aliases:
+            ca = _canonicalize_entity(str(a).strip().lower())
+            if ca and ca not in aliases:
+                aliases.append(ca)
+    return GanitaTuple(
+        entity=canon,
+        attribute=attribute,
+        value=value,
+        unit=unit or "value",
+        time=time,
+        belief_id=belief_id,
+        raw_text=raw_text[:200],
+        entity_aliases=tuple(aliases),
+    )
+
+
+_ATTR_ALIASES = {
+    "spent": "expense",
+    "spending": "expense",
+    "cost": "expense",
+    "price": "expense",
+    "earnings": "income",
+    "earn": "income",
+    "revenue": "income",
+    "salary": "income",
+    "donation": "fundraising",
+    "donations": "fundraising",
+    "raised": "fundraising",
+    "saved": "savings",
+    "deposit": "savings",
+    "weight": "weight",
+    "age": "age",
+    "time": "duration",
+    "hours": "duration",
+    "percent": "percentage",
+}
+
+
+# ─── Hybrid: regex finds amounts, LLM tags them ──────────────────────
+
+
+_HYBRID_PROMPT = """You are tagging numerical amounts in a TEXT.
+
+The TEXT is a conversation. We have already located every dollar
+amount with regex; for each one we need YOUR semantic judgement on
+what it refers to.
+
+For each numbered AMOUNT, return ONE entry in the JSON array. Each
+entry MUST have these keys:
+
+  index      — the AMOUNT number (1, 2, 3, ...)
+  entity     — the concrete topic the amount refers to (single word
+               or short noun phrase, lowercase). If the amount is a
+               range, hypothetical, gift card, store credit, phone
+               number, or doesn't refer to a real purchase, set
+               entity to "skip" and we'll ignore it.
+  aliases    — a JSON array of 2–5 broader topical categories. If
+               the entity is a part/accessory/maintenance of a
+               larger thing, ALWAYS include the larger thing.
+               Examples: chain/helmet/saddle/lights/pump/wheel →
+               always include "bike". Drivers seat/headlights/tire
+               for car → always include "car". Plumber/electrician
+               for home → always include "home".
+  attribute  — what the amount measures: one of
+               "expense" (money out), "income" (money in), "savings",
+               "fundraising", "value" (descriptive, not a transaction).
+               Default to "expense" for purchases.
+
+Examples of TEXT + amounts → JSON:
+
+TEXT: "I spent $50 on a saddle for my bike. Got a $75 helmet too."
+AMOUNTS:
+  1. $50
+  2. $75
+JSON: [
+  {"index":1,"entity":"saddle","aliases":["saddle","bike","cycling"],"attribute":"expense"},
+  {"index":2,"entity":"helmet","aliases":["helmet","bike","cycling","safety"],"attribute":"expense"}
+]
+
+TEXT: "Bike racks range from $100 to $500."
+AMOUNTS:
+  1. $100
+  2. $500
+JSON: [
+  {"index":1,"entity":"skip","aliases":[],"attribute":"value"},
+  {"index":2,"entity":"skip","aliases":[],"attribute":"value"}
+]
+
+TEXT: "The mechanic replaced my chain for $25 and I got new bike
+lights for $40 the same day."
+AMOUNTS:
+  1. $25
+  2. $40
+JSON: [
+  {"index":1,"entity":"chain","aliases":["chain","bike","cycling","maintenance"],"attribute":"expense"},
+  {"index":2,"entity":"lights","aliases":["lights","bike","cycling","accessories"],"attribute":"expense"}
+]
+
+Now tag each AMOUNT in this TEXT and return ONLY the JSON array.
+
+TEXT: __TEXT__
+AMOUNTS:
+__AMOUNTS__
+JSON:"""
+
+
+_HYBRID_AMOUNT_RE = re.compile(r"\$\s*(\d+(?:,\d{3})*(?:\.\d+)?)")
+
+
+@dataclass
+class HybridKaranaExtractor:
+    """Hybrid: regex finds every \\$X amount; LLM only labels.
+
+    Solves the recall problem of the pure-LLM extractor: small models
+    routinely miss dollar amounts entirely. By letting regex enumerate
+    every match first and asking the LLM only for the semantic tag
+    (entity, aliases, attribute), we never lose an amount. The LLM can
+    explicitly say `entity: "skip"` for amounts that aren't real
+    transactions (ranges, gift cards, phone numbers, etc.).
+
+    Parameters mirror :class:`OllamaKaranaExtractor`.
+    """
+
+    model: str = _DEFAULT_MODEL
+    host: str = _DEFAULT_HOST
+    temperature: float = 0.0
+    timeout_s: float = 60.0
+    # Chunking: long sessions (LongMemEval haystacks routinely run
+    # 10k+ chars) get split into overlapping chunks so no $X amount
+    # is lost to truncation. Each chunk is one LLM call.
+    chunk_chars: int = 4000
+    chunk_overlap: int = 400
+
+    calls: int = 0
+    failures: int = 0
+    total_latency_s: float = 0.0
+
+    def extract(
+        self,
+        text: str,
+        *,
+        belief_id: str,
+        time: str | None = None,
+    ) -> list[GanitaTuple]:
+        if not text.strip():
+            return []
+        # Chunk long texts so we don't lose any $X amount to truncation.
+        chunks = self._chunk(text)
+        all_tuples: list[GanitaTuple] = []
+        for chunk in chunks:
+            all_tuples.extend(
+                self._extract_from_chunk(
+                    chunk, belief_id=belief_id, time=time,
+                )
+            )
+        return all_tuples
+
+    def _chunk(self, text: str) -> list[str]:
+        """Split text into overlapping chunks of ~chunk_chars each.
+        Overlap (chunk_overlap) ensures an amount near a boundary still
+        gets full context."""
+        if len(text) <= self.chunk_chars:
+            return [text]
+        chunks = []
+        step = self.chunk_chars - self.chunk_overlap
+        i = 0
+        while i < len(text):
+            chunks.append(text[i : i + self.chunk_chars])
+            i += step
+        return chunks
+
+    def _extract_from_chunk(
+        self,
+        text: str,
+        *,
+        belief_id: str,
+        time: str | None = None,
+    ) -> list[GanitaTuple]:
+        """One LLM call: regex finds amounts in `text`; LLM tags them."""
+        truncated = text  # already chunked upstream
+        amounts = list(_HYBRID_AMOUNT_RE.finditer(truncated))
+        if not amounts:
+            return []
+        # Build the AMOUNTS section
+        amount_lines = []
+        for i, m in enumerate(amounts, 1):
+            amount_lines.append(f"  {i}. ${m.group(1)}")
+        prompt = _HYBRID_PROMPT.replace("__TEXT__", truncated)
+        prompt = prompt.replace("__AMOUNTS__", "\n".join(amount_lines))
+
+        try:
+            raw = self._generate(prompt)
+        except Exception:
+            self.failures += 1
+            return []
+        records = _parse_json_array(raw)
+        if records is None:
+            self.failures += 1
+            return []
+
+        tuples: list[GanitaTuple] = []
+        for r in records:
+            try:
+                idx = int(r.get("index", 0))
+            except (TypeError, ValueError):
+                continue
+            if idx < 1 or idx > len(amounts):
+                continue
+            entity = str(r.get("entity", "")).strip().lower()
+            if not entity or entity == "skip":
+                continue
+            attribute = str(r.get("attribute", "expense")).strip().lower()
+            attribute = _ATTR_ALIASES.get(attribute, attribute)
+            aliases_raw = r.get("aliases") or []
+            if not isinstance(aliases_raw, list):
+                aliases_raw = []
+
+            # Parse the value back from the regex match
+            m = amounts[idx - 1]
+            try:
+                value = float(m.group(1).replace(",", ""))
+            except ValueError:
+                continue
+
+            canon = _canonicalize_entity(entity)
+            aliases = [canon]
+            for a in aliases_raw:
+                ca = _canonicalize_entity(str(a).strip().lower())
+                if ca and ca not in aliases:
+                    aliases.append(ca)
+
+            tuples.append(GanitaTuple(
+                entity=canon,
+                attribute=attribute,
+                value=value,
+                unit="USD",  # hybrid is currency-only for now
+                time=time,
+                belief_id=belief_id,
+                # Keep enough context so the recall-time topic-proximity
+                # fallback can see topical words within the configured
+                # window (default 80 chars). 100/100 gives 200 chars
+                # total — enough for the typical sentence-with-context
+                # scenario without bloating the index.
+                raw_text=truncated[
+                    max(0, m.start() - 100):
+                    min(len(truncated), m.end() + 100)
+                ],
+                entity_aliases=tuple(aliases),
+            ))
+        return tuples
+
+    def _generate(self, prompt: str) -> str:
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": self.temperature,
+                "num_predict": 2048,  # bigger budget — multi-tag output
+            },
+        }
+        req = urllib.request.Request(
+            f"{self.host.rstrip('/')}/api/generate",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        start = time.monotonic()
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+                body = resp.read()
+        except urllib.error.URLError as e:
+            raise RuntimeError(
+                f"karana hybrid: Ollama call failed ({self.host}): {e}"
+            ) from e
+        finally:
+            self.calls += 1
+            self.total_latency_s += time.monotonic() - start
+        data = json.loads(body)
+        return str(data.get("response", "")).strip()
+
+
+__all__ = [
+    "KaranaExtractor",
+    "RegexKaranaExtractor",
+    "OllamaKaranaExtractor",
+    "HybridKaranaExtractor",
+]

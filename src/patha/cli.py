@@ -111,6 +111,9 @@ def cmd_verify(args: argparse.Namespace) -> int:
         ("patha.belief.sequential_detector", "SequentialEventDetector"),
         ("patha.belief.counterfactual", "reingest_order_sensitivity"),
         ("patha.integrated", "IntegratedPatha"),
+        ("patha.belief.ganita", "GanitaIndex"),
+        ("patha.belief.karana", "OllamaKaranaExtractor"),
+        ("patha.importers", "import_obsidian_vault"),
     ]
     for mod, attr in import_checks:
         try:
@@ -141,6 +144,12 @@ def cmd_verify(args: argparse.Namespace) -> int:
         print(f"  instantiation:    ✗  ({e})")
         return 1
 
+    # Probe Ollama if it's reachable — gives users a clear yes/no on
+    # whether Innovation #2 (karaṇa LLM extractor) is wired up.
+    print()
+    print("Optional services:")
+    _probe_ollama()
+
     print()
     print("All checks passed. You're good to go.")
     print()
@@ -148,7 +157,38 @@ def cmd_verify(args: argparse.Namespace) -> int:
     print("  patha demo                     # 10-second demo")
     print("  patha ingest 'I love sushi'")
     print("  patha ask 'what do I believe?'")
+    print("  patha import obsidian-vault ~/MyVault    # bring existing notes")
     return 0
+
+
+def _probe_ollama() -> None:
+    """Light reachability check for Ollama. Used by `patha verify` to
+    let users know whether the karaṇa LLM extractor will work."""
+    import json as _json
+    import os as _os
+    import urllib.error as _urle
+    import urllib.request as _urlr
+
+    host = _os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+    try:
+        req = _urlr.Request(f"{host.rstrip('/')}/api/tags", method="GET")
+        with _urlr.urlopen(req, timeout=2.0) as r:
+            body = r.read()
+        data = _json.loads(body)
+        models = data.get("models", [])
+        names = [m.get("name", "?") for m in models]
+        if not models:
+            print(f"  ollama at {host}: reachable, no models pulled "
+                  f"(`ollama pull qwen2.5:7b-instruct` to enable karaṇa)")
+        else:
+            shown = ", ".join(names[:3]) + (
+                f" (+{len(names)-3} more)" if len(names) > 3 else ""
+            )
+            print(f"  ollama at {host}: ✓ ({shown})")
+            print(f"    set PATHA_KARANA=ollama to enable LLM extraction at ingest")
+    except (_urle.URLError, OSError, _json.JSONDecodeError):
+        print(f"  ollama at {host}: not reachable "
+              f"(karaṇa falls back to regex; that's fine)")
 
 
 def cmd_demo(args: argparse.Namespace) -> int:
@@ -176,6 +216,16 @@ def cmd_mcp(args: argparse.Namespace) -> int:
 def cmd_install_mcp(args: argparse.Namespace) -> int:
     """Merge Patha into the Claude Desktop / Claude Code MCP config."""
     from patha.install import install
+    karana_mode = getattr(args, "karana_mode", None)
+    if karana_mode == "default":
+        karana_mode = None
+    hebbian = getattr(args, "hebbian", None)
+    if hebbian == "default":
+        hebbian = None
+    elif hebbian == "on":
+        hebbian = True
+    elif hebbian == "off":
+        hebbian = False
     return install(
         client=args.client,
         use_uvx=args.uvx,
@@ -183,6 +233,8 @@ def cmd_install_mcp(args: argparse.Namespace) -> int:
         detector=args.install_detector,
         yes=args.yes,
         dry_run=args.dry_run,
+        karana_mode=karana_mode,
+        hebbian_expansion=hebbian,
     )
 
 
@@ -304,6 +356,60 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_import(args: argparse.Namespace) -> int:
+    """Import files / folders / Obsidian vaults into the belief store."""
+    import patha as patha_pkg
+    from patha.importers import (
+        import_file, import_folder, import_obsidian_vault, ImportStats,
+    )
+
+    target = Path(args.path).expanduser().resolve()
+    if not target.exists():
+        print(f"error: {target} does not exist", file=sys.stderr)
+        return 1
+
+    # Use the developer-API Memory, which routes through Phase 1 +
+    # Phase 2 + gaṇita. Persists to the same store the rest of the
+    # CLI uses (data_dir/beliefs.jsonl).
+    args.data_dir.mkdir(parents=True, exist_ok=True)
+    store_path = args.data_dir / "beliefs.jsonl"
+    memory = patha_pkg.Memory(
+        path=store_path,
+        detector=args.detector,
+        # Phase 1 is built lazily — fine for one-shot import.
+        enable_phase1=False,
+    )
+
+    print(f"Importing {target} → {store_path}")
+    if args.kind == "obsidian-vault":
+        if target.is_dir():
+            stats = import_obsidian_vault(target, memory)
+        else:
+            print(f"error: {target} is not a directory", file=sys.stderr)
+            return 1
+    elif args.kind == "folder":
+        stats = import_folder(target, memory, obsidian=args.obsidian)
+    elif args.kind == "file":
+        stats = ImportStats()
+        import_file(target, memory, obsidian=args.obsidian, stats=stats)
+    else:
+        print(f"error: unknown import kind: {args.kind}", file=sys.stderr)
+        return 1
+
+    print(f"  files seen:           {stats.files_seen}")
+    print(f"  files imported:       {stats.files_imported}")
+    print(f"  files skipped:        {stats.files_skipped}")
+    print(f"  beliefs added:        {stats.beliefs_added}")
+    print(f"  beliefs reinforced:   {stats.beliefs_reinforced}")
+    print(f"  beliefs superseded:   {stats.beliefs_superseded}")
+    if stats.files_skipped and stats.files_skipped <= 5:
+        for p in stats.skipped_paths[:5]:
+            print(f"    skipped: {p}")
+    elif stats.files_skipped:
+        print(f"    (use --verbose to list skipped files)")
+    return 0
+
+
 # ─── Main ──────────────────────────────────────────────────────────
 
 def main(argv: list[str] | None = None) -> int:
@@ -394,6 +500,23 @@ def main(argv: list[str] | None = None) -> int:
         "--dry-run", action="store_true",
         help="Show what would be written, don't actually write.",
     )
+    p_install.add_argument(
+        "--karana-mode",
+        choices=["default", "regex", "ollama", "off"],
+        default="default",
+        help="Bake PATHA_KARANA into the generated config. 'default' "
+             "leaves it unset (server uses 'regex'). Use 'ollama' to "
+             "enable Vedic karaṇa LLM ingest-time extraction; requires "
+             "Ollama running with a small model pulled.",
+    )
+    p_install.add_argument(
+        "--hebbian",
+        choices=["default", "on", "off"],
+        default="default",
+        help="Bake PATHA_HEBBIAN into the generated config. 'default' "
+             "leaves it unset (server uses 'on'). Use 'off' for "
+             "ablation studies of Hebbian-cluster-aware retrieval.",
+    )
     p_install.set_defaults(fn=cmd_install_mcp)
 
     # viewer
@@ -437,6 +560,30 @@ def main(argv: list[str] | None = None) -> int:
     # stats
     p_stats = sub.add_parser("stats", help="Show store statistics")
     p_stats.set_defaults(fn=cmd_stats)
+
+    # import
+    p_import = sub.add_parser(
+        "import",
+        help="Import a file, folder, or Obsidian vault into the store. "
+             "Each Markdown / text file becomes one or more beliefs.",
+    )
+    p_import.add_argument(
+        "kind",
+        choices=["file", "folder", "obsidian-vault"],
+        help="What to import: a single file, a recursive folder, or an "
+             "Obsidian vault (frontmatter + wikilinks aware).",
+    )
+    p_import.add_argument(
+        "path",
+        help="Path to the file / folder / vault to import.",
+    )
+    p_import.add_argument(
+        "--obsidian", action="store_true",
+        help="When importing a folder/file, treat as Obsidian (parse "
+             "YAML frontmatter, extract wikilink + tag entity hints). "
+             "Implied by `obsidian-vault`.",
+    )
+    p_import.set_defaults(fn=cmd_import)
 
     args = parser.parse_args(argv)
     return args.fn(args)

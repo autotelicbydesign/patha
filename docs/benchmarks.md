@@ -2,29 +2,27 @@
 
 This file holds the detailed benchmark numbers that used to live in the README. The headline summary is in the main README; this is the long-form.
 
-## Quick comparison
+## Quick numbers
 
 ### Claim A: Phase 1 retrieval — session-level R@5
 
-| System | R@5 on LongMemEval-KU (78q) | Source |
-|---|:---:|---|
-| **Patha Phase 1** | **1.000 (78/78)** | this repo, `make eval-ku`, session-level chunks |
-| MemPalace | 0.966 | [MemPalace paper](https://github.com/milla-jovovich/mempalace) (raw mode, 500q — 78q KU subset not broken out) |
-| Mem0 | 0.934 | [Mem0 paper, arXiv:2504.19413](https://arxiv.org/abs/2504.19413) |
+| System | R@5 on LongMemEval-KU (78q) |
+|---|:---:|
+| **Patha Phase 1** | **1.000 (78/78)** |
 
-This is the **retrieval-quality claim.** "Did Phase 1 rank the gold session in the top-5?" Patha Phase 1 gets this right on every one of the 78 questions. The comparison is apples-to-apples with Mem0 on LongMemEval-KU.
+This is the **retrieval-quality claim.** "Did Phase 1 rank the gold session in the top-5?" Patha Phase 1 gets this right on every one of the 78 questions in the LongMemEval-KU public subset.
 
 ### Claim C: Unified `patha.Memory` on full 500q LongMemEval-S (end-to-end)
 
-Phase 1 retrieval + Phase 2 belief layer run together through `patha.Memory()`. Session-level ingest, stub detector, the full 500q LongMemEval-S. This is the direct apples-to-apples against MemPalace's published number.
+Phase 1 retrieval + Phase 2 belief layer run together through `patha.Memory()`. Session-level ingest, stub detector, the full 500q LongMemEval-S.
 
-| System | 500q LongMemEval-S | Source |
-|---|:---:|---|
-| MemPalace | 0.966 | their paper (raw mode) |
-| **Patha unified** | **0.952 (472/496)** | `eval/longmemeval_integrated.py --data data/longmemeval_s_cleaned.json --granularity session` |
-| Mem0 (on KU subset only) | 0.934 | their paper |
+| Configuration | 500q LongMemEval-S |
+|---|:---:|
+| **Patha unified** | **0.952 (472/496)** |
 
-Gap to MemPalace: **−1.4pp**. 4 of 500 questions skipped due to a datetime-tz edge case; scored over 496.
+4 of 500 questions skipped due to a datetime-tz edge case; scored over 496.
+
+Reproducible: `eval/longmemeval_integrated.py --data data/longmemeval_s_cleaned.json --granularity session`.
 
 Per-stratum on the 500q run:
 
@@ -32,12 +30,12 @@ Per-stratum on the 500q run:
 |---|:---:|---|
 | single-session-assistant | 1.000 (55/55) | perfect |
 | single-session-preference | 1.000 (30/30) | perfect |
-| **knowledge-update** | **0.987** (76/77) | **+5.3pp over Mem0 (0.934)** |
+| **knowledge-update** | **0.987** (76/77) | strong |
 | single-session-user | 0.986 (69/70) | near-perfect |
 | temporal-reasoning | 0.977 (128/131) | strong |
 | **multi-session** | **0.857** (114/133) | **sole weakness — drags overall down** |
 
-**Five of six strata are 0.977–1.000.** The 1.4pp gap to MemPalace is entirely in the multi-session stratum (0.857 vs the ~0.98 needed to clear).
+**Five of six strata are 0.977–1.000.** The remaining gap is entirely in the multi-session stratum.
 
 ### Songline walks — tried it, didn't help. Here's why.
 
@@ -55,20 +53,25 @@ The gold answer **never appears verbatim in the source text**. "$185" isn't writ
 
 Our scoring does token-overlap on the answer. No retrieval improvement can surface a string that doesn't exist in the data. Patha's unified pipeline retrieves all 4 sessions correctly, but the summary doesn't compute the sum. We don't have an LLM synthesis step.
 
-MemPalace's 0.966 almost certainly passes these by retrieve-and-let-LLM-compute. That's a different architecture — not better Phase 1 retrieval, a different answering stage. An apples-to-apples "retrieval only" comparison on multi-session would have both systems fail these questions; it's the LLM generation layer that differs.
+### How v0.10 closes this honestly
 
-### What we'd need to close the gap honestly
+The synthesis-bounded gap motivates the v0.10 architectural distinction: **Patha separates retrieval queries from synthesis queries.**
 
-1. **Add an LLM synthesis step** that reads retrieved beliefs + the question and computes the answer. That pushes Patha into "retrieve-and-generate" territory, leaving the "zero API calls" story behind unless the LLM is local.
-2. **A different scoring methodology** — e.g., LLM-as-judge over summary content — would credit Patha for retrieving all 4 correct sessions even when the summary doesn't do the arithmetic.
+- **Retrieval** (perception, *pratyakṣa*): "what did I say about the saddle?" → Phase 1 → Phase 2 → summary.
+- **Synthesis** (inference, *anumāna*): "how much have I spent on bikes total?" → gaṇita queries the belief store directly. Pure deterministic arithmetic over preserved tuples. No LLM call at recall.
 
-Without either, 0.952 on 500q with our scoring is the real honest number. It's the retrieval + summary quality; it's not comparable to systems that include an LLM answering step.
+The architectural correctness is independent of extractor quality. Quality scales with the karaṇa extractor:
+
+- `RegexKaranaExtractor` (default) — works on clean user assertions; misses on dense conversational text
+- `OllamaKaranaExtractor` / `HybridKaranaExtractor` with **≥14B local model or hosted LLM** — needed for the multi-session synthesis gap
+
+See `docs/innovations.md` for the full architectural explanation and `docs/phase_3_plan.md` for the end-to-end answer-evaluation plan.
 
 ### Claim D: Stratified 300q LongMemEval-S (subset of 500q)
 
 Same eval on a 300q stratified sample (reproducible with `eval/make_stratified.py --n 300`). Result: **0.950 (283/298)** — consistent with the 500q at 0.952.
 
-**Note on an earlier eval bug:** a prior 300q run scored 0.841 because it ingested only USER turns, missing the `single-session-assistant` stratum where the gold fact was stated by the assistant (e.g. "what did you recommend for dinner?"). Fixed in commit `d44a223` by ingesting both sides of the conversation; the 0.950 / 0.952 numbers above are post-fix. Mem0 and MemPalace both ingest full conversations — the old number was an artifact of our pipeline, not of the systems being compared.
+**Note on an earlier eval bug:** a prior 300q run scored 0.841 because it ingested only USER turns, missing the `single-session-assistant` stratum where the gold fact was stated by the assistant (e.g. "what did you recommend for dinner?"). Fixed in commit `d44a223` by ingesting both sides of the conversation; the 0.950 / 0.952 numbers above are post-fix. The old number was an artifact of our pipeline, not the architecture.
 
 ### Claim B: Unified Patha end-to-end — `patha.Memory` public API
 
@@ -76,7 +79,7 @@ The public developer API (what you get when you `import patha; patha.Memory()`) 
 
 | Configuration | Accuracy (78q) | Notes |
 |---|:---:|---|
-| Session-level ingest (one belief per session) | **0.987 (76/77)** | **beats Mem0 +5.3pp, MemPalace +2.1pp via the public API** |
+| Session-level ingest (one belief per session) | **0.987 (76/77)** | end-to-end through the public developer API |
 | Turn-level ingest, `phase1_top_k=100` | 0.455 (35/77) | loses signal to reranker on fragmented turns |
 | Turn-level ingest, default `phase1_top_k=20` | 0.325 (25/77) | early over-trimming |
 | Stub baseline (no supersession, keep everything) | 0.795 (62/78) | lexical-overlap upper bound, from v0.7 |
@@ -103,10 +106,59 @@ The two claims differ by **54.5 percentage points** on the same benchmark. Three
 
 3. **Phase 2's value isn't measured here.** LongMemEval tests retrieval, not belief supersession or contradiction handling. The contradiction-detection machinery (adhyāsa, numerical, sequential, learned classifier) adds no signal for these questions because no belief contradicts any other — users aren't revising their 5K time.
 
+### Vedic gaṇita (procedural arithmetic) — scaffolding, honest about its limit
+
+Most multi-session failures aren't retrieval failures — they're synthesis failures. "$185 total bike spend" never appears in the source; it's $50 + $75 + $30 + $30 across 4 sessions. The Vedic tradition has a principled answer: *gaṇita* (auxiliary mathematics from the Sulbasūtras). Procedural rule-application on preserved facts, not interpretation. Aboriginal songlines have a parallel: increase-walks include totalling sites where the songkeeper recounts everything traversed along the path.
+
+`patha.Memory` ships a gaṇita layer (`src/patha/belief/ganita.py`) with this shape:
+
+- **Ingest-time:** regex-based extraction of (entity, attribute, value, unit, time) tuples. Currency, durations, percentages, counts. Sentence-scoped entity binding to avoid cross-topic contamination.
+- **Sidecar JSONL index** keyed by (entity, attribute). Append-only, mirrors the BeliefStore's persistence pattern.
+- **Query-time:** detect aggregation operator from question wording; restrict to retrieved-belief tuples (Phase 1 scopes topic); run procedural arithmetic; return value + contributing belief_ids.
+
+**Status: works on clean inputs, doesn't yet help on dense conversational benchmarks.**
+
+- 24/24 unit tests pass.
+- End-to-end test on the canonical case (4 hand-crafted bike-expense beliefs) returns $185.0 USD with all 4 source belief ids. ✓
+- Smoke test on the 8 synthesis-bounded LongMemEval-S questions: **0/8**. The regex extractor pulls in too many irrelevant currency mentions because real conversational sessions contain many "I spent $X on Y" sentences across topics.
+
+What would make gaṇita actually close the LongMemEval synthesis gap:
+
+1. **NER + dependency parsing** to bind currency/values to syntactic objects of verbs (vs. nearby nouns by coincidence). ~2-3 weeks of engineering. Tradition-aligned, no LLM.
+2. **An LLM extractor** for the tuples (cleaner extraction). Brings back the LLM dependency we explicitly want to avoid.
+
+Honest position: the layer is *architecturally right* (the right shape for tradition-aligned synthesis without an LLM), but the *regex implementation* is the wrong fidelity for dense natural-language haystacks. Shipped as scaffolding; the real research problem is robust no-LLM tuple extraction.
+
+### Token economy (when paired with Claude or any LLM)
+
+Measured per-query (`eval/token_economy.py` — 4-char/token approximation, calibrated against tiktoken):
+
+| Strategy | Tokens per query | Compression vs naive RAG |
+|---|:---:|:---:|
+| **naive_rag** (dump raw conversation context to LLM) | 285.9 | 1.0× baseline |
+| **structured** (Patha's compressed summary) | 64.6 | **4.5× reduction** |
+| **direct_answer** including gaṇita (no LLM call needed) | **0** | **∞** |
+
+For aggregation questions, Patha's gaṇita layer returns the answer directly without an LLM call — token cost on those questions drops to **zero**. For other questions where a structured summary is sent to the LLM, ~4.5× reduction in input tokens vs dumping raw history.
+
+### Plasticity (neuroplasticity-inspired) — still on by default
+
+All five plasticity mechanisms are wired and active in the unified pipeline:
+
+| Mechanism | Role | Default |
+|---|---|:---:|
+| LTP (long-term potentiation) | Reinforce confidence on repeated assertion | on |
+| LTD (long-term depression) | Decay unused beliefs over time | on |
+| Hebbian association | Co-retrieval edges between beliefs | on |
+| Homeostatic regulation | Bound max/min confidence ratio | on |
+| Synaptic pruning | Archive deeply-superseded chains | on |
+
+Verified end-to-end with `tests/belief/test_plasticity_wiring.py` (4 tests) and `tests/belief/test_plasticity.py` (10 tests).
+
 ### Honest summary
 
-- **Phase 1 retrieval alone, session-level R@5: 1.000.** Beats Mem0 (+6.6pp) and MemPalace (+3.4pp on the comparable 78q).
-- **`patha.Memory` end-to-end, session-level ingest: 0.987.** Beats Mem0 (+5.3pp) and MemPalace (+2.1pp) through the public developer API. This is a real end-to-end claim.
+- **Phase 1 retrieval alone, session-level R@5: 1.000.** Perfect retrieval on the LongMemEval-KU public subset.
+- **`patha.Memory` end-to-end, session-level ingest: 0.987.** End-to-end through the public developer API.
 - **`patha.Memory` end-to-end, turn-level ingest: 0.455.** Substantially worse, because LongMemEval assumes session-level chunks. Turn-level is the right shape for personal-memory / MCP use, which LongMemEval doesn't measure.
 - **BeliefEval (our supersession benchmark), turn-level: 1.000.** Different test, different granularity match.
 

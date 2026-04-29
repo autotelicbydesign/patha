@@ -43,7 +43,7 @@ from patha.belief import (
 )
 from patha.integrated import IntegratedPatha, IntegratedResponse
 
-__version__ = "0.9.3"
+__version__ = "0.10.0"
 
 __all__ = [
     "Memory",
@@ -64,26 +64,40 @@ class Recall:
     """Result of `Memory.recall()`. A thin view over IntegratedResponse.
 
     Attributes:
-        answer:   short direct answer (possibly None if the system couldn't
-                  produce one — fall back to `.summary` then).
-        summary:  ~20-token structured string meant to drop into an LLM
-                  system prompt. Always present.
-        current:  list of {id, proposition, asserted_at, confidence} dicts
-                  for the currently valid beliefs.
-        history:  list of superseded beliefs (only populated when
-                  `include_history=True` was passed).
-        strategy: "direct_answer" | "structured" | "raw" — how the
-                  response was built.
-        tokens:   token count of the summary (for budgeting).
+        answer:    short direct answer (possibly None if the system couldn't
+                   produce one — fall back to `.summary` then).
+        summary:   ~20-token structured string meant to drop into an LLM
+                   system prompt. Always present.
+        current:   list of {id, proposition, asserted_at, confidence} dicts
+                   for the currently valid beliefs.
+        history:   list of superseded beliefs (only populated when
+                   `include_history=True` was passed).
+        strategy:  "direct_answer" | "structured" | "raw" | "ganita" — how
+                   the response was built.
+        tokens:    token count of the summary (for budgeting).
+        ganita:    optional GanitaResult — when the question is an
+                   aggregation ("how much total", "how many", etc), the
+                   procedural-arithmetic layer fills this with the
+                   computed value and its contributing source belief ids.
+                   None if no aggregation operator was detected.
     """
 
-    __slots__ = ("answer", "summary", "current", "history", "strategy", "tokens")
+    __slots__ = (
+        "answer", "summary", "current", "history", "strategy", "tokens",
+        "ganita",
+    )
 
-    def __init__(self, response: IntegratedResponse, include_history: bool) -> None:
+    def __init__(
+        self,
+        response: IntegratedResponse,
+        include_history: bool,
+        ganita_result=None,
+    ) -> None:
         self.answer: str | None = response.answer or None
         self.summary: str = response.prompt
         self.strategy: str = response.strategy
         self.tokens: int = response.tokens_in
+        self.ganita = ganita_result  # GanitaResult | None
         rr = response.retrieval_result
         self.current = [
             {
@@ -142,6 +156,12 @@ class Memory:
         detector: str = "stub",
         enable_phase1: bool = True,
         phase1_top_k: int = 20,
+        enable_ganita: bool = True,
+        hebbian_expansion: bool = True,
+        hebbian_top_k_per_seed: int = 3,
+        hebbian_max_added: int = 30,
+        hebbian_session_seed_weight: float = 0.05,
+        karana_extractor: Any = None,
     ) -> None:
         """
         enable_phase1
@@ -155,6 +175,52 @@ class Memory:
             For benchmark-style retrieval where many competing chunks
             exist (LongMemEval), 100–200 gives the belief layer enough
             room to find the answer. Trade-off: bigger summaries.
+        enable_ganita
+            If True (default), ingest extracts numerical (entity,
+            attribute, value, unit) tuples into a sidecar gaṇita index;
+            recall() answers aggregation questions ("how much total",
+            "how many") by procedural arithmetic over the index.
+            In-tradition with Vedic gaṇita / Sulbasūtra arithmetic and
+            Aboriginal increase-walks. No LLM involved.
+        hebbian_expansion
+            If True (default), after Phase 1 retrieval, expand the
+            candidate set via the Hebbian co-retrieval graph. Beliefs
+            that have surfaced together in past queries co-surface in
+            future ones.
+
+            Empirically: no measurable lift on the LongMemEval-S 500q
+            multi-session benchmark (paired A/B = identical). Also no
+            regression. The benefit shows up in **repeat-query
+            workloads** — real users hitting the same store over time
+            accumulate co-retrieval edges that Phase-1's static cosine
+            doesn't capture. LongMemEval is single-shot, so the
+            recorded signal can't accumulate.
+
+            Disable for retrieval ablation studies.
+        hebbian_top_k_per_seed
+            Per Phase-1 seed belief, how many strongest Hebbian
+            neighbors to pull in. Default 3.
+        hebbian_max_added
+            Cap on total beliefs added by Hebbian expansion across all
+            seeds. Default 30. Prevents the candidate set ballooning
+            in dense graphs.
+        hebbian_session_seed_weight
+            Initial Hebbian weight for every pair of beliefs asserted
+            in the same session. Lets cluster expansion produce signal
+            from day-zero, before any queries have run. Default 0.05.
+            Set to 0 to disable session seeding.
+        karana_extractor
+            Optional ingest-time numerical-tuple extractor. Pass an
+            instance of :class:`patha.belief.karana.OllamaKaranaExtractor`
+            (or any object with a `.extract(text, *, belief_id, time)`
+            method returning ``list[GanitaTuple]``) to spend a small
+            number of LLM tokens at ingest in exchange for ZERO LLM
+            tokens at recall on aggregation questions. The extracted
+            tuples persist in the same sidecar gaṇita index the
+            regex extractor populates. None (default) → use the
+            zero-dependency regex extractor. Vedic *karaṇa* model:
+            preparation work at ingest, deterministic performance
+            at recall.
         """
         path = Path(path) if path is not None else (Path.home() / ".patha" / "beliefs.jsonl")
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -162,9 +228,25 @@ class Memory:
         self._detector_name = detector
         self._phase1_enabled = enable_phase1
         self._phase1_top_k = phase1_top_k
+        self._ganita_enabled = enable_ganita
 
         store = BeliefStore(persistence_path=path)
         layer = BeliefLayer(store=store, detector=make_detector(detector))
+
+        # Gaṇita layer — sidecar JSONL index next to beliefs.jsonl.
+        # Lazy-instantiated; no model load required (pure regex).
+        self._ganita_index = None
+        self._karana = None  # ingest-time tuple extractor
+        if enable_ganita:
+            from patha.belief.ganita import GanitaIndex
+            ganita_path = path.parent / (path.stem + ".ganita.jsonl")
+            self._ganita_index = GanitaIndex(persistence_path=ganita_path)
+            # Karaṇa extractor: explicit caller override > regex fallback.
+            if karana_extractor is not None:
+                self._karana = karana_extractor
+            else:
+                from patha.belief.karana import RegexKaranaExtractor
+                self._karana = RegexKaranaExtractor()
 
         phase1_retrieve = None
         self._phase1_retriever = None
@@ -207,6 +289,10 @@ class Memory:
             belief_layer=layer,
             direct_answerer=DirectAnswerer(layer.store),
             phase1_retrieve=phase1_retrieve,
+            hebbian_expansion=hebbian_expansion,
+            hebbian_top_k_per_seed=hebbian_top_k_per_seed,
+            hebbian_max_added=hebbian_max_added,
+            hebbian_session_seed_weight=hebbian_session_seed_weight,
         )
 
     # ─── Primary API ────────────────────────────────────────────────
@@ -239,6 +325,34 @@ class Memory:
         # rebuilds. Cheap flag-flip.
         if self._phase1_retriever is not None:
             self._phase1_retriever.invalidate()
+        # Gaṇita: extract numerical tuples and add to the sidecar index.
+        # Routed through the configured karaṇa extractor (regex by
+        # default; OllamaKaranaExtractor for LLM-quality extraction).
+        # Skip extraction on reinforcement events — the same fact was
+        # already extracted on the original assertion, so re-extracting
+        # would over-count at aggregation time. (Same purchase
+        # mentioned across multiple sessions ought to count once, not N
+        # times.)
+        if (
+            self._ganita_index is not None
+            and self._karana is not None
+            and ev.action != "reinforced"
+        ):
+            tuples = self._karana.extract(
+                proposition,
+                belief_id=ev.new_belief.id,
+                time=at.isoformat(),
+            )
+            # Additional dedup: drop tuples that match an existing
+            # (entity, attribute, value, unit) triple already in the
+            # index. Catches the "stub detector misses the duplicate
+            # but karaṇa shouldn't blindly add" case for benchmarks
+            # without a real NLI detector.
+            kept = []
+            for t in tuples:
+                if not self._ganita_index.has_equivalent(t):
+                    kept.append(t)
+            self._ganita_index.add_many(kept)
         return {
             "action": ev.action,
             "belief_id": ev.new_belief.id,
@@ -285,17 +399,153 @@ class Memory:
     ) -> Recall:
         """Return a compact memory summary for the question.
 
+        Routing by question intent (the architectural distinction):
+
+          - **Synthesis** ("how much total spent on bikes", "how many
+            books read this year") — gaṇita queries the belief store
+            DIRECTLY, bypassing Phase 1. Synthesis is *inference*
+            across many facts, not *perception* of one. Top-K retrieval
+            is the wrong primitive: top-100 of 1000 sessions misses
+            90% of the inputs you need to sum. Pramāṇa-aligned: this
+            is anumāna (inference), not pratyakṣa (direct perception).
+
+          - **Retrieval** ("what did I say about the saddle?") — Phase 1
+            finds the relevant session, Phase 2 filters to current
+            beliefs, summary or direct-answer renders the result.
+            Pramāṇa-aligned: pratyakṣa.
+
         Drop ``.summary`` directly into an LLM system prompt. Uses
         ~20 tokens vs the ~280–325 a naive conversation-history dump
         would take.
         """
+        at = at_time or datetime.now()
+
+        # ── Synthesis-intent gate ─────────────────────────────────
+        # Detect first; if it's synthesis AND gaṇita can answer, skip
+        # Phase 1 entirely and answer over the belief store directly.
+        # If aggregation intent is detected but gaṇita finds no
+        # matching tuples (entity not in index), fall through to
+        # Phase 1 — the question may use an aggregation word but
+        # actually want retrieval ("how many books did I mention?"
+        # phrased as a count but answerable from text).
+        ganita_result = None
+        if self._ganita_index is not None:
+            from patha.belief.ganita import (
+                answer_aggregation_question, detect_aggregation,
+            )
+            try:
+                if detect_aggregation(question) is not None:
+                    # Synthesis: query the index directly. No
+                    # restrict_to_belief_ids — gaṇita is exhaustive
+                    # arithmetic over ALL preserved facts that match
+                    # the question's entity+attribute. Phase 1 isn't
+                    # the right primitive here.
+                    ganita_result = answer_aggregation_question(
+                        question, self._ganita_index,
+                        restrict_to_belief_ids=None,
+                    )
+            except Exception:
+                ganita_result = None
+
+        if ganita_result is not None:
+            # Synthesis path: gaṇita produced the ANSWER without
+            # depending on Phase 1 top-K. That's the architectural
+            # claim — gaṇita is exhaustive over the preserved tuple
+            # index, not retrieval-scoped.
+            #
+            # Phase 1 still runs in parallel for *context*: the user
+            # (and any downstream scorer) sees what retrieval would
+            # have surfaced AS WELL as gaṇita's contributing beliefs.
+            # The two roles are distinct: gaṇita owns "what's the
+            # answer?", Phase 1 owns "what's the relevant material?".
+            phase1_response = self._patha.query(
+                question,
+                at_time=at,
+                include_history=include_history,
+                phase1_top_k=self._phase1_top_k,
+            )
+            store = self._patha.belief_layer.store
+            contributing = []
+            seen = set()
+            # Contributing source beliefs (from gaṇita) come first —
+            # these are the ones that mattered for the answer.
+            for bid in ganita_result.contributing_belief_ids:
+                if bid in seen:
+                    continue
+                seen.add(bid)
+                b = store.get(bid)
+                if b is not None:
+                    contributing.append(b)
+            # Then Phase 1 retrieval context — the rest of what looks
+            # topically relevant, in retrieval order.
+            phase1_current = (
+                phase1_response.retrieval_result.current
+                if phase1_response.retrieval_result is not None else []
+            )
+            for b in phase1_current:
+                if b.id in seen:
+                    continue
+                seen.add(b.id)
+                contributing.append(b)
+            phase1_history = (
+                phase1_response.retrieval_result.history
+                if phase1_response.retrieval_result is not None else []
+            )
+            summary_line = (
+                f"Computed via gaṇita arithmetic (no LLM): "
+                f"{ganita_result.operator} = {ganita_result.value} "
+                f"{ganita_result.unit}.\n"
+                f"{ganita_result.explanation}"
+            )
+            from patha.belief.layer import BeliefQueryResult
+            from patha.integrated import IntegratedResponse
+            response = IntegratedResponse(
+                query=question,
+                strategy="ganita",
+                prompt=summary_line,
+                answer=f"{ganita_result.value} {ganita_result.unit}".strip(),
+                belief_ids=list(ganita_result.contributing_belief_ids),
+                source_proposition_ids=[
+                    b.source_proposition_id for b in contributing
+                ],
+                tokens_in=0,  # zero LLM tokens for the answer
+                retrieval_result=BeliefQueryResult(
+                    current=contributing,
+                    history=list(phase1_history),
+                    tokens_in_summary=0,
+                ),
+            )
+            return Recall(response, include_history=include_history,
+                          ganita_result=ganita_result)
+
+        # ── Retrieval path ────────────────────────────────────────
         response = self._patha.query(
             question,
-            at_time=at_time or datetime.now(),
+            at_time=at,
             include_history=include_history,
             phase1_top_k=self._phase1_top_k,
         )
-        return Recall(response, include_history=include_history)
+        # Even on the retrieval path, attempt gaṇita as a backstop
+        # for aggregation phrasings the operator detector missed.
+        if ganita_result is None and self._ganita_index is not None:
+            from patha.belief.ganita import answer_aggregation_question
+            retrieved_ids = None
+            rr = response.retrieval_result
+            if rr is not None:
+                retrieved_ids = {b.id for b in rr.current}
+                if include_history:
+                    retrieved_ids |= {b.id for b in rr.history}
+            try:
+                ganita_result = answer_aggregation_question(
+                    question, self._ganita_index,
+                    restrict_to_belief_ids=retrieved_ids,
+                )
+            except Exception:
+                ganita_result = None
+        return Recall(
+            response, include_history=include_history,
+            ganita_result=ganita_result,
+        )
 
     def history(self, term: str) -> list[dict[str, Any]]:
         """Every belief (current and superseded) mentioning ``term``.

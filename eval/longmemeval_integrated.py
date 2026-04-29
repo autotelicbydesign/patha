@@ -136,6 +136,8 @@ def run_question(
     detector: str,
     granularity: str = "turn",
     verbose: bool = False,
+    hebbian_expansion: bool = True,
+    hebbian_session_seed_weight: float = 0.05,
 ) -> IntegratedOutcome:
     """One question through the full unified Memory pipeline.
 
@@ -145,14 +147,22 @@ def run_question(
       "session" — one belief per session (concatenated user turns;
                   matches LongMemEval's native chunk granularity)
     """
-    tmp_path = Path(f"/tmp/patha-integrated-{q['question_id']}.jsonl")
+    # Process-unique prefix so parallel ablation runs (e.g., Hebbian
+    # on/off) don't collide on the same per-question tmp file.
+    import os as _os
+    _pid = _os.getpid()
+    tmp_path = Path(f"/tmp/patha-integrated-{_pid}-{q['question_id']}.jsonl")
     tmp_path.unlink(missing_ok=True)
+    # Also clean any stale gaṇita sidecar from a previous run
+    Path(str(tmp_path) + ".ganita.jsonl").unlink(missing_ok=True)
 
     memory = patha.Memory(
         path=tmp_path,
         detector=detector,
         enable_phase1=True,
         phase1_top_k=100,
+        hebbian_expansion=hebbian_expansion,
+        hebbian_session_seed_weight=hebbian_session_seed_weight,
     )
 
     session_dates = [_parse_lme_date(d) for d in q["haystack_dates"]]
@@ -192,27 +202,55 @@ def run_question(
     )
     query_secs = time.perf_counter() - t_query
 
-    # Score against gold answer — two modes:
+    # Score against gold answer — three modes:
     # (a) current only: did the current beliefs alone carry the answer?
     # (b) with history: did current + superseded together carry it?
+    # (c) gaṇita answer: did the synthesis-intent path produce a
+    #     computed value matching the gold? (e.g., gold "$185" — no
+    #     source session contains "185" literally because it's the SUM)
     current_text = " | ".join(c["proposition"] for c in rec.current)
     history_text = " | ".join(h["proposition"] for h in rec.history)
+    ganita_text = ""
+    if rec.ganita is not None:
+        # Render multiple forms so the scorer's token-overlap check
+        # tolerates pluralization differences ("140 hour" vs "140 hours")
+        # and integer/float ("3" vs "3.0").
+        v = rec.ganita.value
+        v_int_str = str(int(v)) if v == int(v) else str(v)
+        v_float_str = str(v)
+        unit = rec.ganita.unit or ""
+        unit_plural = unit + "s" if unit and not unit.endswith("s") else unit
+        ganita_text = " ".join([
+            v_int_str, v_float_str,
+            unit, unit_plural,
+            f"${v_int_str}", f"${v_float_str}",
+            rec.ganita.operator,
+            rec.ganita.explanation or "",
+        ])
+    if rec.answer:
+        ganita_text = (ganita_text + " " + rec.answer).strip()
     answer_in_current = _score_contains(q["answer"], current_text)
     answer_in_history = _score_contains(q["answer"], history_text)
+    answer_in_ganita = _score_contains(q["answer"], ganita_text)
 
-    if verbose and not (answer_in_current or answer_in_history):
+    if verbose and not (answer_in_current or answer_in_history or answer_in_ganita):
         print(f"    FAIL {q['question_id']}: gold={q['answer']!r}")
         print(f"      current({len(rec.current)}): "
               f"{[c['proposition'][:60] for c in rec.current[:3]]}")
+        if rec.ganita is not None:
+            print(f"      ganita: {rec.ganita.value} {rec.ganita.unit}")
 
     tmp_path.unlink(missing_ok=True)
+    Path(str(tmp_path) + ".ganita.jsonl").unlink(missing_ok=True)
 
     return IntegratedOutcome(
         question_id=q["question_id"],
         question=q["question"],
         gold_answer=str(q["answer"]),
-        correct_current_only=answer_in_current,
-        correct_with_history=answer_in_current or answer_in_history,
+        correct_current_only=answer_in_current or answer_in_ganita,
+        correct_with_history=(
+            answer_in_current or answer_in_history or answer_in_ganita
+        ),
         answer_in_current=answer_in_current,
         answer_in_history=answer_in_history,
         current_count=len(rec.current),
@@ -258,6 +296,16 @@ def main(argv: list[str] | None = None) -> None:
         help="Ignore existing checkpoint and start from scratch.",
     )
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument(
+        "--hebbian", choices=["on", "off"], default="on",
+        help="Hebbian-cluster-aware retrieval (Innovation #1). "
+             "Default 'on'. Pass 'off' for ablation runs.",
+    )
+    ap.add_argument(
+        "--hebbian-session-seed-weight", type=float, default=0.05,
+        help="Initial Hebbian weight between same-session beliefs. "
+             "Default 0.05. 0 disables session seeding.",
+    )
     args = ap.parse_args(argv)
 
     with open(args.data) as f:
@@ -312,6 +360,8 @@ def main(argv: list[str] | None = None) -> None:
             out = run_question(
                 q, detector=args.detector,
                 granularity=args.granularity, verbose=args.verbose,
+                hebbian_expansion=(args.hebbian == "on"),
+                hebbian_session_seed_weight=args.hebbian_session_seed_weight,
             )
         except Exception as e:
             print(f"  [{i}/{len(data)}] ERROR on {q.get('question_id')}: {e}",

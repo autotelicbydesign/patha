@@ -165,6 +165,18 @@ def test_mcp_full_roundtrip():
         assert "sushi" in text.lower()
         assert "raw fish" in text.lower()
 
+        # Step 12: verify the new innovation knobs land in stats.
+        _send(proc, {
+            "jsonrpc": "2.0", "id": 10,
+            "method": "tools/call",
+            "params": {"name": "patha_stats", "arguments": {}},
+        })
+        resp = _recv(proc)
+        payload = json.loads(resp["result"]["content"][0]["text"])
+        assert "hebbian_expansion" in payload
+        assert "karana_mode" in payload
+        assert "ganita_tuples" in payload
+
     finally:
         proc.terminate()
         try:

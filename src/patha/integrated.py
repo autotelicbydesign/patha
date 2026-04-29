@@ -124,7 +124,37 @@ class IntegratedPatha:
         raw_archive: RawArchive | None = None,
         *,
         system_prompt: str | None = None,
+        hebbian_expansion: bool = False,
+        hebbian_top_k_per_seed: int = 3,
+        hebbian_max_added: int = 30,
+        hebbian_session_seed_weight: float = 0.0,
     ) -> None:
+        """
+        hebbian_expansion
+            If True, after Phase 1 retrieves the candidate set, expand
+            the candidates by walking each seed belief's strongest
+            Hebbian co-retrieval edges (`belief_layer.hebbian.related`).
+            Default False (keeps backward compat).
+
+            Empirically: no measurable lift on the LongMemEval-S 500q
+            multi-session benchmark (paired A/B = identical), no
+            regression either. Real for repeat-query workloads: a
+            store queried many times accumulates co-retrieval edges
+            that Phase-1's static cosine never sees.
+        hebbian_top_k_per_seed
+            Per Phase 1 seed belief, how many associated beliefs to
+            pull in. Default 3.
+        hebbian_max_added
+            Hard cap on the number of beliefs added by expansion across
+            all seeds. Prevents the candidate set from blowing up on
+            a dense Hebbian graph.
+        hebbian_session_seed_weight
+            If > 0, on first use, seed the Hebbian graph with weak
+            associations between every pair of beliefs asserted in
+            the same session. Lets cluster expansion work on a fresh
+            store with no query history. 0 disables the seeding;
+            recommended range 0.01–0.1.
+        """
         self._phase1_retrieve = phase1_retrieve
         self.belief_layer = belief_layer if belief_layer is not None else BeliefLayer(
             store=BeliefStore(), detector=StubContradictionDetector()
@@ -142,6 +172,15 @@ class IntegratedPatha:
         # Per-session turn counter for the raw archive
         self._turn_counters: dict[str, int] = {}
         self.system_prompt = system_prompt or self.DEFAULT_SYSTEM_PROMPT
+
+        # Hebbian-cluster-aware retrieval (Innovation #1).
+        # Off by default for backward compat; recommended on for
+        # multi-session retrieval.
+        self._hebbian_expansion = hebbian_expansion
+        self._hebbian_top_k_per_seed = hebbian_top_k_per_seed
+        self._hebbian_max_added = hebbian_max_added
+        self._hebbian_session_seed_weight = hebbian_session_seed_weight
+        self._hebbian_session_seeded = False
 
     # ── ingestion ───────────────────────────────────────────────────
 
@@ -258,6 +297,16 @@ class IntegratedPatha:
                 if belief is not None:
                     belief_ids.append(belief.id)
 
+            # 2.5. Hebbian cluster expansion (Innovation #1).
+            # If enabled, walk each seed belief's Hebbian neighborhood
+            # to expand the candidate set with co-retrieved beliefs.
+            # This addresses multi-session retrieval: beliefs that
+            # surface together repeatedly accumulate edges, so a query
+            # that hits one of them surfaces the cluster.
+            if self._hebbian_expansion and belief_ids:
+                self._maybe_seed_hebbian_from_sessions()
+                belief_ids = self._expand_with_hebbian(belief_ids)
+
         # 3. Phase 2 belief-layer filter
         result = self.belief_layer.query(
             belief_ids,
@@ -332,6 +381,91 @@ class IntegratedPatha:
             tokens_in=_approx_tokens(prompt),
             retrieval_result=result,
         )
+
+    # ── Hebbian cluster expansion (Innovation #1) ───────────────────
+
+    def _expand_with_hebbian(
+        self, seed_belief_ids: list[str]
+    ) -> list[str]:
+        """Expand a Phase-1 candidate set with each seed's Hebbian
+        co-retrieval neighbors.
+
+        Order is preserved: original seeds come first (so re-ranking
+        and direct-answer logic keep their precedence), then expansion
+        beliefs in seed-order × strongest-edge-first.
+
+        The cluster expansion is the runtime payoff of Hebbian
+        neuroplasticity: edges accumulated from past co-retrievals act
+        as a learned routing signal. Beliefs that have been useful
+        together before become candidates together going forward.
+        """
+        hebbian = getattr(self.belief_layer, "hebbian", None)
+        if hebbian is None or len(hebbian) == 0:
+            return seed_belief_ids
+
+        seen: set[str] = set(seed_belief_ids)
+        expanded: list[str] = list(seed_belief_ids)
+        added = 0
+
+        for sid in seed_belief_ids:
+            if added >= self._hebbian_max_added:
+                break
+            for nbr_id, _weight in hebbian.related(
+                sid, self._hebbian_top_k_per_seed
+            ):
+                if nbr_id in seen:
+                    continue
+                # Confirm the neighbor still exists and is current.
+                # An edge to a deleted/superseded belief is dead weight.
+                nbr = self.belief_layer.store.get(nbr_id)
+                if nbr is None or not nbr.is_current:
+                    continue
+                seen.add(nbr_id)
+                expanded.append(nbr_id)
+                added += 1
+                if added >= self._hebbian_max_added:
+                    break
+        return expanded
+
+    def _maybe_seed_hebbian_from_sessions(self) -> None:
+        """One-time seeding of Hebbian edges from session co-occurrence.
+
+        On a fresh store with zero query history, the Hebbian graph is
+        empty — cluster expansion has nothing to expand. This pre-seeds
+        the graph by adding a weak edge between every pair of beliefs
+        asserted in the same session. Once real queries fire, those
+        weights either reinforce (real co-retrieval signal) or sit at
+        the seed level (no usage signal — still useful as a topical
+        prior).
+
+        Idempotent: only fires once per IntegratedPatha instance.
+        Disabled if `hebbian_session_seed_weight == 0`.
+        """
+        if self._hebbian_session_seeded:
+            return
+        if self._hebbian_session_seed_weight <= 0:
+            return
+        hebbian = getattr(self.belief_layer, "hebbian", None)
+        if hebbian is None:
+            self._hebbian_session_seeded = True
+            return
+
+        from collections import defaultdict
+        by_session: dict[str, list[str]] = defaultdict(list)
+        for b in self.belief_layer.store.current():
+            by_session[b.asserted_in_session].append(b.id)
+
+        seed_w = self._hebbian_session_seed_weight
+        for ids in by_session.values():
+            if len(ids) < 2:
+                continue
+            for i in range(len(ids)):
+                for j in range(i + 1, len(ids)):
+                    key = hebbian._key(ids[i], ids[j])
+                    # Don't overwrite — only seed if no edge exists yet.
+                    if key not in hebbian._weights:
+                        hebbian._weights[key] = seed_w
+        self._hebbian_session_seeded = True
 
 
 # ─── helpers ─────────────────────────────────────────────────────────
