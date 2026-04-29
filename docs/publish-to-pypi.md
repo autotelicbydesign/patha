@@ -93,10 +93,10 @@ uvx --from 'patha[viewer]' patha-viewer  # Streamlit viewer opens
 Everyone can now install with:
 
 ```bash
-uv pip install patha                      # core
-uv pip install 'patha[mcp]'               # + MCP server
-uv pip install 'patha[viewer]'            # + Streamlit viewer
-uv pip install 'patha[mcp,viewer,dev]'    # everything
+uv pip install patha-memory                      # core
+uv pip install 'patha-memory[mcp]'               # + MCP server
+uv pip install 'patha-memory[viewer]'            # + Streamlit viewer
+uv pip install 'patha-memory[mcp,viewer,dev]'    # everything
 ```
 
 And configure Claude Desktop simply by:

@@ -1,6 +1,20 @@
 # Changelog
 
-## ganita-layer (v0.10 in development)
+## v0.10.1 (2026-04-30)
+
+Post-tag follow-ups on top of v0.10.0:
+
+- **Language audit.** Replaced "synthesis bypasses Phase 1" with the precise claim across README, `docs/innovations.md`, CHANGELOG, source docstrings, demo, and the writeup receipt. Phase 1 still runs in parallel to populate retrieval context; only the synthesis *answer source* is independent of Phase 1's top-K.
+- **Test rename.** `test_synthesis_intent_bypasses_phase1` → `test_synthesis_intent_independent_of_phase1`. Sweep applied; prior name removed from all references.
+- **Receipt restructure.** README and `writeups/update_08_compression.md` now use a bulleted v0.10 receipt with exact `118,761 → 18,384` token numbers, the `¹ one question excluded` footnote on KU 77/77, and Option-A wording on the extraction-quality claim ("~84% of failures are synthesis-bounded; full benchmark with stronger extractors is future work" — measured rather than overclaimed).
+- **Three regex extractor false-positive filters** (`src/patha/belief/ganita.py`):
+  - **Range filter** — `$100 to $500`, `$50-$200`, `$80–$120` no longer extract two phantom purchases.
+  - **Hypothetical filter** — `thinking about a $300 helmet`, `would cost $X`, `considering`, `if I bought` get suppressed within 50 chars.
+  - **Negated-purchase filter** — `didn't buy the $X`, `couldn't afford`, `returned the $X helmet`, `decided against` get suppressed.
+  - 12 new test cases; 750 unit tests pass.
+- **Packaging hardening.** README install line now says `pip install patha-memory` (correct PyPI distribution name) with explicit Python-3.11+ note. Wheel metadata verified: `Name: patha-memory`, `Version: 0.10.1`, `Requires-Python: >=3.11`.
+
+## v0.10.0 (2026-04-29)
 
 ### One coherent architectural claim
 

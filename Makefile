@@ -69,8 +69,8 @@ publish: build
 	@sleep 5
 	@uv run --with twine python -m twine upload dist/*
 	@echo ""
-	@echo "Published. Verify at https://pypi.org/project/patha/"
-	@echo "Smoke-test: pip install patha  (may take ~1 min to propagate)"
+	@echo "Published. Verify at https://pypi.org/project/patha-memory/"
+	@echo "Smoke-test: pip install patha-memory  (may take ~1 min to propagate)"
 
 viewer:
 	uv run patha viewer

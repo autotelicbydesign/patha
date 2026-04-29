@@ -133,13 +133,15 @@ Use `--detector full-stack-v7` to switch to the production NLI + adhyāsa + nume
 
 ### 3. As a Python library (for developers building LLM apps)
 
-**Install:**
+**Install** (Python 3.11+ required):
 
 ```bash
-pip install patha
+pip install patha-memory     # PyPI distribution name
 # or:
-uv pip install patha
+uv pip install patha-memory
 ```
+
+The import name is `patha`; the PyPI distribution is `patha-memory`. If you see a `thinc`/`spacy` build error during install, you're likely on Python ≤ 3.10 — upgrade to 3.11+.
 
 **Use (5 lines):**
 
