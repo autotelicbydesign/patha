@@ -17,6 +17,12 @@ The reason: **top-K retrieval is the wrong primitive for synthesis.** A question
 
 The traditional alignment is exact: pratyakṣa (perception) and anumāna (inference) are distinct pramāṇa in Nyāya epistemology. The architecture reflects this rather than collapsing both into one funnel.
 
+### What's *not* a first-class path yet — narrative synthesis
+
+`recall()` handles two kinds of synthesis today: (1) **numerical** synthesis via gaṇita (`sum/count/avg/min/max/difference` over the preserved tuple index, exhaustive, zero LLM tokens at recall), and (2) **belief-evolution narrative** via `include_history=True` (the supersession lineage rendered as a deterministic timeline).
+
+What it does **not** have is a first-class path for **semantic / narrative synthesis** — questions like *"what patterns do I notice in how I think about my grandfather?"*, *"what's the through-line of my reflections on agency?"*, *"summarise my evolving thinking on X"*. These currently flow through the standard retrieval path: Phase 1 returns top-K relevant beliefs, the structured summary lists them, and any narrative composition across those beliefs happens **downstream in whatever LLM you pipe `rec.summary` into**. The same critique that motivated gaṇita applies — top-K of N misses (N-K), and the synthesis work is offloaded to per-token LLM cost — but the architectural answer (a narrative-synthesis path analogous to gaṇita) is deliberately deferred to a future phase. Phase 3 (end-to-end answer eval) is the prerequisite: without an LLM-as-judge scorer for free-form answers we'd be shipping a narrative path with no way to prove it works. Tracked as Phase 4 work.
+
 ## The four supporting components
 
 ### 1. Trust-the-precise-index aggregation (real architectural correction)
