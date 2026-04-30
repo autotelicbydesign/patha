@@ -389,7 +389,7 @@ uv run pytest tests/ -q                             # 602 tests, ~10s
 
 ## Acknowledgments
 
-Built with [Claude Code](https://claude.ai/code) as a pair-programming partner. Architectural decisions, evaluation design, framing, and editorial honesty owned by the author. Code written in collaboration.
+Designed by Stefi P. Krishnan and built with [Claude Code](https://claude.ai/code) as a pair-programming partner.
 
 ## License
 
