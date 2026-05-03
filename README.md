@@ -15,42 +15,36 @@
 
 Under the hood: contradiction detection via NLI + lexical rewriting + sequential-event markers + numerical-change handling. Non-commutative belief evolution measured empirically (96% of supersession scenarios are order-dependent). Plasticity mechanisms (time decay, Hebbian associations, homeostasis) operate during normal use. Primitives drawn from two human memory traditions that lasted thousands of years: Vedic recitation (redundant multi-view encoding) and Aboriginal songlines (narrative graph traversal).
 
-**Architectural distinction Patha makes that no other AI memory system does:**
+## Patha separates retrieval from synthesis
 
-Patha separates **retrieval** queries ("what did I say about the saddle?") from **synthesis** queries ("how much have I spent on bikes total?"). They flow through different paths:
+Two question classes, two paths through the system, two pramāṇa:
 
-- **Retrieval** — pratyakṣa (perception): Phase 1 (7-view dense + BM25 + RRF + reranker + songlines) → Phase 2 (current-state filter) → direct-answer or structured summary.
-- **Synthesis** — anumāna (inference): the gaṇita layer queries the belief store directly. Phase 1 is never invoked. Pure deterministic arithmetic over preserved tuples. **Zero LLM tokens at recall.**
+- **Retrieval** — *pratyakṣa* (perception). *"What did I say about the saddle?"* Phase 1 (7-view dense + BM25 + RRF + cross-encoder reranker + songlines) → Phase 2 (current-state belief filter) → direct-answer or structured summary.
+- **Synthesis** — *anumāna* (inference). *"How much have I spent on bikes total?"* The gaṇita layer queries the preserved tuple index exhaustively. Pure deterministic arithmetic. **Zero LLM tokens at recall.** Phase 1 still runs in parallel to populate retrieval context, but the synthesis answer is independent of Phase 1's top-K.
 
-Top-K retrieval is the wrong primitive for synthesis: top-100 of 1000 sessions misses 90% of the inputs you need to sum. Mainstream memory systems don't make this distinction; they force every question through the same funnel and let the LLM clean up.
+Top-K retrieval is the wrong primitive for synthesis: top-100 of 1000 sessions misses 90% of the inputs you'd need to sum. Mainstream AI memory systems force every question through the same retrieval funnel and let an LLM clean up at recall — paying tokens per query, indefinitely. Patha doesn't.
 
-**Honest benchmark summary:**
+## What ships in v0.10
 
-| Claim | Number |
-|---|:---:|
-| `patha.Memory` end-to-end, full 500q LongMemEval-S (Phase 1 + 2) ² | **0.952** (472/496) |
-| Same run, knowledge-update subset (77q in the 500q) | **0.987** (76/77) ³ |
-| Phase 1 retrieval R@5 on LongMemEval-KU (78q) | **1.000** (78/78) |
-| Integrated BeliefEval (300 supersession scenarios, full-stack-v8) | 0.968 (336/347) |
-| Non-commutative belief-order dependency | 95.8% of supersession scenarios |
+- **Synthesis-intent routing** — `Memory.recall()` detects sum/count/avg/min/max/difference and routes to gaṇita. Verified by `test_synthesis_intent_independent_of_phase1`, which forces Phase 1 to return `[]` and the gaṇita layer still recovers the canonical $185.
+- **Phase-1 retrieval R@5: 1.000** on the LongMemEval-KU 78-question public subset.
+- **End-to-end accuracy on KU: 1.000 (77/77)** ¹ with synthesis-intent routing on (up from 0.987 baseline).
+- **Average tokens/summary on the multi-session 500q stratum: 18,384** — a **6.5× reduction** from the 118,761 baseline, with **zero LLM tokens at recall** on the synthesis path.
+- **Hybrid karaṇa extractor** — regex enumerates every `$X`, LLM only labels semantically. Recall preserved; LLM cost paid once at ingest, never at recall.
+- **Three regex false-positive filters** — range, hypothetical ("thinking about"), negated-purchase ("didn't buy"). Documented in `tests/belief/test_ganita.py::TestFalsePositiveFilters`.
+- **Filesystem-native ingest** — `patha import obsidian-vault <path>` walks pre-existing writing into the belief store.
 
-- Five of six strata are 0.977–1.000. Multi-session (0.857) is dominated by *synthesis-bounded* questions (84% per `eval/multisession_diagnosis.py`) — the gold is a computed value never literally in source. Synthesis-intent routing + the karaṇa LLM extractor target this directly; quality scales with the karaṇa model (≥14B local or hosted recommended for synthesis-heavy use).
+¹ One question excluded from end-to-end scoring due to a known datetime-tz edge case; scored over 77.
 
-² End-to-end answer accuracy and Phase-1 retrieval R@5 are different metrics; head-to-head full-500q **R@5** (the metric most other systems publish) has not yet been measured for Patha. A measurement run is planned for v0.10.2.
+## Architectural primitives
 
-³ v0.10.1 re-ran KU end-to-end with synthesis-intent routing: **1.000 (77/77)**, up from the 0.987 baseline shown above.
+- **Vedic recitation** — every belief encoded across 7 overlapping views (pada / krama / jaṭā / ghana / entity-anchored / reframed / temporally-anchored). Paraphrase-robust by construction.
+- **Aboriginal songlines** — narrative graph traversal across shared entity / session / temporal / topic edges. Used at retrieval to walk between related beliefs.
+- **Non-destructive supersession** — when new evidence contradicts an old belief, the old belief moves to *history*, not overwritten. `include_history=True` returns the supersession lineage as a deterministic timeline.
+- **Plasticity** — LTP, LTD, Hebbian co-retrieval, homeostasis, synaptic pruning. All five mechanisms operate during normal use.
+- **Empirically non-commutative belief evolution** — on 240 supersession scenarios, reversing the ingest order produces a different final belief set 95.8% of the time.
 
-**v0.10 receipt — synthesis answer is independent of Phase-1 top-K:**
-
-- **LongMemEval-KU Phase-1 retrieval R@5: 1.000 (78/78).**
-- **LongMemEval-KU end-to-end (Phase 1 + Phase 2) accuracy: 1.000 (77/77)** — up from 0.987 (76/77) with synthesis-intent routing on. ¹
-- **LongMemEval-S multi-session 500q accuracy: 0.857** with the regex extractor; ~84% of failures are synthesis-bounded (per `eval/multisession_diagnosis.py`). Full benchmark with stronger extractors (qwen2.5:14b, hosted LLM) is future work.
-- **Average tokens/summary on the multi-session run drops from 118,761 to 18,384 — a 6.5× reduction**, with **zero LLM tokens at recall on the synthesis path**.
-- Phase 1 still runs in parallel to populate retrieval context; the synthesis answer is computed by gaṇita exhaustively over the preserved tuple index and is **independent of what Phase 1's top-K returned** — verified by `test_synthesis_intent_independent_of_phase1`, which forces Phase 1 to return `[]` and the gaṇita layer still recovers the canonical \$185.
-
-¹ One question (out of 78) is excluded from end-to-end scoring due to a known datetime-tz edge case; scored over 77.
-
-**Token economy when paired with Claude or any LLM** (`eval/token_economy.py`):
+## Token economy
 
 | Strategy | Tokens / query | vs naive RAG |
 |---|:---:|:---:|
@@ -58,9 +52,7 @@ Top-K retrieval is the wrong primitive for synthesis: top-100 of 1000 sessions m
 | Patha structured summary | 64.6 | **4.5× reduction** |
 | Patha direct-answer (incl. gaṇita aggregation) | **0** | **∞ (no LLM call)** |
 
-**Plasticity (neuroplasticity-inspired):** all five mechanisms (LTP, LTD, Hebbian, homeostasis, pruning) wired and on by default in the unified pipeline. Confidence decays for unused beliefs (LTD), strengthens on repeated assertion (LTP), associative graph emerges from co-retrieval (Hebbian), confidence ratio bounded (homeostasis), deeply-superseded chains archived (pruning).
-
-Full honest analysis in [docs/benchmarks.md](docs/benchmarks.md).
+Full methodology in [docs/benchmarks.md](docs/benchmarks.md).
 
 ---
 

@@ -8,9 +8,9 @@
 # a release Makefile target.
 #
 # Usage:
-#   scripts/verify_install.sh dist/patha_memory-0.10.1-py3-none-any.whl
-#   scripts/verify_install.sh patha-memory==0.10.1                       # from PyPI
-#   scripts/verify_install.sh -i https://test.pypi.org/simple/ patha-memory==0.10.1
+#   scripts/verify_install.sh dist/patha_memory-0.10.2-py3-none-any.whl
+#   scripts/verify_install.sh patha-memory==0.10.2                       # from PyPI
+#   scripts/verify_install.sh -i https://test.pypi.org/simple/ patha-memory==0.10.2
 #
 # Requirements: python3.11 on PATH (or settable via PYTHON env var).
 
@@ -63,7 +63,7 @@ rec = m.recall("what do I eat?")
 assert rec.summary, "recall.summary should be non-empty"
 print(f"basic recall:      strategy={rec.strategy} current={len(rec.current)} tokens={rec.tokens}")
 
-# 2. Synthesis-intent path with the v0.10.1 false-positive filters
+# 2. Synthesis-intent path with the regex false-positive filters
 m2 = Memory(path=path + ".2", enable_phase1=False)
 m2.remember("Bike racks range from $100 to $500.")          # range filter
 m2.remember("I bought a $50 saddle for my bike.")           # real
