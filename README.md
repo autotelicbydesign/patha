@@ -28,13 +28,17 @@ Top-K retrieval is the wrong primitive for synthesis: top-100 of 1000 sessions m
 
 | Claim | Number |
 |---|:---:|
-| `patha.Memory` end-to-end, full 500q LongMemEval-S (Phase 1 + 2) | **0.952** (472/496) |
-| Same run, knowledge-update subset (77q in the 500q) | **0.987** (76/77) |
-| Phase 1 retrieval R@5 on LongMemEval-KU (78q) | 1.000 (78/78) |
+| `patha.Memory` end-to-end, full 500q LongMemEval-S (Phase 1 + 2) ² | **0.952** (472/496) |
+| Same run, knowledge-update subset (77q in the 500q) | **0.987** (76/77) ³ |
+| Phase 1 retrieval R@5 on LongMemEval-KU (78q) | **1.000** (78/78) |
 | Integrated BeliefEval (300 supersession scenarios, full-stack-v8) | 0.968 (336/347) |
 | Non-commutative belief-order dependency | 95.8% of supersession scenarios |
 
 - Five of six strata are 0.977–1.000. Multi-session (0.857) is dominated by *synthesis-bounded* questions (84% per `eval/multisession_diagnosis.py`) — the gold is a computed value never literally in source. Synthesis-intent routing + the karaṇa LLM extractor target this directly; quality scales with the karaṇa model (≥14B local or hosted recommended for synthesis-heavy use).
+
+² End-to-end answer accuracy and Phase-1 retrieval R@5 are different metrics; head-to-head full-500q **R@5** (the metric most other systems publish) has not yet been measured for Patha. A measurement run is planned for v0.10.2.
+
+³ v0.10.1 re-ran KU end-to-end with synthesis-intent routing: **1.000 (77/77)**, up from the 0.987 baseline shown above.
 
 **v0.10 receipt — synthesis answer is independent of Phase-1 top-K:**
 

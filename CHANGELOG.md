@@ -14,6 +14,12 @@ Post-tag follow-ups on top of v0.10.0:
   - 12 new test cases; 750 unit tests pass.
 - **Packaging hardening.** README install line now says `pip install patha-memory` (correct PyPI distribution name) with explicit Python-3.11+ note. Wheel metadata verified: `Name: patha-memory`, `Version: 0.10.1`, `Requires-Python: >=3.11`.
 
+### Known measurement gap (deferred to v0.10.2)
+
+Most retrieval-system papers publish **R@5 on the full 500q LongMemEval-S**. Patha has measured R@5 only on the 78-question KU subset (1.000 / 78). A first attempt at the full 500q R@5 measurement (`eval.runner --data data/longmemeval_s_cleaned.json --reranker ce-mini`) crashed at q174 of 500 after ~7 hours, almost certainly due to the host machine sleeping mid-run (no `caffeinate` wrapper, no checkpointing). v0.10.2 will land checkpointing + `caffeinate` wrapping in `eval.runner`, then publish the full-500q R@5 number — same metric other published systems report — so head-to-head comparisons stop being apples-to-oranges.
+
+End-to-end answer accuracy on full 500q (0.952) and Phase-1 retrieval R@5 on KU (1.000) are real, measured numbers; they're just **different metrics**, and the comparable cross-system R@5 on full 500q is the missing piece.
+
 ## v0.10.0 (2026-04-29)
 
 ### One coherent architectural claim
