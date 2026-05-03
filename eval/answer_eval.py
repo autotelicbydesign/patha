@@ -337,10 +337,130 @@ class OllamaLLM:
         return str(data.get("response", "")).strip()
 
 
+@dataclass
+class ClaudeLLM:
+    """LLM adapter pointing at the Anthropic Messages API.
+
+    Uses the optional `anthropic` SDK. If the SDK isn't installed,
+    raises a clear ImportError pointing at the install command. If
+    the API key is missing, raises a clear RuntimeError naming the
+    env var.
+
+    Defaults to claude-sonnet-4 with deterministic temperature for
+    reproducible eval runs. Pass `model="claude-haiku-4"` etc. to
+    swap.
+    """
+
+    model: str = "claude-sonnet-4-20250514"
+    api_key: str | None = None  # falls back to ANTHROPIC_API_KEY
+    temperature: float = 0.0
+    max_tokens: int = 256
+    system: str = (
+        "You are a careful assistant answering a user's question using "
+        "the user's own memory as context. Answer concisely. If the "
+        "memory contains a directly-computed value, return that exact "
+        "value (with units if present). If the answer is not in the "
+        "memory, say so."
+    )
+
+    calls: int = 0
+    total_latency_s: float = 0.0
+
+    def __call__(self, prompt: str) -> str:
+        import os as _os
+        import time as _time
+
+        try:
+            from anthropic import Anthropic
+        except ImportError as e:
+            raise ImportError(
+                "ClaudeLLM requires the anthropic SDK. Install with "
+                "`pip install anthropic` or `uv pip install anthropic`."
+            ) from e
+
+        api_key = self.api_key or _os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "ClaudeLLM: no API key. Set ANTHROPIC_API_KEY in your "
+                "environment or pass api_key= to the constructor."
+            )
+
+        client = Anthropic(api_key=api_key)
+        start = _time.monotonic()
+        try:
+            resp = client.messages.create(
+                model=self.model,
+                max_tokens=self.max_tokens,
+                temperature=self.temperature,
+                system=self.system,
+                messages=[{"role": "user", "content": prompt}],
+            )
+        finally:
+            self.calls += 1
+            self.total_latency_s += _time.monotonic() - start
+
+        # Anthropic SDK returns a list of content blocks; we expect text.
+        parts = []
+        for block in resp.content:
+            text = getattr(block, "text", None)
+            if text:
+                parts.append(text)
+        return "".join(parts).strip()
+
+
+# ─── LLM-as-judge scorer ─────────────────────────────────────────────
+
+
+_LLM_JUDGE_PROMPT = (
+    "You are evaluating whether a candidate answer matches a gold "
+    "answer to a memory question. Two answers MATCH if a careful "
+    "reader would consider them to express the same fact, even if "
+    "phrased differently (e.g. '$185' matches '185 USD'; 'Lisbon' "
+    "matches 'I live in Lisbon, Portugal'). Two answers DO NOT MATCH "
+    "if any key fact differs (different number, different city, "
+    "different person).\n"
+    "\n"
+    "Respond with exactly one word: MATCH or NO_MATCH.\n"
+    "\n"
+    "Gold answer: {gold}\n"
+    "Candidate answer: {candidate}\n"
+    "\n"
+    "Verdict:"
+)
+
+
+def llm_judge_match(judge_llm: LLM, *, prompt_template: str | None = None) -> Scorer:
+    """Returns a scorer that asks `judge_llm` to verdict MATCH / NO_MATCH.
+
+    Used for free-form answers where exact / normalised / numeric
+    matching is too strict (e.g. "summarise my evolving thinking on
+    agency"). The judge LLM is independent of whatever LLM produced
+    the candidate answer — best practice is to use a different model
+    than the one being evaluated, to reduce bias.
+
+    The judge prompt is intentionally short and constrained
+    (one-word output) to make the verdict deterministic and cheap.
+    Override `prompt_template` if you need to customise.
+    """
+    template = prompt_template or _LLM_JUDGE_PROMPT
+
+    def _scorer(answer: str, gold: str) -> bool:
+        verdict_prompt = template.format(gold=gold, candidate=answer)
+        try:
+            verdict = judge_llm(verdict_prompt)
+        except Exception:
+            # If the judge call itself fails, conservative: NO_MATCH.
+            return False
+        return verdict.strip().upper().startswith("MATCH")
+
+    return _scorer
+
+
 __all__ = [
     "LLM",
     "NullTemplateLLM",
     "OllamaLLM",
+    "ClaudeLLM",
     "AnswerEvalConfig",
     "AnswerEvalReport",
     "QuestionOutcome",
@@ -348,6 +468,7 @@ __all__ = [
     "normalised_match",
     "numeric_match",
     "token_overlap_match",
+    "llm_judge_match",
     "render_prompt",
     "run_answer_eval",
 ]
