@@ -170,6 +170,49 @@ uv run python -m eval.longmemeval_integrated                # Claim B (end-to-en
 uv run python -m eval.belief_eval                            # BeliefEval
 ```
 
+## Phase 3 — End-to-end answer evaluation
+
+Phase 1 measures retrieval (R@k) and Phase 2 measures supersession (did the right belief end up `current`?). Both are surrogates. The product question is: **given Patha's output, does the user's LLM produce the right answer?**
+
+That's what Phase 3 measures. Plan: `docs/phase_3_plan.md`. Engine: `eval/answer_eval.py`. Runner: `eval/run_answer_eval.py`.
+
+### Three knobs
+
+- **LLM** — `null` (deterministic baseline), `claude` (Anthropic Messages API, needs `ANTHROPIC_API_KEY`), `ollama` (local).
+- **Prompt template** — what fields of `Recall` go to the LLM: `{question}`, `{summary}`, `{ganita}`, `{current}`, `{answer}`. Default template is in `eval/run_answer_eval.py` (`DEFAULT_TEMPLATE`).
+- **Scorer** — `normalised`, `numeric` (5% tol, falls back to normalised), `overlap` (token overlap ≥0.6, LongMemEval-style), `embedding` (MiniLM cosine ≥0.85), `judge` (LLM-as-judge with one-word MATCH / NO_MATCH verdict).
+
+### Floor — NullTemplateLLM baseline on LongMemEval-KU
+
+`NullTemplateLLM` is a deterministic stub: it echoes the first dollar amount, the first number, or the start of the memory text. It cannot reason — it's the **floor** that any real LLM should beat.
+
+| Scorer    | KU (78q) accuracy | Wall time |
+|-----------|:-----------------:|:---------:|
+| numeric   | **5/78 = 0.064**  | 11.7 s    |
+| overlap   | **2/78 = 0.026**  | 15.1 s    |
+
+Per-strategy on the numeric run:
+- ganita (synthesis intent): 4/41 = 0.098
+- structured (retrieval intent): 1/37 = 0.027
+
+The numeric floor (6.4%) is what NullTemplateLLM gets by accidentally echoing matching numbers; the overlap floor (2.6%) is stricter because it requires the *content tokens* of the gold (e.g. "minutes", "suburbs") to appear in the candidate, which a number-echoer rarely produces.
+
+Reproduce:
+```bash
+uv run python -m eval.run_answer_eval \
+    --data data/longmemeval_ku_78.json \
+    --llm null --scorer numeric \
+    --output runs/answer_eval/ku-null-numeric.json
+```
+
+### What Phase 3 doesn't yet measure (deferred to v0.11+)
+
+- **Real LLM runs** (Claude / Ollama / GPT) on KU and on the 500q full set. Engine + runner are wired; the runs are deferred until we're ready to spend the LLM-time/cost.
+- **Karaṇa-quality correlation** (`regex < ollama-7b < hybrid-14b` on the synthesis-bounded subset). Requires running the same questions through three karaṇa configurations and reporting the spread.
+- **BeliefEval (300 supersession scenarios)** through the answer-eval engine. Requires a small adapter from BeliefEval's per-scenario shape to the question-list shape `run_answer_eval` expects.
+
+The scaffolding ships with v0.10.2; the full battery is part of the v0.11 milestone.
+
 ## Phase 1 — LongMemEval retrieval
 
 | Benchmark | R@5 | Notes |
