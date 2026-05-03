@@ -17,10 +17,12 @@ import patha
 from eval.answer_eval import (
     AnswerEvalConfig,
     AnswerEvalReport,
+    ClaudeLLM,
     NullTemplateLLM,
     OllamaLLM,
     QuestionOutcome,
     exact_match,
+    llm_judge_match,
     normalised_match,
     numeric_match,
     render_prompt,
@@ -213,3 +215,125 @@ class TestRunAnswerEval:
         breakdown = report.by_strategy()
         # Should have entries for both strategies (structured and ganita)
         assert len(breakdown) >= 1
+
+
+# ─── ClaudeLLM adapter ──────────────────────────────────────────────
+
+
+class TestClaudeLLM:
+    def test_missing_api_key_raises(self, monkeypatch):
+        """No ANTHROPIC_API_KEY → clear RuntimeError naming the env var."""
+        import pytest
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        # Skip if anthropic isn't installed — separate test covers that path
+        pytest.importorskip("anthropic")
+        llm = ClaudeLLM(api_key=None)
+        with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+            llm("any prompt")
+
+    def test_missing_sdk_raises_install_hint(self, monkeypatch):
+        """If anthropic SDK isn't available, ImportError tells you how to install."""
+        import builtins
+        import pytest
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "anthropic":
+                raise ImportError("No module named 'anthropic'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        llm = ClaudeLLM(api_key="dummy")
+        with pytest.raises(ImportError, match="pip install anthropic"):
+            llm("any prompt")
+
+    def test_call_increments_counter(self, monkeypatch):
+        """A successful call advances the call counter and latency total.
+        Mocks the Anthropic client so no real API call happens."""
+        import pytest
+        anthropic = pytest.importorskip("anthropic")
+
+        captured: dict = {}
+
+        class _FakeContent:
+            def __init__(self, text):
+                self.text = text
+
+        class _FakeResponse:
+            content = [_FakeContent("the answer is 185 USD")]
+
+        class _FakeMessages:
+            def create(self, **kwargs):
+                captured["call_kwargs"] = kwargs
+                return _FakeResponse()
+
+        class _FakeClient:
+            def __init__(self, **kwargs):
+                self.messages = _FakeMessages()
+
+        monkeypatch.setattr(anthropic, "Anthropic", _FakeClient)
+        llm = ClaudeLLM(api_key="dummy", model="claude-test-model")
+        out = llm("how much spent on bikes?")
+        assert out == "the answer is 185 USD"
+        assert llm.calls == 1
+        assert llm.total_latency_s >= 0
+        # Verify the API was called with our config
+        assert captured["call_kwargs"]["model"] == "claude-test-model"
+        assert captured["call_kwargs"]["temperature"] == 0.0
+
+
+# ─── LLM-as-judge scorer ────────────────────────────────────────────
+
+
+class TestLLMJudgeScorer:
+    def test_match_verdict(self):
+        """Judge returns MATCH → scorer returns True."""
+        class _JudgeMatch:
+            def __call__(self, prompt: str) -> str:
+                return "MATCH"
+
+        scorer = llm_judge_match(_JudgeMatch())
+        assert scorer("$185 USD", "$185") is True
+
+    def test_no_match_verdict(self):
+        class _JudgeNoMatch:
+            def __call__(self, prompt: str) -> str:
+                return "NO_MATCH"
+
+        scorer = llm_judge_match(_JudgeNoMatch())
+        assert scorer("$200", "$185") is False
+
+    def test_match_substring_tolerated(self):
+        """'MATCH' as start of a longer response still counts as match."""
+        class _JudgeVerbose:
+            def __call__(self, prompt: str) -> str:
+                return "MATCH because $185 and 185 USD express the same value."
+
+        scorer = llm_judge_match(_JudgeVerbose())
+        assert scorer("$185", "185 USD") is True
+
+    def test_judge_call_failure_is_no_match(self):
+        """If the judge LLM raises, conservative result: NO_MATCH."""
+        class _JudgeBroken:
+            def __call__(self, prompt: str) -> str:
+                raise RuntimeError("judge unreachable")
+
+        scorer = llm_judge_match(_JudgeBroken())
+        assert scorer("anything", "anything") is False
+
+    def test_prompt_template_override(self):
+        """Custom template is used when passed."""
+        captured = {}
+
+        class _RecordingJudge:
+            def __call__(self, prompt: str) -> str:
+                captured["prompt"] = prompt
+                return "MATCH"
+
+        scorer = llm_judge_match(
+            _RecordingJudge(),
+            prompt_template="Q: {gold} vs {candidate}? Answer:",
+        )
+        scorer("foo", "bar")
+        assert captured["prompt"] == "Q: bar vs foo? Answer:"
