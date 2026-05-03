@@ -1,6 +1,7 @@
-.PHONY: test eval eval-quick eval-32 lint typecheck clean setup-data \
+.PHONY: test eval eval-quick eval-32 eval-ku eval-100 lint typecheck clean setup-data \
         verify demo mcp mcp-install viewer \
-        build publish-test publish
+        build publish-test publish \
+        answer-eval-ku-null answer-eval-ku-overlap answer-eval-help
 
 # ── Quickstart targets ───────────────────────────────────────────────
 
@@ -126,7 +127,7 @@ eval-100:
 		--output runs/eval_100/results.json \
 		--verbose
 
-# LongMemEval-KU 78-question subset — the head-to-head vs Mem0
+# LongMemEval-KU 78-question subset (knowledge-update stratum)
 eval-ku:
 	uv run python -m eval.runner \
 		--data data/longmemeval_ku_78.json \
@@ -174,6 +175,30 @@ lint-fix:
 
 typecheck:
 	uv run mypy src/patha/ --ignore-missing-imports
+
+# ── Phase 3 — end-to-end answer evaluation ───────────────────────────
+#
+# Runs the eval/run_answer_eval.py runner. Defaults below use
+# NullTemplateLLM (deterministic baseline floor — no network, no cost).
+# Switch to --llm claude or --llm ollama for real numbers.
+
+# Numeric scorer floor on KU 78q (~12 s, no network)
+answer-eval-ku-null:
+	uv run python -m eval.run_answer_eval \
+		--data data/longmemeval_ku_78.json \
+		--llm null --scorer numeric \
+		--output runs/answer_eval/ku-null-numeric.json
+
+# Token-overlap scorer floor on KU 78q (LongMemEval-style scoring)
+answer-eval-ku-overlap:
+	uv run python -m eval.run_answer_eval \
+		--data data/longmemeval_ku_78.json \
+		--llm null --scorer overlap \
+		--output runs/answer_eval/ku-null-overlap.json
+
+# Print the runner's --help so users see all knobs at a glance
+answer-eval-help:
+	uv run python -m eval.run_answer_eval --help
 
 # ── Cleanup ──────────────────────────────────────────────────────────
 
