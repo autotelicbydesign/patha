@@ -21,6 +21,7 @@ from eval.answer_eval import (
     NullTemplateLLM,
     OllamaLLM,
     QuestionOutcome,
+    embedding_cosine_match,
     exact_match,
     llm_judge_match,
     normalised_match,
@@ -337,3 +338,83 @@ class TestLLMJudgeScorer:
         )
         scorer("foo", "bar")
         assert captured["prompt"] == "Q: bar vs foo? Answer:"
+
+
+# ─── Embedding cosine scorer ────────────────────────────────────────
+
+
+class _StubEmbedder:
+    """Deterministic stub embedder for tests.
+
+    Maps each unique input string to a fixed unit-norm vector. Strings
+    that share the same `bucket` (first word lowercased) get identical
+    vectors → cosine 1.0; different buckets → cosine 0.0 (orthogonal).
+    Lets us exercise threshold logic without loading any real model.
+    """
+
+    def __init__(self):
+        import numpy as np
+        self._np = np
+        self._buckets: dict[str, int] = {}
+
+    def __call__(self, texts: list[str]):
+        import re
+        np = self._np
+        d = 8  # tiny vector dim; enough orthogonal slots for tests
+        out = np.zeros((len(texts), d), dtype=np.float32)
+        for i, t in enumerate(texts):
+            # Bucket = first alpha word (strips punctuation like commas)
+            m = re.search(r"[A-Za-z]+", t)
+            bucket = m.group(0).lower() if m else ""
+            if bucket not in self._buckets:
+                self._buckets[bucket] = len(self._buckets) % d
+            out[i, self._buckets[bucket]] = 1.0
+        return out
+
+
+class TestEmbeddingCosineMatch:
+    def test_same_bucket_matches(self):
+        scorer = embedding_cosine_match(threshold=0.85, embedder=_StubEmbedder())
+        # Both strings start with "lisbon" → same bucket → cos = 1.0
+        assert scorer("Lisbon, Portugal", "lisbon is great") is True
+
+    def test_different_buckets_do_not_match(self):
+        scorer = embedding_cosine_match(threshold=0.85, embedder=_StubEmbedder())
+        # Different first-word buckets → orthogonal → cos = 0.0
+        assert scorer("Tokyo", "Lisbon") is False
+
+    def test_threshold_respected(self):
+        """A scorer at threshold=1.5 (impossible) never matches even
+        identical strings — proves the threshold is actually checked."""
+        scorer = embedding_cosine_match(threshold=1.5, embedder=_StubEmbedder())
+        assert scorer("Lisbon", "Lisbon") is False
+
+    def test_empty_inputs_no_match(self):
+        scorer = embedding_cosine_match(threshold=0.0, embedder=_StubEmbedder())
+        assert scorer("", "Lisbon") is False
+        assert scorer("Lisbon", "") is False
+        assert scorer("   ", "Lisbon") is False
+
+    def test_un_normalised_embeddings_handled(self):
+        """If a stub returns un-normalised vectors, the scorer still
+        computes cosine correctly (explicit normalisation in the impl)."""
+        import numpy as np
+
+        def _fat_embedder(texts):
+            # Both vectors point along axis 0 but with different magnitudes
+            out = np.zeros((len(texts), 4), dtype=np.float32)
+            mags = [3.0, 7.0]
+            for i, _ in enumerate(texts):
+                out[i, 0] = mags[i]
+            return out
+
+        scorer = embedding_cosine_match(threshold=0.99, embedder=_fat_embedder)
+        # Same direction, different magnitude → cos = 1.0
+        assert scorer("anything", "different text") is True
+
+    def test_lazy_minilm_is_default(self):
+        """When no embedder is passed, the default lazy MiniLM is used.
+        We don't actually load the model in this unit test — just verify
+        the scorer is constructible without exploding."""
+        scorer = embedding_cosine_match()  # no embedder injected
+        assert callable(scorer)

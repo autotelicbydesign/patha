@@ -170,6 +170,93 @@ def token_overlap_match(threshold: float = 0.6) -> Scorer:
     return _scorer
 
 
+class _LazyMiniLMEmbedder:
+    """Lazy-loaded MiniLM embedder used by `embedding_cosine_match`.
+
+    Mirrors the pattern in `patha.belief.semantic_filter` so the
+    scorer ships with no extra dependency: sentence-transformers is
+    already a core Patha dependency. The first call loads the model
+    (~80 MB download on first ever use, then cached locally).
+    """
+
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
+        self._model_name = model_name
+        self._model = None
+
+    def __call__(self, texts: list[str]):
+        # Imported here so that just importing answer_eval doesn't pull
+        # sentence_transformers into the import graph for users who
+        # never use the embedding scorer (NLI eval / numeric tests etc.).
+        import numpy as np
+
+        if self._model is None:
+            from sentence_transformers import SentenceTransformer
+            self._model = SentenceTransformer(self._model_name)
+        return np.asarray(
+            self._model.encode(texts, normalize_embeddings=True),
+            dtype=np.float32,
+        )
+
+
+def embedding_cosine_match(
+    threshold: float = 0.85,
+    *,
+    embedder: Callable[[list[str]], Any] | None = None,
+) -> Scorer:
+    """Returns a scorer that matches if cos(embed(answer), embed(gold)) ≥ threshold.
+
+    Useful for free-form answers where exact / normalised / numeric
+    matching is too strict but `llm_judge_match` is too expensive
+    (no network, deterministic, ~5 ms per scorer call after first load).
+
+    Parameters
+    ----------
+    threshold:
+        Cosine similarity in [-1, 1]. 0.85 is a sensible MiniLM default
+        for "the same fact, paraphrased". Lower (0.7) accepts looser
+        paraphrase; higher (0.92) demands near-identical wording.
+    embedder:
+        Optional callable that takes a list of strings and returns a
+        2D array of unit-norm row vectors (shape `[n, d]`). Defaults
+        to lazy-loaded `all-MiniLM-L6-v2` from sentence-transformers.
+        Inject a deterministic stub for tests.
+
+    Notes
+    -----
+    Empty answer or empty gold → returns False (no match), since
+    cosine is undefined / unstable on zero vectors.
+    """
+    emb = embedder if embedder is not None else _LazyMiniLMEmbedder()
+
+    def _scorer(answer: str, gold: str) -> bool:
+        a = (answer or "").strip()
+        g = (gold or "").strip()
+        if not a or not g:
+            return False
+        vecs = emb([a, g])
+        # Defensive: handle list/tuple/ndarray uniformly.
+        try:
+            import numpy as np
+
+            arr = np.asarray(vecs, dtype=np.float32)
+            if arr.ndim != 2 or arr.shape[0] < 2:
+                return False
+            v_a, v_g = arr[0], arr[1]
+            # Assume rows are unit-norm (the default for MiniLM
+            # `normalize_embeddings=True`); fall back to explicit
+            # normalisation if a stub returns un-normalised vectors.
+            na = float(np.linalg.norm(v_a))
+            ng = float(np.linalg.norm(v_g))
+            if na == 0.0 or ng == 0.0:
+                return False
+            cos = float(np.dot(v_a, v_g) / (na * ng))
+        except ImportError:
+            return False
+        return cos >= threshold
+
+    return _scorer
+
+
 # ─── Eval engine ─────────────────────────────────────────────────────
 
 
@@ -468,6 +555,7 @@ __all__ = [
     "normalised_match",
     "numeric_match",
     "token_overlap_match",
+    "embedding_cosine_match",
     "llm_judge_match",
     "render_prompt",
     "run_answer_eval",
