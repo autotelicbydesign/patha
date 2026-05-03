@@ -218,17 +218,10 @@ The scaffolding ships with v0.10.2; the full battery is part of the v0.11 milest
 | Benchmark | R@5 | Notes |
 |-----------|:---:|:------|
 | LongMemEval S — 100q stratified sample | **0.989** | Full pipeline with `rrf_blend=0.2` |
-| LongMemEval-KU — full 78-question subset | **1.000** | Beats Mem0 (ECAI 2025, 0.934) by **+6.6 points** |
+| LongMemEval-KU — full 78-question subset | **1.000** (78/78) | Knowledge-update stratum |
 | Full 500q LongMemEval S | *not yet run* | Needs >32 GB RAM for session cache |
 
-### Comparison on LongMemEval-KU
-
-| System | R@5 | Source |
-|---|:---:|---|
-| **Patha Phase 1** | **1.000** (78/78) | This repo |
-| Mem0 (ECAI 2025) | 0.934 | [arXiv:2504.19413](https://arxiv.org/abs/2504.19413) |
-
-Patha Phase 1 beats Mem0 by +6.6 points on the subset that specifically stresses knowledge update and supersession — before any belief layer is implemented.
+These are Patha Phase 1's measured numbers. Cross-system comparison to other published results is left to readers; metric definitions (session-level vs turn-level R@5, scoring methodology) are documented above so any comparison can be made on like-for-like terms.
 
 ### Per-stratum R@5 on the 100q stratified sample
 
