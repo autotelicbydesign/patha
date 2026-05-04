@@ -36,6 +36,14 @@ jobs:
       - name: Download spaCy en_core_web_sm (needed by NER tests)
         run: uv run python -m spacy download en_core_web_sm
 
+      - name: Pre-download sentence-transformers MiniLM (needed by phase 1 tests)
+        # Python-version-specific runner caches mean this needs to happen
+        # before the test step regardless of what the other matrix leg has
+        # cached. Without this, tests/test_phase1_bridge.py and
+        # tests/test_memory_api.py::TestRememberRecall fail intermittently
+        # with "couldn't connect to huggingface.co" when HF is rate-limiting.
+        run: uv run python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
       - name: Lint (ruff)
         run: uv run ruff check src/ eval/ tests/
         continue-on-error: true
@@ -51,8 +59,10 @@ jobs:
         run: uv build
 
       - name: Verify bundled classifier in wheel
+        # Wheel filename uses the PyPI distribution name "patha_memory"
+        # (with underscore), per PEP 491; import name stays "patha".
         run: |
-          wheel=$(ls dist/patha-*.whl | head -1)
+          wheel=$(ls dist/patha_memory-*.whl | head -1)
           unzip -l "$wheel" | grep supersession_classifier.joblib
 
   smoke-test:
