@@ -1,28 +1,32 @@
 # Changelog
 
-## v0.10.4 (2026-05-04) — first PyPI release
+## v0.10.5 (2026-05-04) — first PyPI release
 
-v0.10.2 and v0.10.3 were both uploaded to TestPyPI but never to real PyPI. v0.10.4 is the accumulated fixes from both review rounds plus a third-layer rename, and is the first version published to real PyPI.
+v0.10.2, v0.10.3, and v0.10.4 were all uploaded to TestPyPI but never to real PyPI. v0.10.5 is the accumulated fixes from three review rounds and is the first version published to real PyPI.
 
-**Cumulative changes across the v0.10.2 → v0.10.4 review chain:**
+**Cumulative changes across the v0.10.2 → v0.10.5 review chain:**
 
 - **Author metadata** — `authors = "Stefi P. Krishnan"` (was `"stefi"`). The wheel records the author and the rendered PyPI page shows it; bumping the version is the only clean way to fix this.
-- **Public-facing layer naming.** `Phase 1` / `Phase 2` is release-sequencing language, which planted a misleading "is one superseded by the other?" reading. Renamed publicly:
+- **Public-facing architecture renamed.** `Phase 1` / `Phase 2` is release-sequencing language, which planted a misleading "is one superseded by the other?" reading. The architecture is now framed as **two layers and one bridge**:
   - **Retrieval Layer (Pratyakṣa)** — direct perception / lookup. Function: did the gold session surface in top-K?
   - **Belief Layer (Anumāna)** — inference / belief evolution. Function: reason over time — what do I currently believe? what changed?
-  - **Articulation Layer** — articulated answer / answer evaluation. Function: given Patha's output, does the user's LLM articulate the right answer? (compares candidate to gold.) Sanskrit pairing left open for now.
+  - **Articulation Bridge** *(not a runtime layer)* — connection between Patha's output and a user's LLM, plus the methodology for measuring how well it works. Function: given Patha's output, does the user's LLM articulate the right answer?
 
-  The first two layers are named after canonical Nyāya pramāṇas; the Articulation Layer stands on its English name. Internal engineering filenames (`docs/phase_2_*`, `docs/phase_3_plan.md`) keep "Phase N" — that's release-history bookkeeping, not user-facing taxonomy.
+  The asymmetry is intentional: only the two layers execute on `.recall()`. The bridge runs in your application code (or our offline eval harness when we measure it). The first two layers are named after canonical Nyāya pramāṇas; the bridge stands on its English name (Sanskrit pairing left open — *śabda* was rejected because in Mīmāṃsā śabda is *infallible authoritative testimony*, opposite directionality from "candidate measured against gold"). Internal engineering filenames (`docs/phase_2_*`, `docs/phase_3_plan.md`) keep "Phase N" — release-history bookkeeping, not user-facing taxonomy.
 - **README opening rewritten** — drops "The way. The recitation." / "Your AI memory, inspectable and portable." / "What makes it different from the memory your AI assistant already has." Replaces with a Vedic-recitation + Aboriginal-songline epistemology framing that surfaces the architectural claim above the fold.
 - **Headline numbers above Quickstart** — R@5 = 1.000 on LongMemEval-KU, 6.5× token reduction, zero LLM tokens at recall, now visible in the first 200 words.
 - **"Why Patha (vs Claude's built-in memory…)"** → **"Beyond default AI memory: where Patha fits in your stack"**. Same content, neutral framing.
 - **Roadmap audit** — no residual "v0.10.x will publish R@5 vs MemPalace" deferral language.
 
-No code or test changes vs the v0.10.1 git tag content; this is a metadata + README release across the whole v0.10.2/3/4 chain.
+No code or test changes vs the v0.10.1 git tag content; this is a metadata + README release across the whole v0.10.2/3/4/5 chain.
+
+## v0.10.4 (2026-05-04) — TestPyPI only (superseded by v0.10.5)
+
+Renamed third piece from "Answer Layer (Upamāna)" → "Articulation Layer" (no Sanskrit pairing — śabda's directionality doesn't fit). v0.10.5 then renamed it again to "Articulation Bridge" to reflect that it isn't a runtime layer.
 
 ## v0.10.3 (2026-05-04) — TestPyPI only (superseded by v0.10.4)
 
-Author metadata fix + first pass of public layer rename. Used "Answer Layer (Upamāna)" for the third layer; v0.10.4 renames that to "Articulation Layer" with no Sanskrit pairing.
+Author metadata fix + first pass of public layer rename. Used "Answer Layer (Upamāna)" for the third piece.
 
 ## v0.10.2 (2026-05-03) — TestPyPI only (superseded by v0.10.3)
 

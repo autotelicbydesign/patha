@@ -31,13 +31,13 @@ Methodology and full tables in [docs/benchmarks.md](docs/benchmarks.md). Caveats
 
 ---
 
-## The three layers
+## Two layers and one bridge
 
-Three complementary layers. They are concurrent, not sequential — `Memory.recall()` routes through them depending on the question. The first two layers are named after canonical Nyāya pramāṇas (valid means of knowledge); the third stands on its English name.
+Patha has two internal layers that run inside `Memory.recall()`. The third piece — the Articulation Bridge — is *not* a runtime layer of Patha; it's the connection between Patha's output and your LLM, and the harness that measures it. Naming it a "bridge" rather than a third layer keeps the architecture honest: only two things execute when you call `.recall()`; the bridge runs in your application code (or in our offline eval harness when we measure it).
 
 - **Retrieval Layer (Pratyakṣa)** — *"that which stands before the senses,"* direct perception. 7-view Vedic encoding (pada / krama / jaṭā / ghana / entity-anchored / reframed / temporally-anchored) + BM25 + RRF + cross-encoder reranker + songline graph traversal. Function: did the gold session surface in top-K?
 - **Belief Layer (Anumāna)** — *"knowledge that follows from what is observed,"* inference. Contradiction detection (NLI + adhyāsa + numerical + sequential), non-destructive supersession, plasticity (LTP, LTD, Hebbian co-retrieval, homeostasis, pruning), validity, pramāṇa, vṛtti. Function: reason over time — what do I currently believe? what changed?
-- **Articulation Layer** — the evaluation methodology. Five scorers (exact / normalised / numeric / token-overlap / embedding-cosine / LLM-as-judge), three LLM adapters (Null / Claude / Ollama), one runner CLI. Function: given Patha's output, does the user's LLM articulate the right answer?
+- **Articulation Bridge** *(not a runtime layer)* — the connection from Patha's memory output to a user's LLM, plus the methodology for measuring how well it works. Five scorers (exact / normalised / numeric / token-overlap / embedding-cosine / LLM-as-judge), three LLM adapters (Null / Claude / Ollama), one runner CLI. Function: given Patha's output, does the user's LLM articulate the right answer?
 
 `Memory.recall()` routes by question intent:
 
@@ -55,7 +55,7 @@ Top-K retrieval is the wrong primitive for synthesis: top-100 of 1000 sessions m
 - **Hybrid karaṇa extractor** — regex enumerates every `$X`, LLM only labels semantically. Recall preserved; LLM cost paid once at ingest, never at recall.
 - **Three regex false-positive filters** — range, hypothetical ("thinking about"), negated-purchase ("didn't buy"). Documented in `tests/belief/test_ganita.py::TestFalsePositiveFilters`.
 - **Filesystem-native ingest** — `patha import obsidian-vault <path>` walks pre-existing writing into the belief store.
-- **Articulation Layer scaffolding** — `eval/answer_eval.py` + `eval/run_answer_eval.py` ship the engine, three LLM adapters, six scorers, and a runner CLI. Measured baseline floor on KU 78q with NullTemplateLLM: 5/78 = 0.064 (the bar a real LLM should beat).
+- **Articulation Bridge scaffolding** — `eval/answer_eval.py` + `eval/run_answer_eval.py` ship the engine, three LLM adapters, six scorers, and a runner CLI. Measured baseline floor on KU 78q with NullTemplateLLM: 5/78 = 0.064 (the bar a real LLM should beat).
 
 ¹ One question excluded from end-to-end scoring due to a known datetime-tz edge case; scored over 77.
 
@@ -271,7 +271,7 @@ Full numbers with caveats, ablations, and methodology live in [docs/benchmarks.m
 | LongMemEval S 100q stratified R@5 | 0.989 | — |
 | BeliefEval 300-scenario / 347q (Belief Layer) | 1.000 with full-stack-v7 | our own benchmark; see caveat |
 | **LongMemEval-KU answer-in-summary (Belief Layer alone)** | **0.885 (69/78)** | stub null baseline: 0.795 |
-| Articulation Layer baseline floor (KU 78q, NullTemplateLLM, numeric scorer) | 5/78 = 0.064 | the bar a real LLM should beat |
+| Articulation Bridge baseline floor (KU 78q, NullTemplateLLM, numeric scorer) | 5/78 = 0.064 | the bar a real LLM should beat |
 | Non-commutativity on 240 supersession scenarios | 95.8% | 0% on reinforcement |
 | Test suite | 799 pass | 3 skip on optional deps |
 
@@ -302,15 +302,19 @@ QUERY:    current-only  or  current + history
            │
            ▼
      strategy: direct-answer (no LLM) | structured summary | raw
-
-EVALUATE (offline, optional):
-     Articulation Layer
-           └─ LLM × prompt × scorer → accuracy on a benchmark
+           │
+           └─────────────►  Patha output (ends here)
+                                       │
+─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+                                       ▼
+ARTICULATION BRIDGE  (your application — or our eval harness):
+     Patha output  +  your LLM  →  articulated answer
+     (offline harness adds: scorer × gold answer → accuracy)
 ```
 
-The Retrieval Layer is a self-contained retrieval pillar; the Belief Layer is a self-contained inference pillar. They can be used independently or wired together via `patha.integrated.IntegratedPatha`. The Articulation Layer runs offline against benchmark JSON and measures whether a chosen LLM, given Patha's output, produces correct answers.
+The Retrieval Layer is a self-contained retrieval pillar; the Belief Layer is a self-contained inference pillar. They can be used independently or wired together via `patha.integrated.IntegratedPatha`. The Articulation Bridge sits between Patha's output and a user's LLM — in production it lives in the application code that calls `memory.recall()` and then prompts an LLM; in evaluation, our offline harness in `eval/run_answer_eval.py` exercises the same shape against a benchmark JSON to measure how often the bridge produces correct answers.
 
-Background reading: [docs/phase_2_spec.md](docs/phase_2_spec.md) (Belief Layer architecture spec), [docs/phase_2_v07_results.md](docs/phase_2_v07_results.md) (latest sprint results with honest caveats), [docs/phase_3_plan.md](docs/phase_3_plan.md) (Articulation Layer plan), [docs/benchmarks.md](docs/benchmarks.md) (full benchmark tables).
+Background reading: [docs/phase_2_spec.md](docs/phase_2_spec.md) (Belief Layer architecture spec), [docs/phase_2_v07_results.md](docs/phase_2_v07_results.md) (latest sprint results with honest caveats), [docs/phase_3_plan.md](docs/phase_3_plan.md) (Articulation Bridge plan), [docs/benchmarks.md](docs/benchmarks.md) (full benchmark tables).
 
 ---
 
@@ -338,7 +342,7 @@ eval/
   belief_eval.py, longmemeval_belief.py               # Belief Layer eval
   non_commutative_eval.py, plasticity_on_real_logs.py # Belief Layer novel metrics
   false_contradiction_eval.py                          # Belief Layer FP rate
-  answer_eval.py, run_answer_eval.py                  # Articulation Layer (eval engine + runner)
+  answer_eval.py, run_answer_eval.py                  # Articulation Bridge — eval engine + runner
   token_economy.py                                     # compression curves
 
 examples/
@@ -372,7 +376,7 @@ uv run python -m eval.non_commutative_eval          # 95.8% on 240 scenarios
 uv run python -m eval.plasticity_on_real_logs      # LTD/Hebbian/LTP stats
 uv run python -m eval.false_contradiction_eval     # 6% FP rate
 
-# Articulation Layer (end-to-end)
+# Articulation Bridge — offline measurement harness (end-to-end)
 uv run python -m eval.run_answer_eval \
     --data data/longmemeval_ku_78.json \
     --llm null --scorer numeric                     # baseline floor: 5/78
@@ -393,15 +397,15 @@ uv run pytest tests/ -q                             # 799 tests, ~75s
 - Synthesis-intent routing — gaṇita arithmetic at recall, zero LLM tokens
 - 6.5× token reduction on the multi-session 500q stratum
 - Hybrid karaṇa extractor + three regex false-positive filters
-- Articulation Layer scaffolding — engine, three LLM adapters, six scorers, runner CLI, KU baseline floor
+- Articulation Bridge scaffolding — engine, three LLM adapters, six scorers, runner CLI, KU baseline floor
 - MCP server, CLI, Streamlit viewer, Python library
 - Published to PyPI as `patha-memory`
 
 **Near-term:**
 - Belief Layer + Retrieval Layer integration inside the MCP server (retrieval-filtered supersession)
-- Real LLM runs on the Articulation Layer (Claude / Ollama on KU and BeliefEval)
-- Karaṇa-quality correlation: how does the Articulation Layer accuracy curve change as the karaṇa extractor moves from regex → ollama-7b → hybrid-14b?
-- BeliefEval adapter for the Articulation Layer runner (300 supersession scenarios via the same engine)
+- Real LLM runs on the Articulation Bridge (Claude / Ollama on KU and BeliefEval)
+- Karaṇa-quality correlation: how does the Articulation Bridge accuracy curve change as the karaṇa extractor moves from regex → ollama-7b → hybrid-14b?
+- BeliefEval adapter for the Articulation Bridge runner (300 supersession scenarios via the same engine)
 
 **Longer-term:**
 - Multi-user belief attribution (whose belief is it?)
