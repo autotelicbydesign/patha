@@ -43,7 +43,7 @@ from patha.belief import (
 )
 from patha.integrated import IntegratedPatha, IntegratedResponse
 
-__version__ = "0.10.3"
+__version__ = "0.10.4"
 
 __all__ = [
     "Memory",
