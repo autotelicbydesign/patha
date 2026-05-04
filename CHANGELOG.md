@@ -1,6 +1,24 @@
 # Changelog
 
-## v0.10.2 (2026-05-03) — first PyPI release
+## v0.10.3 (2026-05-04) — first PyPI release (metadata + framing fixes from v0.10.2 review)
+
+v0.10.2 was uploaded to TestPyPI but never to real PyPI. Review of the rendered TestPyPI page surfaced metadata + framing issues that warranted a metadata-only re-spin before the first real-PyPI publish:
+
+- **Author metadata** — `authors = "Stefi P. Krishnan"` (was `"stefi"`). The wheel records the author and the rendered PyPI page shows it; bumping the version is the only clean way to fix this.
+- **Public-facing layer naming.** `Phase 1` / `Phase 2` is release-sequencing language, which planted misleading "is one superseded by the other?" reading. Renamed publicly:
+  - **Retrieval Layer (Pratyakṣa)** — direct perception / lookup. Function: did the gold session surface in top-K?
+  - **Belief Layer (Anumāna)** — inference / belief evolution. Function: reason over time — what do I currently believe? what changed?
+  - **Answer Layer (Upamāna)** — comparison / answer evaluation. Function: given Patha's output, does the user's LLM produce the right answer? (compares candidate to gold.)
+
+  The trio matches the first three canonical Nyāya pramāṇas in order. Internal engineering filenames (`docs/phase_2_*`, `docs/phase_3_plan.md`) keep "Phase N" — that's release-history bookkeeping, not user-facing taxonomy.
+- **README opening rewritten** — drops "The way. The recitation." / "Your AI memory, inspectable and portable." / "What makes it different from the memory your AI assistant already has." Replaces with a Vedic-recitation + Aboriginal-songline epistemology framing that surfaces the architectural claim above the fold.
+- **Headline numbers above Quickstart** — R@5 = 1.000 on LongMemEval-KU, 6.5× token reduction, zero LLM tokens at recall, now visible in the first 200 words.
+- **"Why Patha (vs Claude's built-in memory…)"** → **"Beyond default AI memory: where Patha fits in your stack"**. Same content, neutral framing.
+- **Roadmap audit** — confirmed no residual "v0.10.x will publish R@5 vs MemPalace" deferral language. v0.10.2 had the deferral note dropped; v0.10.3 verifies it's gone.
+
+No code or test changes vs the v0.10.2 git tag content; this is a metadata + README release.
+
+## v0.10.2 (2026-05-03) — TestPyPI only (superseded by v0.10.3)
 
 Identical engineering to v0.10.1 (which was tagged but never published to PyPI), plus:
 

@@ -1,48 +1,63 @@
 # Patha
 
-> *The way. The recitation.*
+**Local-first AI memory designed from a different epistemology.**
 
-**Your AI memory, inspectable and portable.** One belief store shared across every AI tool you use — Claude Desktop, Claude Code, Cursor, Zed, Goose. Runs fully on your machine, zero cloud, zero API calls.
+Most AI memory systems treat memory as storage and retrieval — a warehouse with an index. Patha treats memory as architecture, drawn from two traditions:
 
-**What makes it different from the memory your AI assistant already has:**
+- **Vedic recitation**, which preserved sacred texts across three thousand years through redundant encoding — the same proposition stored seven different ways, so a query that misses one view catches another.
+- **Australian Aboriginal songlines**, the oldest continuously transmitted information on Earth, where the landscape itself is the index and retrieval is a walked path — not point lookup, but narrative traversal.
 
-- **You can see it.** Memory lives in a plain `~/.patha/beliefs.jsonl` file you can read, edit, version-control, or export. Open the Streamlit viewer for a visual dashboard.
-- **Old beliefs aren't lost.** When you change your mind, Patha marks the old belief as *superseded* instead of overwriting it. You can ask "what did I used to think about X?" and get an answer.
-- **Contradictions are explicit.** Every ingest is tagged `added` / `reinforced` / `superseded`, with the full supersession chain visible. No silent "remembered."
-- **Cross-tool.** The same belief store feeds every MCP-compatible AI tool. Switch from Claude Desktop to Cursor mid-project — your memory follows you.
-- **Portable.** Copy the JSONL file to another machine. Your memory moves with it.
-- **Private.** Nothing leaves your laptop. No API keys, no OAuth, no Anthropic account required for the memory itself.
+What that produces, mechanically:
 
-Under the hood: contradiction detection via NLI + lexical rewriting + sequential-event markers + numerical-change handling. Non-commutative belief evolution measured empirically (96% of supersession scenarios are order-dependent). Plasticity mechanisms (time decay, Hebbian associations, homeostasis) operate during normal use. Primitives drawn from two human memory traditions that lasted thousands of years: Vedic recitation (redundant multi-view encoding) and Aboriginal songlines (narrative graph traversal).
+- **Patha separates retrieval from synthesis.** Ask *"what did I say about X?"* — retrieval works the way every memory system works. Ask *"how much have I spent on Y total?"* — the system answers directly from a structured belief state, with **zero LLM tokens at recall** and a **6.5× compression** of the context other systems dump into your prompt.
 
-## Patha separates retrieval from synthesis
+- **Beliefs carry their cognitive status.** Drawing from the classical Indian philosophical schools (a third strand alongside the recitation tradition), every belief is tagged with how it was learned (*pramāṇa* — perception, inference, testimony, comparison, postulation, non-perception), what mode it surfaces in (*vṛtti* — direct, mistaken, imagined, dormant, remembered), and how deep it has crystallised (*saṃskāra* → *vāsanā*, surface vs. established). These are mechanisms, not metaphors. Each one is testable.
 
-Two question classes, two paths through the system, two pramāṇa:
+- **Old beliefs are never overwritten.** When you change your mind, Patha marks the old belief as superseded with a full lineage you can walk. You can ask *"what did I used to think about X?"* and get an answer.
 
-- **Retrieval** — *pratyakṣa* (perception). *"What did I say about the saddle?"* Phase 1 (7-view dense + BM25 + RRF + cross-encoder reranker + songlines) → Phase 2 (current-state belief filter) → direct-answer or structured summary.
-- **Synthesis** — *anumāna* (inference). *"How much have I spent on bikes total?"* The gaṇita layer queries the preserved tuple index exhaustively. Pure deterministic arithmetic. **Zero LLM tokens at recall.** Phase 1 still runs in parallel to populate retrieval context, but the synthesis answer is independent of Phase 1's top-K.
+The belief store is plain JSONL — `~/.patha/beliefs.jsonl` — that you can read, edit, version-control, grep, or copy to another machine. Nothing leaves your laptop. The same store feeds every MCP-compatible AI tool: Claude Desktop, Claude Code, Cursor, Zed, Goose. Switch tools mid-project; your memory follows.
+
+---
+
+## At a glance
+
+- **R@5 = 1.000** on LongMemEval-KU (78q, public knowledge-update subset)
+- **6.5× token reduction** on the LongMemEval-S multi-session stratum (118,761 → 18,384 tokens/summary)
+- **Zero LLM tokens at recall** on synthesis questions (gaṇita queries a preserved tuple index)
+- **95.8% non-commutative** — on 240 supersession scenarios, reversing ingest order produces a different final belief set
+- **799 unit tests pass** (3 skipped on optional deps)
+
+Methodology and full tables in [docs/benchmarks.md](docs/benchmarks.md). Caveats and metric definitions there too — these are Patha's own measured numbers; cross-system comparison is left to the reader on like-for-like terms.
+
+---
+
+## The three layers
+
+Three complementary layers, named after the first three canonical Nyāya pramāṇas (valid means of knowledge). They are concurrent, not sequential — `Memory.recall()` routes through them depending on the question.
+
+- **Retrieval Layer (Pratyakṣa)** — *"that which stands before the senses,"* direct perception. 7-view Vedic encoding (pada / krama / jaṭā / ghana / entity-anchored / reframed / temporally-anchored) + BM25 + RRF + cross-encoder reranker + songline graph traversal. Function: did the gold session surface in top-K?
+- **Belief Layer (Anumāna)** — *"knowledge that follows from what is observed,"* inference. Contradiction detection (NLI + adhyāsa + numerical + sequential), non-destructive supersession, plasticity (LTP, LTD, Hebbian co-retrieval, homeostasis, pruning), validity, pramāṇa, vṛtti. Function: reason over time — what do I currently believe? what changed?
+- **Answer Layer (Upamāna)** — *"knowledge by comparison,"* the evaluation methodology. Five scorers (exact / normalised / numeric / token-overlap / embedding-cosine / LLM-as-judge), three LLM adapters (Null / Claude / Ollama), one runner CLI. Function: given Patha's output, does the user's LLM produce the right answer?
+
+`Memory.recall()` routes by question intent:
+
+- **Retrieval intent** — *"What did I say about the saddle?"* Retrieval Layer → Belief Layer's current-state filter → direct-answer or structured summary.
+- **Synthesis intent** — *"How much have I spent on bikes total?"* The gaṇita component of the Belief Layer queries the preserved tuple index exhaustively. Pure deterministic arithmetic. **Zero LLM tokens at recall.** The Retrieval Layer still runs in parallel to populate retrieval context, but the synthesis answer is independent of its top-K.
 
 Top-K retrieval is the wrong primitive for synthesis: top-100 of 1000 sessions misses 90% of the inputs you'd need to sum. Mainstream AI memory systems force every question through the same retrieval funnel and let an LLM clean up at recall — paying tokens per query, indefinitely. Patha doesn't.
 
 ## What ships in v0.10
 
-- **Synthesis-intent routing** — `Memory.recall()` detects sum/count/avg/min/max/difference and routes to gaṇita. Verified by `test_synthesis_intent_independent_of_phase1`, which forces Phase 1 to return `[]` and the gaṇita layer still recovers the canonical $185.
-- **Phase-1 retrieval R@5: 1.000** on the LongMemEval-KU 78-question public subset.
+- **Synthesis-intent routing** — `Memory.recall()` detects sum/count/avg/min/max/difference and routes to gaṇita. Verified by `test_synthesis_intent_independent_of_phase1`, which forces the Retrieval Layer to return `[]` and the gaṇita layer still recovers the canonical $185.
+- **Retrieval Layer R@5: 1.000** on the LongMemEval-KU 78-question public subset.
 - **End-to-end accuracy on KU: 1.000 (77/77)** ¹ with synthesis-intent routing on (up from 0.987 baseline).
 - **Average tokens/summary on the multi-session 500q stratum: 18,384** — a **6.5× reduction** from the 118,761 baseline, with **zero LLM tokens at recall** on the synthesis path.
 - **Hybrid karaṇa extractor** — regex enumerates every `$X`, LLM only labels semantically. Recall preserved; LLM cost paid once at ingest, never at recall.
 - **Three regex false-positive filters** — range, hypothetical ("thinking about"), negated-purchase ("didn't buy"). Documented in `tests/belief/test_ganita.py::TestFalsePositiveFilters`.
 - **Filesystem-native ingest** — `patha import obsidian-vault <path>` walks pre-existing writing into the belief store.
+- **Answer Layer scaffolding** — `eval/answer_eval.py` + `eval/run_answer_eval.py` ship the engine, three LLM adapters, six scorers, and a runner CLI. Measured baseline floor on KU 78q with NullTemplateLLM: 5/78 = 0.064 (the bar a real LLM should beat).
 
 ¹ One question excluded from end-to-end scoring due to a known datetime-tz edge case; scored over 77.
-
-## Architectural primitives
-
-- **Vedic recitation** — every belief encoded across 7 overlapping views (pada / krama / jaṭā / ghana / entity-anchored / reframed / temporally-anchored). Paraphrase-robust by construction.
-- **Aboriginal songlines** — narrative graph traversal across shared entity / session / temporal / topic edges. Used at retrieval to walk between related beliefs.
-- **Non-destructive supersession** — when new evidence contradicts an old belief, the old belief moves to *history*, not overwritten. `include_history=True` returns the supersession lineage as a deterministic timeline.
-- **Plasticity** — LTP, LTD, Hebbian co-retrieval, homeostasis, synaptic pruning. All five mechanisms operate during normal use.
-- **Empirically non-commutative belief evolution** — on 240 supersession scenarios, reversing the ingest order produces a different final belief set 95.8% of the time.
 
 ## Token economy
 
@@ -209,7 +224,7 @@ rec = memory.recall("how much have I spent on bike-related expenses?")
 print(rec.ganita.value)  # 50.0 — deterministic, zero LLM tokens at recall
 ```
 
-The synthesis answer is independent of Phase 1's top-K — gaṇita queries the preserved tuple index exhaustively (`docs/innovations.md` for the architectural explanation). Phase 1 still runs in parallel to populate retrieval context; the answer just doesn't depend on it. Top-100 of 1000 sessions would otherwise miss 90% of inputs you'd need to sum.
+The synthesis answer is independent of the Retrieval Layer's top-K — gaṇita queries the preserved tuple index exhaustively (`docs/innovations.md` for the architectural explanation). The Retrieval Layer still runs in parallel to populate retrieval context; the answer just doesn't depend on it. Top-100 of 1000 sessions would otherwise miss 90% of inputs you'd need to sum.
 
 See [`examples/developer_quickstart.py`](examples/developer_quickstart.py) for a runnable walkthrough, and [docs/benchmarks.md](docs/benchmarks.md) for the full benchmark methodology.
 
@@ -230,19 +245,17 @@ Opens a browser dashboard over `~/.patha/beliefs.jsonl`:
 
 ---
 
-## Why Patha (vs Claude's built-in memory, ChatGPT memory, etc.)
+## Beyond default AI memory: where Patha fits in your stack
 
-Most AI assistants now have some form of built-in memory. The value of Patha over those isn't that it "remembers things" — they all do that. It's what it does with the memory once it has it.
+Four architectural choices that distinguish Patha:
 
-Four architectural choices that cloud-hosted memory systems don't offer:
+1. **You can see and edit your memory.** `~/.patha/beliefs.jsonl` is a plain text file. Open it in any editor. Commit it to git. Diff it between machines. Export it.
 
-1. **You can see and edit your memory.** `~/.patha/beliefs.jsonl` is a plain text file. Open it in any editor. Commit it to git. Diff it between machines. Export it. Anthropic's and OpenAI's memory features give you a settings panel with a toggle; Patha gives you the actual data.
+2. **Non-destructive supersession.** When new evidence contradicts an old belief, the old belief moves to *history* — it isn't overwritten. Queries can ask for current-only ("what do I think now?") or current+history ("what did I used to think?").
 
-2. **Non-destructive supersession.** When new evidence contradicts an old belief, the old belief moves to *history* — it isn't overwritten. Queries can ask for current-only ("what do I think now?") or current+history ("what did I used to think?"). The cloud-hosted systems make old beliefs disappear as if they were never asserted.
+3. **Order-dependent evolution, measured.** On 240 supersession scenarios, reversing the ingest order produces a different final belief set 95.8% of the time (mean divergence 0.91). Reinforcement scenarios correctly come out 0% non-commutative. Patha has a principled theory of *when order matters* — and exposes an API to ask "what would I currently believe if I'd heard B before A?"
 
-3. **Order-dependent evolution, measured.** On 240 supersession scenarios, reversing the ingest order produces a different final belief set 95.8% of the time (mean divergence 0.91). Reinforcement scenarios correctly come out 0% non-commutative. This means Patha has a principled theory of *when order matters* — and exposes an API to ask "what would I currently believe if I'd heard B before A?" No other memory system I'm aware of makes this explicit.
-
-4. **Cross-tool, cross-process.** Every MCP-compatible AI tool reads the same belief store. Your memory isn't trapped inside one app's account. Switch from Claude Desktop to Cursor mid-project, and Cursor sees what Claude Desktop saw.
+4. **Cross-tool, cross-process.** Every MCP-compatible AI tool reads the same belief store. Switch from Claude Desktop to Cursor mid-project, and Cursor sees what Claude Desktop saw.
 
 Plus: plasticity mechanisms (time decay, Hebbian associations, homeostasis, LTP, pruning) that operate during normal use. On 10 real LongMemEval conversations the confidence distribution has std=0.106 (LTD is doing real work) with a mean of 150 Hebbian edges per conversation (an associative graph emerges from use).
 
@@ -254,14 +267,15 @@ Full numbers with caveats, ablations, and methodology live in [docs/benchmarks.m
 
 | Benchmark | Result | Notes |
 |---|---|---|
-| **LongMemEval-KU R@5 (Phase 1 retrieval)** | 1.000 (78/78) | perfect retrieval on the public KU subset |
+| **LongMemEval-KU R@5 (Retrieval Layer)** | 1.000 (78/78) | perfect retrieval on the public KU subset |
 | LongMemEval S 100q stratified R@5 | 0.989 | — |
-| BeliefEval 300-scenario / 347q (Phase 2) | 1.000 with full-stack-v7 | our own benchmark; see caveat |
-| **LongMemEval-KU answer-in-summary (Phase 2 alone)** | **0.885 (69/78)** | stub null baseline: 0.795 |
+| BeliefEval 300-scenario / 347q (Belief Layer) | 1.000 with full-stack-v7 | our own benchmark; see caveat |
+| **LongMemEval-KU answer-in-summary (Belief Layer alone)** | **0.885 (69/78)** | stub null baseline: 0.795 |
+| Answer Layer baseline floor (KU 78q, NullTemplateLLM, numeric scorer) | 5/78 = 0.064 | the bar a real LLM should beat |
 | Non-commutativity on 240 supersession scenarios | 95.8% | 0% on reinforcement |
-| Test suite | 725 pass | — |
+| Test suite | 799 pass | 3 skip on optional deps |
 
-**Caveat on the 1.000 BeliefEval:** the Phase 2 detector was iteratively tuned on the exact scenarios in our benchmark, so 1.000 on that set should be read as "no known misses" rather than "generalises everywhere." The honest external number is 0.885 on LongMemEval-KU, measured on a benchmark we didn't write.
+**Caveat on the 1.000 BeliefEval:** the Belief Layer's detector was iteratively tuned on the exact scenarios in our benchmark, so 1.000 on that set should be read as "no known misses" rather than "generalises everywhere." The honest external number is 0.885 on LongMemEval-KU, measured on a benchmark we didn't write.
 
 ---
 
@@ -271,10 +285,10 @@ Full numbers with caveats, ablations, and methodology live in [docs/benchmarks.m
 INGEST:  conversation turn
            │
            ▼
-     Phase 1 — Retrieval (Vedic 7-view + songline graph + BM25 + RRF)
+     Retrieval Layer — Pratyakṣa (Vedic 7-view + songline graph + BM25 + RRF)
            │
            ▼
-     Phase 2 — Belief layer
+     Belief Layer — Anumāna
            ├─ contradiction detection (NLI + adhyāsa + numerical + sequential)
            ├─ non-destructive supersession
            ├─ plasticity (LTD / LTP / Hebbian / homeostasis / pruning)
@@ -288,11 +302,15 @@ QUERY:    current-only  or  current + history
            │
            ▼
      strategy: direct-answer (no LLM) | structured summary | raw
+
+EVALUATE (offline, optional):
+     Answer Layer — Upamāna
+           └─ LLM × prompt × scorer → accuracy on a benchmark
 ```
 
-Phase 1 is a self-contained retrieval pillar; Phase 2 is a self-contained belief layer. They can be used independently or wired together via `patha.integrated.IntegratedPatha`.
+The Retrieval Layer is a self-contained retrieval pillar; the Belief Layer is a self-contained inference pillar. They can be used independently or wired together via `patha.integrated.IntegratedPatha`. The Answer Layer runs offline against benchmark JSON and measures whether a chosen LLM, given Patha's output, produces correct answers.
 
-Background reading: [docs/phase_2_spec.md](docs/phase_2_spec.md) (architecture spec), [docs/phase_2_v07_results.md](docs/phase_2_v07_results.md) (latest sprint results with honest caveats), [docs/benchmarks.md](docs/benchmarks.md) (full benchmark tables).
+Background reading: [docs/phase_2_spec.md](docs/phase_2_spec.md) (Belief Layer architecture spec), [docs/phase_2_v07_results.md](docs/phase_2_v07_results.md) (latest sprint results with honest caveats), [docs/phase_3_plan.md](docs/phase_3_plan.md) (Answer Layer plan), [docs/benchmarks.md](docs/benchmarks.md) (full benchmark tables).
 
 ---
 
@@ -300,15 +318,15 @@ Background reading: [docs/phase_2_spec.md](docs/phase_2_spec.md) (architecture s
 
 ```
 src/patha/
-  chunking/, indexing/, retrieval/, query/, models/   # Phase 1 — retrieval
-  belief/                                              # Phase 2 — belief layer
+  chunking/, indexing/, retrieval/, query/, models/   # Retrieval Layer
+  belief/                                              # Belief Layer
     layer.py, store.py, types.py
     contradiction.py, adhyasa_detector.py, numerical_detector.py,
     sequential_detector.py, llm_judge.py, ollama_judge.py
     plasticity.py, counterfactual.py, validity_extraction.py
     pramana.py, vritti.py, abhava.py, direct_answer.py
     detector_factory.py                               # named-detector registry
-  integrated.py                                        # Phase 1 + Phase 2
+  integrated.py                                        # Retrieval + Belief Layer
   cli.py                                               # patha verify/demo/ingest/ask/...
   mcp_server.py                                        # MCP stdio server
   viewer/                                              # Streamlit dashboard
@@ -316,10 +334,11 @@ src/patha/
   demo.py                                              # patha demo
 
 eval/
-  runner.py, ablations.py, metrics.py                 # Phase 1 eval
-  belief_eval.py, longmemeval_belief.py               # Phase 2 eval
-  non_commutative_eval.py, plasticity_on_real_logs.py # Phase 2 novel metrics
-  false_contradiction_eval.py                          # Phase 2 FP rate
+  runner.py, ablations.py, metrics.py                 # Retrieval Layer eval
+  belief_eval.py, longmemeval_belief.py               # Belief Layer eval
+  non_commutative_eval.py, plasticity_on_real_logs.py # Belief Layer novel metrics
+  false_contradiction_eval.py                          # Belief Layer FP rate
+  answer_eval.py, run_answer_eval.py                  # Answer Layer (eval engine + runner)
   token_economy.py                                     # compression curves
 
 examples/
@@ -340,46 +359,55 @@ docs/
 # LongMemEval data (not in this repo — download from upstream)
 # https://github.com/xiaowu0162/long-mem-eval → place at data/longmemeval_s_cleaned.json
 
-# Phase 1 retrieval (R@5)
+# Retrieval Layer (R@5)
 uv run python -m eval.runner --limit 100            # 100q stratified sample
 uv run python -m eval.ablations                     # full ablation matrix
 
-# Phase 2 belief layer (external)
+# Belief Layer (external)
 uv run python -m eval.longmemeval_belief \
     --detector full-stack-v7 --include-history      # the 0.885 headline
 
-# Phase 2 novelties
+# Belief Layer novelties
 uv run python -m eval.non_commutative_eval          # 95.8% on 240 scenarios
 uv run python -m eval.plasticity_on_real_logs      # LTD/Hebbian/LTP stats
 uv run python -m eval.false_contradiction_eval     # 6% FP rate
 
+# Answer Layer (end-to-end)
+uv run python -m eval.run_answer_eval \
+    --data data/longmemeval_ku_78.json \
+    --llm null --scorer numeric                     # baseline floor: 5/78
+
 # Full test suite
-uv run pytest tests/ -q                             # 602 tests, ~10s
+uv run pytest tests/ -q                             # 799 tests, ~75s
 ```
 
 ---
 
 ## Roadmap
 
-**Shipped (v0.7, 2026-04):**
-- Phase 1 retrieval pillar (R@5 = 1.000 on LongMemEval-KU)
-- Phase 2 belief layer with non-destructive supersession, validity, pramāṇa, plasticity, adhyāsa, abhāva, counterfactual replay, contextuality, raw archive
+**Shipped (v0.10):**
+- Retrieval Layer (R@5 = 1.000 on LongMemEval-KU)
+- Belief Layer with non-destructive supersession, validity, pramāṇa, plasticity, adhyāsa, abhāva, counterfactual replay, contextuality, raw archive
 - Sequential-event supersession detector with additive-veto (6% FP rate)
 - Non-commutative belief evolution: empirical benchmark + 95.8% measurement
-- LongMemEval-KU external eval (0.885 with current+history)
+- Synthesis-intent routing — gaṇita arithmetic at recall, zero LLM tokens
+- 6.5× token reduction on the multi-session 500q stratum
+- Hybrid karaṇa extractor + three regex false-positive filters
+- Answer Layer scaffolding — engine, three LLM adapters, six scorers, runner CLI, KU baseline floor
 - MCP server, CLI, Streamlit viewer, Python library
+- Published to PyPI as `patha-memory`
 
-**Next (v0.8):**
-- Publish to pypi as `patha-memory`
-- Phase 1 + Phase 2 integration inside the MCP server (retrieval-filtered supersession)
-- Learned sequential-event classifier (target: FPR < 2%)
-- LLM-in-the-loop scorer for external benchmarks
+**Near-term:**
+- Belief Layer + Retrieval Layer integration inside the MCP server (retrieval-filtered supersession)
+- Real LLM runs on the Answer Layer (Claude / Ollama on KU and BeliefEval)
+- Karaṇa-quality correlation: how does the Answer Layer accuracy curve change as the karaṇa extractor moves from regex → ollama-7b → hybrid-14b?
+- BeliefEval adapter for the Answer Layer runner (300 supersession scenarios via the same engine)
 
-**Future:**
+**Longer-term:**
 - Multi-user belief attribution (whose belief is it?)
 - Bayesian confidence propagation
 - Adapters for LangChain / LlamaIndex
-- Full 500q LongMemEval S eval
+- Persistent index API for the Retrieval Layer, so the MCP server can run dense retrieval across sessions without re-embedding
 
 ---
 

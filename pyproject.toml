@@ -1,11 +1,11 @@
 [project]
 name = "patha-memory"
-version = "0.10.2"
+version = "0.10.3"
 description = "Local-first AI memory with contradiction detection, non-destructive supersession, and empirically non-commutative belief evolution. Plugs into any MCP-compatible AI tool."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "stefi", email = "autotelicbydesign@gmail.com" }]
+authors = [{ name = "Stefi P. Krishnan", email = "autotelicbydesign@gmail.com" }]
 keywords = [
     "memory", "ai", "llm", "mcp", "belief-layer", "contradiction-detection",
     "supersession", "claude", "retrieval", "rag", "local-first",
