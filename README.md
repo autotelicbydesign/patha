@@ -1,5 +1,10 @@
 # Patha
 
+[![PyPI version](https://img.shields.io/pypi/v/patha-memory.svg)](https://pypi.org/project/patha-memory/)
+[![Python versions](https://img.shields.io/pypi/pyversions/patha-memory.svg)](https://pypi.org/project/patha-memory/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Tests](https://img.shields.io/github/actions/workflow/status/autotelicbydesign/patha/tests.yml?branch=main&label=tests)](https://github.com/autotelicbydesign/patha/actions/workflows/tests.yml)
+
 **Local-first AI memory designed from a different epistemology.**
 
 Most AI memory systems treat memory as storage and retrieval — a warehouse with an index. Patha treats memory as architecture, drawn from two traditions:
