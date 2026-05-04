@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.10.6 (2026-05-04) — license switched to Apache 2.0
+
+License changed from MIT to Apache 2.0. Substantive reasons:
+
+- **Explicit patent grant.** Apache 2.0 grants users an explicit license to any patents the author holds covering Patha's code; MIT is silent on patents. Patha implements genuinely novel architecture (synthesis-intent routing, gaṇita as a recall strategy, non-commutative belief evolution) — explicit patent terms matter more than for a generic library.
+- **Patent retaliation clause.** Anyone who patent-trolls Patha automatically loses their right to use Patha's code under Apache 2.0. MIT has no such mechanism.
+- **`NOTICE` file.** Apache 2.0 includes a structured attribution mechanism. `NOTICE` carries the project copyright, attribution to Stefi P. Krishnan, and the Claude Code pair-programming acknowledgment.
+
+Practical changes:
+
+- `LICENSE` file added (was missing — the v0.10.5 README badge linked to a 404).
+- `NOTICE` file added.
+- `pyproject.toml`: `license = "Apache-2.0"`; classifier `License :: OSI Approved :: Apache Software License`.
+- README badge `License: MIT` → `License: Apache 2.0`.
+- README "## License" section now points at LICENSE + NOTICE.
+
+No code or test changes. License is wheel metadata, so a version bump is required to publish the change.
+
 ## v0.10.5 (2026-05-04) — first PyPI release
 
 v0.10.2, v0.10.3, and v0.10.4 were all uploaded to TestPyPI but never to real PyPI. v0.10.5 is the accumulated fixes from three review rounds and is the first version published to real PyPI.
