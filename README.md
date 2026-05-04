@@ -422,7 +422,7 @@ uv run pytest tests/ -q                             # 799 tests, ~75s
 
 ## Acknowledgments
 
-Designed by Stefi P. Krishnan and built with [Claude Code](https://claude.ai/code) as a pair-programming partner.
+Designed by [Stefi P. Krishnan](https://www.linkedin.com/in/stefka-peykova/) and built with [Claude Code](https://claude.ai/code) as a pair-programming partner.
 
 ## License
 
