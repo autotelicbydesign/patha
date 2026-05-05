@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.10.7 (2026-05-05) — metric relabel: answer-recall vs end-to-end + first real-LLM Articulation Bridge measurement
+
+A previous version labelled the LongMemEval-KU 1.000 (77/77) result as "end-to-end accuracy." That was a category error: the metric scores whether the gold answer (or a synonym) appears as a *substring* in Patha's emitted summary. **No LLM is involved in scoring.** It measures what Patha surfaces, not what an LLM does with it.
+
+**Relabelled across README, `docs/benchmarks.md`, `docs/releases/v0.10.7.md`:**
+- *was*: "End-to-end accuracy on KU: 1.000 (77/77)" (in v0.10.5/0.10.6 README)
+- *is*: "Belief-Layer answer-recall on KU: 1.000 (77/77)" — explicitly described as "the gold answer appears in Patha's summary; no LLM in the scoring loop"
+- Same correction applied to Claim B (0.987), Claim C (0.952 / 472/496), and the multi-session 0.857 line — all are answer-recall, not end-to-end.
+- Added a "three different metrics, three different things" explainer block in the README so readers don't conflate retrieval R@5, answer-recall, and Articulation Bridge end-to-end.
+
+**Added: first real-LLM Articulation Bridge measurement.** Ran the existing v0.10 scaffolding (`eval/run_answer_eval`) end-to-end on KU 78q with `qwen2.5:14b-instruct` via local Ollama:
+- token-overlap ≥0.6 (LongMemEval-S official scorer): **24/78 = 0.308**
+- numeric: 12/78 = 0.154
+- embedding-cosine ≥0.55: 36/78 = 0.462
+- per-strategy on token-overlap: ganita 5/41 (0.122), structured 19/37 (0.514)
+- 12 minutes wall time; 10 s/question on warm GPU
+
+This is **the first real number from an LLM in the loop.** It's an open-source 14B local model — a floor for "real LLMs," not a ceiling. Frontier-LLM measurement (Claude Sonnet 4 / GPT-4o) pending API access; will publish in v0.11.
+
+**Other:**
+- Bumped `OllamaLLM.timeout_s` default 60 → 240 (60s was too short for 14B models on long prompts; the first run hit a urllib socket timeout).
+
+No code, test, or architecture changes vs v0.10.6 beyond the timeout bump and the metric relabel.
+
 ## v0.10.6 (2026-05-04) — license switched to Apache 2.0
 
 License changed from MIT to Apache 2.0. Substantive reasons:

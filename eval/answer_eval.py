@@ -380,7 +380,7 @@ class OllamaLLM:
     model: str = "qwen2.5:14b-instruct"
     host: str = "http://localhost:11434"
     temperature: float = 0.0
-    timeout_s: float = 60.0
+    timeout_s: float = 240.0
     num_predict: int = 256
 
     calls: int = 0

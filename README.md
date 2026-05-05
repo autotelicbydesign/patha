@@ -55,14 +55,14 @@ Top-K retrieval is the wrong primitive for synthesis: top-100 of 1000 sessions m
 
 - **Synthesis-intent routing** — `Memory.recall()` detects sum/count/avg/min/max/difference and routes to gaṇita. Verified by `test_synthesis_intent_independent_of_phase1`, which forces the Retrieval Layer to return `[]` and the gaṇita layer still recovers the canonical $185.
 - **Retrieval Layer R@5: 1.000** on the LongMemEval-KU 78-question public subset.
-- **End-to-end accuracy on KU: 1.000 (77/77)** ¹ with synthesis-intent routing on (up from 0.987 baseline).
+- **Belief-Layer answer-recall on KU: 1.000 (77/77)** ¹ with synthesis-intent routing on (up from 0.987 baseline). *Answer-recall = the gold answer (or one of its synonyms) appears as a substring in Patha's emitted summary. This is a measurement of what Patha surfaces, **not** what an LLM does with it; see "Articulation Bridge" below for the end-to-end-through-an-LLM measurement.*
 - **Average tokens/summary on the multi-session 500q stratum: 18,384** — a **6.5× reduction** from the 118,761 baseline, with **zero LLM tokens at recall** on the synthesis path.
 - **Hybrid karaṇa extractor** — regex enumerates every `$X`, LLM only labels semantically. Recall preserved; LLM cost paid once at ingest, never at recall.
 - **Three regex false-positive filters** — range, hypothetical ("thinking about"), negated-purchase ("didn't buy"). Documented in `tests/belief/test_ganita.py::TestFalsePositiveFilters`.
 - **Filesystem-native ingest** — `patha import obsidian-vault <path>` walks pre-existing writing into the belief store.
-- **Articulation Bridge scaffolding** — `eval/answer_eval.py` + `eval/run_answer_eval.py` ship the engine, three LLM adapters, six scorers, and a runner CLI. Measured baseline floor on KU 78q with NullTemplateLLM: 5/78 = 0.064 (the bar a real LLM should beat).
+- **Articulation Bridge scaffolding** — `eval/answer_eval.py` + `eval/run_answer_eval.py` ship the engine, three LLM adapters, six scorers, and a runner CLI. Measured baseline floor on KU 78q with NullTemplateLLM: 5/78 = 0.064 (the bar a real LLM should beat). **Real measurement on KU 78q (qwen2.5:14b local, token-overlap ≥0.6 — the LongMemEval-S official scorer): 0.308 (24/78). Frontier-LLM measurement pending.**
 
-¹ One question excluded from end-to-end scoring due to a known datetime-tz edge case; scored over 77.
+¹ One question excluded from answer-recall scoring due to a known datetime-tz edge case; scored over 77.
 
 ## Token economy
 
@@ -272,13 +272,22 @@ Full numbers with caveats, ablations, and methodology live in [docs/benchmarks.m
 
 | Benchmark | Result | Notes |
 |---|---|---|
-| **LongMemEval-KU R@5 (Retrieval Layer)** | 1.000 (78/78) | perfect retrieval on the public KU subset |
-| LongMemEval S 100q stratified R@5 | 0.989 | — |
+| **LongMemEval-KU R@5 (Retrieval Layer)** | 1.000 (78/78) | did Phase 1 surface the gold session in top-5? — perfect on the public KU subset |
+| LongMemEval S 100q stratified R@5 | 0.989 | same retrieval-quality metric |
+| **LongMemEval-KU answer-recall (Belief Layer)** | **1.000 (77/77)** ¹ | did the gold answer appear as a substring in Patha's summary? *(measures what Patha surfaces, not what an LLM does with it)* |
+| **LongMemEval-KU end-to-end through LLM (Articulation Bridge)** | **0.308 (24/78)** | qwen2.5:14b local, token-overlap ≥0.6 (LongMemEval-S official scorer). **Frontier-LLM measurement pending.** |
 | BeliefEval 300-scenario / 347q (Belief Layer) | 1.000 with full-stack-v7 | our own benchmark; see caveat |
-| **LongMemEval-KU answer-in-summary (Belief Layer alone)** | **0.885 (69/78)** | stub null baseline: 0.795 |
+| LongMemEval-KU answer-in-summary alternate scoring | 0.885 (69/78) | stub null baseline: 0.795 |
 | Articulation Bridge baseline floor (KU 78q, NullTemplateLLM, numeric scorer) | 5/78 = 0.064 | the bar a real LLM should beat |
 | Non-commutativity on 240 supersession scenarios | 95.8% | 0% on reinforcement |
 | Test suite | 799 pass | 3 skip on optional deps |
+
+¹ One question excluded from answer-recall scoring due to a known datetime-tz edge case; scored over 77.
+
+**Three different metrics, three different things they measure:**
+- **Retrieval R@5** — *did Phase 1 surface the gold session in the top-5?* (a Retrieval Layer quality measurement)
+- **Belief-Layer answer-recall** — *does the gold answer string (or a synonym) appear in Patha's emitted summary?* (a Belief-Layer surface-quality measurement; we previously labelled this "end-to-end" — it isn't, since no LLM is involved in scoring)
+- **Articulation Bridge end-to-end** — *given Patha's output as context, does the user's LLM produce an answer that matches the gold under a chosen scorer?* (the actual end-to-end answer accuracy with a real LLM in the loop)
 
 **Caveat on the 1.000 BeliefEval:** the Belief Layer's detector was iteratively tuned on the exact scenarios in our benchmark, so 1.000 on that set should be read as "no known misses" rather than "generalises everywhere." The honest external number is 0.885 on LongMemEval-KU, measured on a benchmark we didn't write.
 

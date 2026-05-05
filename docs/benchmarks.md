@@ -12,13 +12,15 @@ This file holds the detailed benchmark numbers that used to live in the README. 
 
 This is the **retrieval-quality claim.** "Did Phase 1 rank the gold session in the top-5?" Patha Phase 1 gets this right on every one of the 78 questions in the LongMemEval-KU public subset.
 
-### Claim C: Unified `patha.Memory` on full 500q LongMemEval-S (end-to-end)
+### Claim C: Unified `patha.Memory` on full 500q LongMemEval-S (answer-recall)
 
 Phase 1 retrieval + Phase 2 belief layer run together through `patha.Memory()`. Session-level ingest, stub detector, the full 500q LongMemEval-S.
 
 | Configuration | 500q LongMemEval-S |
 |---|:---:|
-| **Patha unified** | **0.952 (472/496)** |
+| **Patha unified — answer-recall** | **0.952 (472/496)** |
+
+**Metric:** *answer-recall* — does the gold answer (or one of its synonyms) appear as a substring in Patha's emitted summary text? **No LLM is involved in scoring.** This measures what the Belief Layer surfaces; it does *not* measure end-to-end answer accuracy through an LLM. For that, see Phase 3 / Articulation Bridge below.
 
 4 of 500 questions skipped due to a datetime-tz edge case; scored over 496.
 
@@ -73,13 +75,13 @@ Same eval on a 300q stratified sample (reproducible with `eval/make_stratified.p
 
 **Note on an earlier eval bug:** a prior 300q run scored 0.841 because it ingested only USER turns, missing the `single-session-assistant` stratum where the gold fact was stated by the assistant (e.g. "what did you recommend for dinner?"). Fixed in commit `d44a223` by ingesting both sides of the conversation; the 0.950 / 0.952 numbers above are post-fix. The old number was an artifact of our pipeline, not the architecture.
 
-### Claim B: Unified Patha end-to-end — `patha.Memory` public API
+### Claim B: Unified Patha answer-recall — `patha.Memory` public API
 
-The public developer API (what you get when you `import patha; patha.Memory()`) ingesting every user turn, then answering the question through Phase 1 retrieval → Phase 2 belief layer → structured summary.
+The public developer API (what you get when you `import patha; patha.Memory()`) ingesting every user turn, then answering the question through Retrieval Layer → Belief Layer → structured summary. **The metric is answer-recall** (gold answer appears as substring in Patha's emitted summary), **not end-to-end through an LLM.** For end-to-end-through-an-LLM see Phase 3 / Articulation Bridge.
 
-| Configuration | Accuracy (78q) | Notes |
+| Configuration | Answer-recall (78q) | Notes |
 |---|:---:|---|
-| Session-level ingest (one belief per session) | **0.987 (76/77)** | end-to-end through the public developer API |
+| Session-level ingest (one belief per session) | **0.987 (76/77)** | through the public developer API |
 | Turn-level ingest, `phase1_top_k=100` | 0.455 (35/77) | loses signal to reranker on fragmented turns |
 | Turn-level ingest, default `phase1_top_k=20` | 0.325 (25/77) | early over-trimming |
 | Stub baseline (no supersession, keep everything) | 0.795 (62/78) | lexical-overlap upper bound, from v0.7 |
@@ -158,16 +160,20 @@ Verified end-to-end with `tests/belief/test_plasticity_wiring.py` (4 tests) and 
 ### Honest summary
 
 - **Phase 1 retrieval alone, session-level R@5: 1.000.** Perfect retrieval on the LongMemEval-KU public subset.
-- **`patha.Memory` end-to-end, session-level ingest: 0.987.** End-to-end through the public developer API.
-- **`patha.Memory` end-to-end, turn-level ingest: 0.455.** Substantially worse, because LongMemEval assumes session-level chunks. Turn-level is the right shape for personal-memory / MCP use, which LongMemEval doesn't measure.
+- **`patha.Memory` answer-recall, session-level ingest: 0.987.** Gold answer appears in Patha's summary in 76 of 77 KU questions. *(This was previously labelled "end-to-end" — corrected: no LLM is involved in scoring.)*
+- **`patha.Memory` answer-recall, turn-level ingest: 0.455.** Substantially worse, because LongMemEval assumes session-level chunks. Turn-level is the right shape for personal-memory / MCP use, which LongMemEval doesn't measure.
 - **BeliefEval (our supersession benchmark), turn-level: 1.000.** Different test, different granularity match.
+- **Articulation Bridge end-to-end through an LLM, KU 78q (qwen2.5:14b local, token-overlap ≥0.6 — LongMemEval-S official scorer): 0.308 (24/78).** First real-LLM measurement; frontier-LLM measurement pending.
 
 Reproduce:
 ```bash
-uv run make eval-ku                                         # Claim A (Phase 1 retrieval)
-uv run python -m eval.longmemeval_integrated --granularity session  # Claim B (end-to-end, session)
-uv run python -m eval.longmemeval_integrated                # Claim B (end-to-end, turn)
-uv run python -m eval.belief_eval                            # BeliefEval
+uv run make eval-ku                                                       # Phase 1 retrieval (R@5)
+uv run python -m eval.longmemeval_integrated --granularity session        # answer-recall, session
+uv run python -m eval.longmemeval_integrated                              # answer-recall, turn
+uv run python -m eval.belief_eval                                         # BeliefEval
+uv run python -m eval.run_answer_eval --data data/longmemeval_ku_78.json \
+    --llm ollama --ollama-model qwen2.5:14b-instruct --scorer overlap \
+    --output runs/answer_eval/ku-qwen14b-overlap.json                      # Articulation Bridge end-to-end
 ```
 
 ## Phase 3 — End-to-end answer evaluation
@@ -205,9 +211,40 @@ uv run python -m eval.run_answer_eval \
     --output runs/answer_eval/ku-null-numeric.json
 ```
 
+### First real-LLM measurement — qwen2.5:14b on LongMemEval-KU
+
+**Setup:** local Ollama running `qwen2.5:14b-instruct` (Q4_K_M quantization, ~9 GB, GPU-resident). 78 questions, default Articulation Bridge prompt template, Patha's structured summary + gaṇita context piped to the model. Wall time 12 minutes (10 s/question).
+
+| Scorer | Accuracy | Notes |
+|---|:---:|---|
+| numeric (5% tol) | 12/78 = 0.154 | strict; fails on non-numeric gold paraphrased correctly |
+| normalised_match | 2/78 = 0.026 | strictest; fails on any prose wrapping |
+| **token_overlap ≥0.6 (LongMemEval-S official)** | **24/78 = 0.308** | **the canonical apples-to-apples number** |
+| token_overlap ≥0.4 | 34/78 = 0.436 | looser overlap threshold |
+| embedding_cosine ≥0.85 | 6/78 = 0.077 | over-strict at default threshold |
+| embedding_cosine ≥0.55 | 36/78 = 0.462 | semantic match, threshold tuned for short answers |
+
+Per-strategy on the canonical token-overlap run:
+- ganita (synthesis intent): 5/41 = 0.122
+- structured (retrieval intent): 19/37 = 0.514
+
+**What this number tells us, and what it doesn't:**
+- The Articulation Bridge measurement framework runs end-to-end, exits cleanly, and produces a real number above the NullTemplateLLM floor. The plumbing works.
+- 0.308 with a 14B local model is a *floor for "real LLMs in the loop,"* not a ceiling. qwen2.5:14b is small relative to frontier models (Claude Sonnet 4, GPT-4o, Gemini 2.5 Pro), and inspection of failures shows two clusters: (a) hallucinated specific values (e.g. gold "$400,000" → answer "$350,000") and (b) prose verbosity that defeats strict scorers despite a correct fact (e.g. gold "Three times a week" → answer correctly mentions "2-3 times" inside a longer paragraph). A frontier-class model would likely reduce both.
+- **Frontier-LLM measurement pending.** This will likely lift the number substantially; it'll be published in v0.11.
+
+Reproduce:
+```bash
+uv run python -m eval.run_answer_eval \
+    --data data/longmemeval_ku_78.json \
+    --llm ollama --ollama-model qwen2.5:14b-instruct \
+    --scorer overlap \
+    --output runs/answer_eval/ku-qwen14b-overlap.json
+```
+
 ### What Phase 3 doesn't yet measure (deferred to v0.11+)
 
-- **Real LLM runs** (Claude / Ollama / GPT) on KU and on the 500q full set. Engine + runner are wired; the runs are deferred until we're ready to spend the LLM-time/cost.
+- **Frontier-LLM runs** (Claude Sonnet 4, GPT-4o) on KU and on the 500q full set. Engine + runner are wired; one local-model run shipped (above); the frontier-class runs are deferred pending API access.
 - **Karaṇa-quality correlation** (`regex < ollama-7b < hybrid-14b` on the synthesis-bounded subset). Requires running the same questions through three karaṇa configurations and reporting the spread.
 - **BeliefEval (300 supersession scenarios)** through the answer-eval engine. Requires a small adapter from BeliefEval's per-scenario shape to the question-list shape `run_answer_eval` expects.
 
