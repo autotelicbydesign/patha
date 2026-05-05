@@ -31,6 +31,12 @@ third_party/long-mem-eval/
 # claude code workspace state
 .claude/
 
+# secrets — NEVER commit. Use .env.example as the template; real values in .env.
+.env
+.env.local
+.env.*.local
+!.env.example
+
 # PRIVATE — never commit. Personal drafts and raw material for publishing.
 # Do not remove these entries. Do not add exceptions.
 building_in_public.md

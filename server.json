@@ -1,0 +1,52 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.autotelicbydesign/patha",
+  "description": "Local-first AI memory with Vedic-recitation + Aboriginal-songline architecture. Synthesis-intent routing answers aggregation queries with zero LLM tokens at recall. Includes belief layer with non-destructive supersession, plasticity, and explicit cognitive-status tagging.",
+  "repository": {
+    "url": "https://github.com/autotelicbydesign/patha",
+    "source": "github"
+  },
+  "version": "0.10.7",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "patha-memory",
+      "version": "0.10.7",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeArguments": [
+        {
+          "description": "Run the Patha MCP server on stdio.",
+          "isRequired": true,
+          "format": "string",
+          "type": "positional",
+          "value": "patha-mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "description": "Override the on-disk store path. Default: ~/.patha",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "PATHA_STORE_PATH"
+        },
+        {
+          "description": "Enable/disable Phase-1 retrieval inside the MCP server. Default: on.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "PATHA_PHASE1"
+        },
+        {
+          "description": "Enable/disable the gaṇita synthesis index. Default: on.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "PATHA_GANITA"
+        }
+      ]
+    }
+  ]
+}
