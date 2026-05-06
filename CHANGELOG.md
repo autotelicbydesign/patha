@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.10.8 (2026-05-06) — Claude conversation import + CLI fixes (REPL, --version, PATHA_DETECTOR env var)
+
+Driven by real user feedback on what the v0.10.7 surfaces actually felt like.
+
+### New: `patha import claude-export <zip>`
+
+Bulk-import your Claude conversation history into a Patha store. Anthropic lets you download all your conversations as a `.zip` from `claude.ai` → Settings → Privacy → Export data. Patha can now read that export and ingest each user-side message (or each user-side sentence, by default) as a belief, with the original timestamp preserved.
+
+Only **user messages** are ingested. Assistant replies are skipped (those are Claude's outputs, not the user's beliefs). Filtering: messages shorter than 30 chars, questions, and obvious commands to Claude are skipped. Messages over a configurable cap (default 10 sentences) are truncated to prevent one brain-dump from flooding the store. Code blocks are stripped.
+
+CLI:
+```
+patha import claude-export ~/Downloads/data-export.zip
+patha import claude-export ~/Downloads/data-export.zip --whole-messages  # don't sentence-split
+patha import claude-export ~/Downloads/data-export.zip --verbose         # one line per conversation
+```
+
+Why this matters: a major UX gap in v0.10.7 was that "your AI memory follows you across tools" oversold what Patha actually does — Patha is a memory store, not an observer. Live conversations only enter the store when Claude (or you) explicitly call `patha_ingest`. `patha import claude-export` closes the gap retroactively for everything you've already told Claude.
+
+### CLI fixes
+
+- **`patha shell` REPL** — drop into an interactive prompt; type sentences to remember, prefix `?` (or end with `?`) to ask. No more `patha ingest "…"` boilerplate.
+- **`--version` flag** — `patha --version` now prints the package version. Basic CLI hygiene that was missing.
+- **`PATHA_DETECTOR` env var** — `--detector` now reads the env var as its default. Previously the env var was silently ignored, which meant `export PATHA_DETECTOR=full-stack-v8` did nothing — the CLI kept running on the stub detector. Real bug, surfaced by user testing.
+- **`patha install-mcp` honors the global `--detector` / `PATHA_DETECTOR`** — previously `patha install-mcp` always wrote `"PATHA_DETECTOR": "stub"` into the generated Claude Desktop config, regardless of the global flag or env var. Users had to know to use the (less obvious) `--install-detector` flag, or hand-edit the JSON afterwards. Now `patha --detector full-stack-v8 install-mcp` and `PATHA_DETECTOR=full-stack-v8 patha install-mcp` both bake `full-stack-v8` into the config. The dedicated `--install-detector` flag still overrides if explicitly passed.
+- **CLI ganita wiring** (was already in v0.10.7) — `patha ingest` / `patha ask` go through the public `Memory` class, so the synthesis path works through the CLI exactly the way it does through the Python library and MCP server.
+
+### Documentation honesty pass
+
+The "Switch tools mid-project; your memory follows" line on the README was technically true (the store is portable) but implicitly oversold what passive observation Patha does (none — it's a store, not a transcript-scraper). Added an explicit clarification block: facts enter via CLI / REPL / file import / explicit `patha_ingest` call from the AI. There is no background magic.
+
+No architectural changes to the Retrieval Layer, Belief Layer, or Articulation Bridge in this release.
+
 ## v0.10.7 (2026-05-05) — metric relabel: answer-recall vs end-to-end + first real-LLM Articulation Bridge measurement
 
 A previous version labelled the LongMemEval-KU 1.000 (77/77) result as "end-to-end accuracy." That was a category error: the metric scores whether the gold answer (or a synonym) appears as a *substring* in Patha's emitted summary. **No LLM is involved in scoring.** It measures what Patha surfaces, not what an LLM does with it.

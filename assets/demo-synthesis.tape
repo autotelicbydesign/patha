@@ -1,7 +1,8 @@
 # Patha demo 1: AI memory that does math
 #
-# Reframed for a non-technical reader.
-# Reproduce: vhs assets/demo-synthesis.tape   (writes assets/demo-synthesis.gif)
+# Uses `patha shell` so the typing reads as natural conversation,
+# not "patha ingest" boilerplate.
+# Reproduce: vhs assets/demo-synthesis.tape
 
 Output assets/demo-synthesis.gif
 
@@ -18,8 +19,6 @@ Type "cd /Users/stefi/Sandbox/Memory"
 Enter
 Type "rm -rf /tmp/patha-demo && export PATHA_STORE_PATH=/tmp/patha-demo"
 Enter
-Type "alias patha='uv run --quiet patha'"
-Enter
 Type "clear"
 Enter
 Sleep 200ms
@@ -34,51 +33,53 @@ Sleep 2200ms
 Enter
 Enter
 
-# ─── Setup framing ──────────────────────────────────────────────────
-Type "# Over the last few months, you mentioned to your AI:"
+# ─── Drop into the REPL ─────────────────────────────────────────────
+Type "uv run --quiet patha shell"
 Enter
-Sleep 700ms
+Sleep 2500ms
 
-Type "patha ingest 'I bought a $50 saddle for my bike'"
-Enter
-Sleep 1800ms
-
-Type "patha ingest 'I got a $75 helmet for the bike'"
+# ─── Four bike purchases, conversational ────────────────────────────
+Type "I bought a $50 saddle for my bike"
+Sleep 600ms
 Enter
 Sleep 1800ms
 
-Type "patha ingest '$30 for new bike lights'"
+Type "I got a $75 helmet for the bike"
+Sleep 600ms
 Enter
 Sleep 1800ms
 
-Type "patha ingest 'I spent $30 on bike gloves'"
+Type "$30 for new bike lights"
+Sleep 600ms
 Enter
-Sleep 2200ms
+Sleep 1800ms
 
+Type "I spent $30 on bike gloves"
+Sleep 600ms
 Enter
+Sleep 1800ms
 
-# ─── The question ──────────────────────────────────────────────────
-Type "# Today you ask:"
-Enter
-Sleep 700ms
-
-Type 'patha ask "how much have I spent on bike-related expenses?"'
+# ─── The synthesis question ─────────────────────────────────────────
+Type "? how much have I spent on bike-related expenses?"
+Sleep 800ms
 Enter
 Sleep 5000ms
 
+# ─── Exit + reveal ──────────────────────────────────────────────────
+Type "exit"
 Enter
+Sleep 1500ms
 
-# ─── Plain-language reveal ─────────────────────────────────────────
 Type "# Patha added them up. $50 + $75 + $30 + $30 = $185."
 Sleep 2200ms
 Enter
-Type "# It did NOT ask another AI to do the math."
+Type "# It did NOT call another AI to do the math."
 Sleep 2200ms
 Enter
 Type "# It computed the answer directly. Zero LLM tokens at recall."
 Sleep 2500ms
 Enter
-Type "# That is faster, cheaper, and always correct."
+Type "# Faster, cheaper, always correct."
 Sleep 2500ms
 Enter
 Enter

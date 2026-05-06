@@ -20,7 +20,9 @@ What that produces, mechanically:
 
 - **Old beliefs are never overwritten.** When you change your mind, Patha marks the old belief as superseded with a full lineage you can walk. You can ask *"what did I used to think about X?"* and get an answer.
 
-The belief store is plain JSONL — `~/.patha/beliefs.jsonl` — that you can read, edit, version-control, grep, or copy to another machine. Nothing leaves your laptop. The same store feeds every MCP-compatible AI tool: Claude Desktop, Claude Code, Cursor, Zed, Goose. Switch tools mid-project; your memory follows.
+The belief store is plain JSONL — `~/.patha/beliefs.jsonl` — that you can read, edit, version-control, grep, or copy to another machine. Nothing leaves your laptop. The same store feeds every MCP-compatible AI tool: Claude Desktop, Claude Code, Cursor, Zed, Goose.
+
+> **What "feeds" means here, precisely.** Patha is a memory *store*, not an observer. There is no background process that scrapes your conversations. Facts enter the store when you put them in — via the CLI / REPL, by importing a file, or by your AI explicitly calling `patha_ingest` after you tell it *"remember that …"*. To bulk-import what you've already told Claude in past chats, see `patha import claude-export <export.zip>` below.
 
 ---
 
@@ -161,10 +163,19 @@ patha ask "what do I currently eat?"          # routes through supersession
 patha history "sushi"                         # every mention, current + superseded
 patha stats                                   # store counts + plasticity state
 
+# Or skip the prefix entirely with the REPL:
+patha shell                                   # type sentences naturally
+                                              # prefix `?` to ask
+
 # Bring an existing Obsidian vault, Markdown folder, or single file:
 patha import obsidian-vault ~/MyVault
 patha import folder ~/Documents/notes
 patha import file ~/Desktop/recipe.md
+
+# Bulk-import what you've already told Claude:
+patha import claude-export ~/Downloads/data-export.zip
+# (Get the export from claude.ai → Settings → Privacy → Export data.
+#  Only your messages are imported; Claude's replies are skipped.)
 ```
 
 Use `--detector full-stack-v7` to switch to the production NLI + adhyāsa + numerical + sequential detector (downloads ~1.7 GB on first run). Default is `stub` for instant startup.

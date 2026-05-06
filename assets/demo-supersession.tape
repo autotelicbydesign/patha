@@ -1,7 +1,7 @@
 # Patha demo 2: When you change your mind, AI memory should change too
 #
-# Shows non-destructive supersession + history walking.
-# Reproduce: vhs assets/demo-supersession.tape   (writes assets/demo-supersession.gif)
+# Uses `patha shell` for natural conversational typing.
+# Reproduce: vhs assets/demo-supersession.tape
 
 Output assets/demo-supersession.gif
 
@@ -18,8 +18,6 @@ Type "cd /Users/stefi/Sandbox/Memory"
 Enter
 Type "rm -rf /tmp/patha-demo2 && export PATHA_STORE_PATH=/tmp/patha-demo2"
 Enter
-Type "alias patha='uv run --quiet patha --detector full-stack-v7'"
-Enter
 Type "clear"
 Enter
 Sleep 200ms
@@ -34,64 +32,54 @@ Sleep 2500ms
 Enter
 Enter
 
-# ─── Setup story: June ──────────────────────────────────────────────
-Type "# In June, you told your AI:"
-Enter
-Sleep 700ms
-
-Type "patha ingest 'I love sushi and eat it every week'"
+# ─── Drop into the REPL ─────────────────────────────────────────────
+Type "uv run --quiet patha shell --detector full-stack-v7"
 Enter
 Sleep 2500ms
 
-Enter
-
-# ─── Setup story: December ──────────────────────────────────────────
-Type "# Six months later, things changed:"
-Enter
+# ─── June: love sushi ───────────────────────────────────────────────
+Type "I love sushi and eat it every week"
 Sleep 700ms
-
-Type "patha ingest 'I am avoiding raw fish on my doctor advice'"
 Enter
-Sleep 3500ms
+Sleep 2500ms
 
-Enter
-
-# ─── The question (current) ────────────────────────────────────────
-Type "# Now you ask: 'what do I currently eat?'"
-Enter
+# ─── December: avoiding raw fish ───────────────────────────────────
+Type "I am avoiding raw fish on my doctor advice"
 Sleep 700ms
-
-Type 'patha ask "what do I currently eat?"'
-Enter
-Sleep 4500ms
-
-Enter
-Type "# Patha caught the contradiction. The new belief supersedes the old."
-Sleep 3000ms
-Enter
-Enter
-
-# ─── The history ───────────────────────────────────────────────────
-Type "# But the old belief is not deleted. It is filed under history:"
-Enter
-Sleep 800ms
-
-Type "patha history sushi"
 Enter
 Sleep 4000ms
 
+# ─── Ask: what now? ────────────────────────────────────────────────
+Type "? what do I currently eat?"
+Sleep 800ms
+Enter
+Sleep 4500ms
+
+# ─── Exit + reveal ──────────────────────────────────────────────────
+Type "exit"
+Enter
+Sleep 1500ms
+
+Type "# Patha caught the contradiction."
+Sleep 2000ms
+Enter
+Type "# The new belief supersedes the old one."
+Sleep 2000ms
+Enter
+Type "# But the old belief is not deleted. Walk the history:"
+Sleep 2500ms
+Enter
 Enter
 
-# ─── Plain-language reveal ─────────────────────────────────────────
-Type "# You can ask: 'what did I used to think about sushi?' "
-Sleep 2200ms
+Type "uv run --quiet patha history sushi"
 Enter
-Type "# Patha will show you the timeline."
-Sleep 2200ms
+Sleep 4500ms
+
+Type "# Old belief: superseded. New belief: current."
+Sleep 2500ms
 Enter
-Enter
-Type "# This is how human memory actually works. AI memory should match."
-Sleep 3000ms
+Type "# This is how human memory actually works."
+Sleep 2500ms
 Enter
 Enter
 Type "# Try it: pip install patha-memory"

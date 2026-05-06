@@ -249,11 +249,20 @@ def cmd_install_mcp(args: argparse.Namespace) -> int:
         hebbian = True
     elif hebbian == "off":
         hebbian = False
+    # Resolve which detector to bake into the generated MCP config:
+    #   1. Explicit --install-detector wins (the dedicated subcommand flag)
+    #   2. Otherwise, take the global --detector / PATHA_DETECTOR env value
+    #      (so `patha --detector full-stack-v8 install-mcp` and
+    #      `PATHA_DETECTOR=full-stack-v8 patha install-mcp` both Just Work,
+    #      which they did NOT in v0.10.7 — that was a real bug)
+    install_detector = args.install_detector
+    if install_detector == "stub" and args.detector != "stub":
+        install_detector = args.detector
     return install(
         client=args.client,
         use_uvx=args.uvx,
         store_path=args.store_path,
-        detector=args.install_detector,
+        detector=install_detector,
         yes=args.yes,
         dry_run=args.dry_run,
         karana_mode=karana_mode,
@@ -494,6 +503,13 @@ def cmd_import(args: argparse.Namespace) -> int:
     elif args.kind == "file":
         stats = ImportStats()
         import_file(target, memory, obsidian=args.obsidian, stats=stats)
+    elif args.kind == "claude-export":
+        from patha.importers import import_claude_export
+        stats = import_claude_export(
+            target, memory,
+            sentence_split=not args.whole_messages,
+            verbose=args.verbose,
+        )
     else:
         print(f"error: unknown import kind: {args.kind}", file=sys.stderr)
         return 1
@@ -525,6 +541,11 @@ def main(argv: list[str] | None = None) -> int:
         prog="patha",
         description="Patha — local-first AI memory with supersession and plasticity",
     )
+    from patha import __version__ as _patha_version
+    parser.add_argument(
+        "--version", action="version",
+        version=f"patha {_patha_version}",
+    )
     parser.add_argument(
         "--data-dir",
         type=Path,
@@ -532,12 +553,24 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Where to persist belief state (default: {DEFAULT_DATA_DIR}; "
              "overridable via PATHA_STORE_PATH env var)",
     )
+    _default_detector = os.environ.get("PATHA_DETECTOR", "stub")
+    if _default_detector not in AVAILABLE_DETECTORS:
+        # Bad env-var value would otherwise crash with an opaque argparse
+        # error. Fall back to stub and warn.
+        print(
+            f"warn: PATHA_DETECTOR={_default_detector!r} is not a known "
+            f"detector ({', '.join(AVAILABLE_DETECTORS)}); falling back to 'stub'.",
+            file=sys.stderr,
+        )
+        _default_detector = "stub"
     parser.add_argument(
         "--detector",
         choices=AVAILABLE_DETECTORS,
-        default="stub",
-        help="Contradiction detector (default: stub). Use 'full-stack-v7' "
-             "for production behavior; downloads ~1.7 GB on first run.",
+        default=_default_detector,
+        help=f"Contradiction detector (default: {_default_detector}; "
+             "set via --detector or PATHA_DETECTOR env var). Use "
+             "'full-stack-v7' or 'full-stack-v8' for production behavior; "
+             "downloads ~1.7 GB on first run.",
     )
 
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -680,19 +713,30 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_import.add_argument(
         "kind",
-        choices=["file", "folder", "obsidian-vault"],
-        help="What to import: a single file, a recursive folder, or an "
-             "Obsidian vault (frontmatter + wikilinks aware).",
+        choices=["file", "folder", "obsidian-vault", "claude-export"],
+        help="What to import: a single file, a recursive folder, an "
+             "Obsidian vault (frontmatter + wikilinks aware), or a Claude "
+             "conversation export (.zip from claude.ai → Settings → "
+             "Privacy → Export data).",
     )
     p_import.add_argument(
         "path",
-        help="Path to the file / folder / vault to import.",
+        help="Path to the file / folder / vault / export-zip to import.",
     )
     p_import.add_argument(
         "--obsidian", action="store_true",
         help="When importing a folder/file, treat as Obsidian (parse "
              "YAML frontmatter, extract wikilink + tag entity hints). "
              "Implied by `obsidian-vault`.",
+    )
+    p_import.add_argument(
+        "--whole-messages", action="store_true",
+        help="(claude-export only) Ingest each user message as a single "
+             "belief instead of sentence-splitting. Default is to split.",
+    )
+    p_import.add_argument(
+        "--verbose", action="store_true",
+        help="Print one line per imported conversation / file.",
     )
     p_import.set_defaults(fn=cmd_import)
 

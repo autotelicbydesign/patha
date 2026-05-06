@@ -50,7 +50,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 
 _TEXT_SUFFIXES = {".md", ".markdown", ".txt"}
@@ -404,10 +404,260 @@ def extract_entity_hints_from_obsidian(text: str) -> list[str]:
     return out
 
 
+# ─── Claude conversation-history export ─────────────────────────────
+
+
+# Heuristic-only filtering. We don't try to "extract facts" with an LLM
+# at import time — Patha's existing karaṇa extractor handles tuple
+# extraction at ingest. Here we just decide which user messages are
+# worth ingesting at all.
+_QUESTION_STARTS = (
+    "what", "why", "how", "when", "where", "who", "which", "can ",
+    "could ", "do ", "does ", "did ", "is ", "are ", "was ", "were ",
+    "should ", "would ", "will ", "may ", "might ",
+)
+
+
+def _looks_like_question_or_command(text: str) -> bool:
+    """Skip messages that are questions to Claude or imperatives, not
+    statements of fact about the user. Conservative heuristic."""
+    s = text.strip().lower()
+    if not s:
+        return True
+    if s.endswith("?"):
+        return True
+    # First word is a question word OR an imperative verb
+    first_word = s.split(None, 1)[0] if s.split() else ""
+    if first_word in {
+        "what", "why", "how", "when", "where", "who", "which",
+        "explain", "tell", "show", "give", "list", "create", "make",
+        "write", "draft", "generate", "fix", "change", "update",
+        "rewrite", "rephrase", "translate", "summarize", "summarise",
+        "review", "check", "help", "let's", "lets",
+    }:
+        return True
+    return False
+
+
+def _split_user_message_into_propositions(text: str) -> list[str]:
+    """Split a user's chat message into candidate belief propositions.
+
+    Strategy:
+      - Strip code blocks (text wrapped in ```...```) — those are
+        snippets, not facts.
+      - Split on sentence boundaries (`.`, `!`, `\\n\\n`).
+      - Drop fragments shorter than 12 chars (artifacts of splitting).
+      - Drop fragments that look like questions or commands.
+    """
+    # Strip fenced code blocks; they're never user beliefs.
+    text = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)
+    # Strip inline code spans.
+    text = re.sub(r"`[^`]*`", " ", text)
+    # Split into sentence-ish chunks.
+    chunks = re.split(r"(?<=[.!])\s+|\n{2,}", text)
+    out: list[str] = []
+    for chunk in chunks:
+        s = chunk.strip().strip("-*•").strip()
+        if len(s) < 12:
+            continue
+        if _looks_like_question_or_command(s):
+            continue
+        out.append(s)
+    return out
+
+
+def _load_claude_conversations(path: Path) -> list[dict]:
+    """Load conversations from a Claude data export.
+
+    Accepts:
+      - A `.zip` file (Claude's standard export format)
+      - A directory containing the unzipped contents
+      - A `conversations.json` file directly
+
+    Returns a list of conversation dicts in Claude's export schema:
+      {uuid, name, created_at, chat_messages: [...]}
+    """
+    import json
+    import zipfile
+
+    convos: list[dict] = []
+
+    def _maybe_load(raw: bytes | str) -> None:
+        try:
+            text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+            data = json.loads(text)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict) and "chat_messages" in item:
+                    convos.append(item)
+        elif isinstance(data, dict):
+            if "chat_messages" in data:
+                convos.append(data)
+            # Some exports wrap in {"conversations": [...]}
+            elif "conversations" in data and isinstance(data["conversations"], list):
+                convos.extend(c for c in data["conversations"] if isinstance(c, dict))
+
+    if path.is_file() and path.suffix.lower() == ".zip":
+        with zipfile.ZipFile(path) as zf:
+            for name in zf.namelist():
+                if not name.endswith(".json"):
+                    continue
+                # Look for the conversations dump specifically; many exports
+                # also include `users.json` and `projects.json` we should skip.
+                lower = name.lower()
+                if "conversation" not in lower and "messages" not in lower:
+                    continue
+                with zf.open(name) as f:
+                    _maybe_load(f.read())
+    elif path.is_dir():
+        for jf in sorted(path.rglob("*.json")):
+            lower = jf.name.lower()
+            if "conversation" not in lower and "messages" not in lower:
+                continue
+            _maybe_load(jf.read_bytes())
+    elif path.is_file() and path.suffix.lower() == ".json":
+        _maybe_load(path.read_bytes())
+
+    return convos
+
+
+def import_claude_export(
+    path: Path,
+    memory: Any,
+    *,
+    min_message_chars: int = 30,
+    max_per_message: int = 10,
+    sentence_split: bool = True,
+    stats: ImportStats | None = None,
+    verbose: bool = False,
+) -> ImportStats:
+    """Import Claude's conversation-history export into a Patha store.
+
+    Anthropic lets you download all your Claude conversations as a ZIP
+    from Settings → Privacy → Export data. This function reads that
+    export and ingests every user-side message (or every sentence, if
+    `sentence_split=True`) as a Patha belief, with the original
+    timestamp preserved.
+
+    Only **user messages** are ingested. Assistant replies are skipped
+    — those are Claude's outputs, not the user's beliefs.
+
+    Filtering applied per message:
+      - Skip if shorter than `min_message_chars`
+      - Skip if it looks like a question or command to Claude
+      - Skip code blocks (stripped before sentence-splitting)
+
+    Parameters
+    ----------
+    path
+        Path to a `.zip`, a directory of unzipped JSON, or a single
+        `conversations.json` file.
+    memory
+        A `patha.Memory` instance.
+    min_message_chars
+        Minimum length in characters for a user message to be considered
+        for ingestion. Default 30 — short messages ("yes", "thanks") are
+        almost never beliefs.
+    max_per_message
+        Cap on propositions extracted per message after sentence
+        splitting. Prevents a single 5,000-word brain-dump from drowning
+        the store. Default 10.
+    sentence_split
+        If True (default), split each user message into sentence-level
+        propositions and ingest each one separately. If False, ingest
+        the whole message as a single belief.
+    stats
+        Optional pre-existing ImportStats to accumulate into.
+    verbose
+        Print a line per ingested conversation.
+    """
+    stats = stats or ImportStats()
+
+    convos = _load_claude_conversations(path)
+    if not convos:
+        return stats
+
+    for convo in convos:
+        msgs = convo.get("chat_messages") or []
+        if not msgs:
+            continue
+        stats.files_seen += 1
+        convo_uuid = convo.get("uuid") or ""
+        convo_name = convo.get("name") or "(untitled)"
+        ingested_in_convo = 0
+
+        for msg in msgs:
+            sender = (msg.get("sender") or "").lower()
+            if sender != "human":
+                continue
+            text = msg.get("text") or ""
+            if len(text) < min_message_chars:
+                continue
+            if _looks_like_question_or_command(text):
+                continue
+            if sentence_split:
+                props = _split_user_message_into_propositions(text)[:max_per_message]
+            else:
+                props = [text.strip()]
+            if not props:
+                continue
+
+            ts = msg.get("created_at") or convo.get("created_at")
+            asserted_at = _parse_claude_timestamp(ts)
+
+            for j, prop in enumerate(props):
+                try:
+                    ev = memory.remember(
+                        prop,
+                        asserted_at=asserted_at,
+                        session_id=convo_uuid or None,
+                        source_id=f"claude-export:{convo_uuid}:{msg.get('uuid','?')}:{j}",
+                    )
+                    action = (
+                        ev.get("action") if isinstance(ev, dict)
+                        else getattr(ev, "action", "?")
+                    )
+                    if action == "added":
+                        stats.beliefs_added += 1
+                    elif action == "reinforced":
+                        stats.beliefs_reinforced += 1
+                    elif action == "superseded":
+                        stats.beliefs_superseded += 1
+                    ingested_in_convo += 1
+                except Exception:
+                    # Never fail the whole import on one message
+                    continue
+
+        if ingested_in_convo:
+            stats.files_imported += 1
+            if verbose:
+                print(f"  + {ingested_in_convo:>4d} props from: {convo_name[:60]}")
+        else:
+            stats.files_skipped += 1
+
+    return stats
+
+
+def _parse_claude_timestamp(ts: str | None) -> datetime | None:
+    """Parse Claude export's ISO timestamps. They look like
+    '2024-08-15T14:23:01.123456+00:00' or with a trailing 'Z'."""
+    if not ts:
+        return None
+    try:
+        # Python's fromisoformat handles most variants in 3.11+
+        s = ts.replace("Z", "+00:00") if ts.endswith("Z") else ts
+        return datetime.fromisoformat(s)
+    except (ValueError, TypeError):
+        return None
+
+
 __all__ = [
     "ImportStats",
     "import_file",
     "import_folder",
     "import_obsidian_vault",
+    "import_claude_export",
     "extract_entity_hints_from_obsidian",
 ]
