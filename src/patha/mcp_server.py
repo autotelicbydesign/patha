@@ -840,12 +840,60 @@ def _resource_stats() -> str:
 def main() -> int:
     """Run the MCP server on stdio. Called by the `patha-mcp` script.
 
+    Handles a couple of common usability traps:
+
+      - `patha-mcp --help` / `-h`: not a CLI; print a friendly note to
+        stderr and exit 0 instead of starting the JSON-RPC loop and
+        emitting a confusing parse error.
+      - stdin is a TTY (someone ran `patha-mcp` directly in a terminal):
+        also print a friendly note to stderr and exit 0. The server is
+        only meant to run as a subprocess of an MCP client.
+
     NEVER print to stdout from this process: stdio MCP uses stdout for
     JSON-RPC framing; any unsolicited stdout corrupts the protocol and
     causes the client to disconnect. All diagnostics use stderr.
     """
+    if any(a in ("-h", "--help") for a in sys.argv[1:]):
+        print(_HELP_TEXT, file=sys.stderr)
+        return 0
+    if sys.stdin.isatty():
+        print(_TTY_HINT, file=sys.stderr)
+        return 0
     mcp.run(transport="stdio")
     return 0
+
+
+_HELP_TEXT = """\
+patha-mcp — Patha's stdio MCP server.
+
+This is NOT a command-line tool. It's a server that an MCP client
+(Claude Desktop, Cursor, Zed, Goose) runs as a subprocess and talks
+to over stdio JSON-RPC.
+
+To use it, install Patha into your client's MCP config:
+
+    patha install-mcp --install-detector full-stack-v8 -y
+
+Then quit and reopen the client. The client will spawn `patha-mcp`
+for you and route tool calls to it.
+
+For terminal-side memory work, use the regular `patha` CLI:
+
+    patha shell                              # interactive REPL
+    patha ask "what do I currently eat?"     # one-shot query
+    patha ingest "I am vegetarian"           # one-shot ingest
+    patha import claude-export <zip>         # bulk-import history
+
+See: https://github.com/autotelicbydesign/patha
+"""
+
+_TTY_HINT = """\
+patha-mcp: stdin is a terminal — there's no MCP client to talk to.
+
+This binary is meant to be spawned by an MCP-compatible client
+(Claude Desktop / Cursor / Zed / Goose) as a subprocess, not run
+interactively. Run `patha-mcp --help` for the install path.
+"""
 
 
 if __name__ == "__main__":
