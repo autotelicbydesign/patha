@@ -24,6 +24,26 @@ The belief store is plain JSONL — `~/.patha/beliefs.jsonl` — that you can re
 
 ---
 
+## See it run
+
+Four bike purchases across four sessions → *"how much have I spent on bike-related expenses?"* → `$185.00`, derived deterministically from a tuple index, with **zero LLM tokens at recall**.
+
+![Patha synthesis-intent demo](assets/demo-synthesis.gif)
+
+Reproduce locally:
+
+```bash
+pip install patha-memory
+patha ingest "I bought a $50 saddle for my bike"
+patha ingest "I got a $75 helmet for the bike"
+patha ingest "$30 for new bike lights"
+patha ingest "I spent $30 on bike gloves"
+patha ask "how much have I spent on bike-related expenses?"
+# strategy=ganita    tokens=0    answer=185.0 USD
+```
+
+---
+
 ## At a glance
 
 - **R@5 = 1.000** on LongMemEval-KU (78q, public knowledge-update subset)

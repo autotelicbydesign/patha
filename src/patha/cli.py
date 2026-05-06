@@ -42,6 +42,7 @@ from patha.belief import (
     make_detector,
 )
 from patha.integrated import IntegratedPatha
+import patha as _patha_module  # re-imported to access Memory without circular
 
 
 DEFAULT_DATA_DIR = Path(
@@ -70,8 +71,30 @@ def _default_session() -> str:
 
 # ─── Layer construction ────────────────────────────────────────────
 
+def _build_memory(data_dir: Path, detector_name: str = "stub"):
+    """Construct the public Memory API with persistent state.
+
+    Wires the same auto-enabled ganita synthesis layer + regex karaṇa
+    extractor that `import patha; patha.Memory()` ships, so CLI usage
+    matches the documented Python API. Phase 1 is disabled by default
+    in CLI mode because the CLI is for one-fact-at-a-time interaction;
+    set PATHA_PHASE1=on to opt in.
+    """
+    data_dir.mkdir(parents=True, exist_ok=True)
+    store_path = data_dir / "beliefs.jsonl"
+    enable_phase1 = os.environ.get("PATHA_PHASE1", "off").lower() == "on"
+    return _patha_module.Memory(
+        path=store_path,
+        detector=detector_name,
+        enable_phase1=enable_phase1,
+        enable_ganita=True,
+    )
+
+
 def _build_integrated(data_dir: Path, detector_name: str = "stub") -> IntegratedPatha:
-    """Construct an IntegratedPatha with persistent state + named detector."""
+    """Lower-level IntegratedPatha. Retained for `cmd_history` / `cmd_stats`
+    which need direct access to the belief store. Prefer `_build_memory` for
+    user-facing query/ingest commands."""
     data_dir.mkdir(parents=True, exist_ok=True)
     store_path = data_dir / "beliefs.jsonl"
     layer = BeliefLayer(
@@ -80,7 +103,7 @@ def _build_integrated(data_dir: Path, detector_name: str = "stub") -> Integrated
     )
     answerer = DirectAnswerer(layer.store)
     return IntegratedPatha(
-        phase1_retrieve=None,  # CLI uses belief store directly
+        phase1_retrieve=None,
         belief_layer=layer,
         direct_answerer=answerer,
     )
@@ -258,7 +281,7 @@ def cmd_viewer(args: argparse.Namespace) -> int:
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
-    patha = _build_integrated(args.data_dir, args.detector)
+    memory = _build_memory(args.data_dir, args.detector)
     session = args.session or _default_session()
 
     if args.file:
@@ -275,45 +298,55 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         return 1
 
     for i, line in enumerate(lines):
-        ev = patha.ingest(
-            proposition=line,
+        ev = memory.remember(
+            line,
             asserted_at=datetime.now(),
-            asserted_in_session=session,
-            source_proposition_id=f"cli-{session}-{i}",
+            session_id=session,
+            source_id=f"cli-{session}-{i}",
         )
+        action = ev["action"] if isinstance(ev, dict) else getattr(ev, "action", "?")
         marker = {
             "added": "+",
             "reinforced": "~",
             "superseded": "!",
-        }.get(ev.action, "?")
-        print(f"{marker} [{ev.action}] {line}")
+        }.get(action, "?")
+        print(f"{marker} [{action}] {line}")
     return 0
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
-    patha = _build_integrated(args.data_dir, args.detector)
+    memory = _build_memory(args.data_dir, args.detector)
     question = " ".join(args.text)
     if not question:
         print("error: no question given", file=sys.stderr)
         return 1
 
-    response = patha.query(
-        question,
-        at_time=datetime.now(),
-        include_history=args.history,
-    )
+    rec = memory.recall(question, include_history=args.history)
 
-    print(f"[strategy: {response.strategy}]")
-    if response.strategy == "direct_answer":
-        print()
-        print(response.answer)
-    else:
-        print(
-            f"(would send {response.tokens_in} tokens to an LLM — no LLM "
-            "wired in CLI mode; use the Python API to generate a final answer)"
-        )
-        print()
-        print(response.prompt)
+    print(f"[strategy: {rec.strategy}]")
+    print(f"[tokens at recall: {rec.tokens}]")
+    print()
+
+    # Synthesis intent — gaṇita produced a deterministic answer with zero LLM tokens.
+    if rec.ganita is not None:
+        print(f"answer: {rec.ganita.value} {rec.ganita.unit or ''}".rstrip())
+        print(f"  via:  {rec.ganita.operator} over {len(rec.ganita.contributing_belief_ids)} belief(s)")
+        if rec.ganita.explanation:
+            print(f"  why:  {rec.ganita.explanation}")
+        return 0
+
+    # Direct-answer (belief layer found a single clear answer)
+    if rec.strategy == "direct_answer" and rec.answer:
+        print(f"answer: {rec.answer}")
+        return 0
+
+    # Structured summary — pipe to your LLM. The CLI doesn't call an LLM.
+    print("summary:")
+    print(rec.summary or "(no relevant beliefs)")
+    print()
+    print("(this is the structured summary Patha emits; pipe it into")
+    print(" your LLM as system context to get a natural-language answer.")
+    print(" Use the Python API: `memory.recall(...).summary`.)")
     return 0
 
 
