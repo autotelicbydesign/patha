@@ -1,6 +1,6 @@
 [project]
 name = "patha-memory"
-version = "0.10.8"
+version = "0.10.9"
 description = "Local-first AI memory with contradiction detection, non-destructive supersession, and empirically non-commutative belief evolution. Plugs into any MCP-compatible AI tool."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,6 +21,9 @@ classifiers = [
 ]
 
 dependencies = [
+    # MCP server — Patha's headline integration path; `pip install patha-memory`
+    # must produce a working `patha-mcp` binary out of the box.
+    "mcp>=1.0",
     # vector store + sparse retrieval
     "lancedb>=0.13",
     "pyarrow>=17.0",
@@ -46,10 +49,11 @@ dependencies = [
 colbert = ["colbert-ai>=0.2.21"]
 # offline batched inference runtime
 vllm = ["vllm>=0.6"]
-# MCP server — plugs Patha into Claude Desktop / Code / Cursor / Zed / Goose
-mcp = [
-    "mcp>=1.0",
-]
+# Kept for backwards-compat: `pip install 'patha-memory[mcp]'` still works,
+# but `mcp` is now a core dependency (the MCP server is the headline use
+# case; gating it behind an extra caused real install-time failures). The
+# extra is now empty / a no-op pinning placeholder.
+mcp = []
 # Streamlit belief viewer — visual inspection of the belief store
 viewer = [
     "streamlit>=1.38",
@@ -101,4 +105,9 @@ pythonpath = ["src"]
 addopts = "-ra --strict-markers -m 'not slow'"
 markers = [
     "slow: integration tests that load large models or run long-running work. Skipped by default; run with `pytest -m slow` or `-m ''` for everything.",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
 ]

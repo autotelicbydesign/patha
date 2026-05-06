@@ -3662,12 +3662,13 @@ wheels = [
 
 [[package]]
 name = "patha-memory"
-version = "0.10.8"
+version = "0.10.9"
 source = { editable = "." }
 dependencies = [
     { name = "bm25s" },
     { name = "dateparser" },
     { name = "lancedb" },
+    { name = "mcp" },
     { name = "numpy" },
     { name = "orjson" },
     { name = "pyarrow" },
@@ -3691,9 +3692,6 @@ dev = [
     { name = "ruff" },
     { name = "streamlit" },
 ]
-mcp = [
-    { name = "mcp" },
-]
 viewer = [
     { name = "networkx" },
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
@@ -3706,13 +3704,18 @@ vllm = [
     { name = "vllm" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "bm25s", specifier = ">=0.2" },
     { name = "colbert-ai", marker = "extra == 'colbert'", specifier = ">=0.2.21" },
     { name = "dateparser", specifier = ">=1.2" },
     { name = "lancedb", specifier = ">=0.13" },
-    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0" },
+    { name = "mcp", specifier = ">=1.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "networkx", marker = "extra == 'viewer'", specifier = ">=3.2" },
     { name = "numpy", specifier = ">=1.26" },
@@ -3736,6 +3739,9 @@ requires-dist = [
     { name = "vllm", marker = "extra == 'vllm'", specifier = ">=0.6" },
 ]
 provides-extras = ["colbert", "vllm", "mcp", "viewer", "dev"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.0.3" }]
 
 [[package]]
 name = "pathspec"

@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.10.9 (2026-05-06) — MCP server hardening (audit-driven), `mcp` is now a core dependency
+
+Triggered by Stefi hitting "MCP patha: Server disconnected" in Claude Desktop on a fresh `uv tool install patha-memory`. Root cause: `mcp` Python package was gated behind an optional `[mcp]` extra, so `uv tool install` (which installs core deps only) skipped it. The MCP server then crashed at import time with `ModuleNotFoundError: No module named 'mcp'` and Claude Desktop showed "Server disconnected" with no actionable diagnostic.
+
+**Headline fix.** `mcp>=1.0` moved from `[project.optional-dependencies].mcp` into `[project].dependencies` (core). The `[mcp]` extra is retained as an empty placeholder for backwards-compat — `pip install 'patha-memory[mcp]'` still works.
+
+### MCP server quality audit (mcp-builder skill)
+
+Audited `src/patha/mcp_server.py` against MCP Python best practices and shipped fixes for every gap:
+
+- **Pydantic input models** — every tool now uses a `BaseModel` with `Field(...)` constraints (length limits, type validation, descriptions). `IngestInput.proposition` is capped at 4 KB; `QueryInput.question` at 2 KB; `HistoryInput.term` at 200 chars. Malformed inputs return Pydantic validation errors instead of crashing mid-tool.
+- **Tool annotations** — every tool now sets `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`. `patha_ingest` is correctly tagged non-destructive (supersession is non-destructive) and idempotent (duplicate ingests reinforce). `patha_query`/`patha_history`/`patha_stats` are read-only.
+- **Structured error wrappers** — every tool body is wrapped in `try/except` with `_structured_error(code, message)` returning `{"error": {"code", "message", "details"}}`. **No exception can crash the JSON-RPC frame anymore.** This eliminates the entire class of "Server disconnected" failures triggered by tool errors. The instruction prompt tells the model to relay the error and continue.
+- **Safe ISO-8601 parsing** — new `_parse_iso_or_none` helper tolerates trailing `Z`, validates input, and raises `ValueError` with a clear example string. Tool wrappers catch this and return `{"error": {"code": "invalid_timestamp", ...}}`.
+- **Pagination on `patha_history`** — `limit` (default 50, max 200) + `offset` + `total` + `has_more` + `next_offset` in the response. A 1,000-belief store no longer dumps everything in one tool call.
+- **Length limits** — `MAX_PROPOSITION_CHARS=4000`, `MAX_QUESTION_CHARS=2000`, `MAX_TERM_CHARS=200`, `MAX_CONTEXT_CHARS=200`, `MAX_HISTORY_LIMIT=200`. Constants defined at module scope.
+- **Top-level imports** — `GanitaIndex` and `answer_aggregation_question` moved out of inline-in-tool imports and into the module preamble.
+- **Specific exception types** — replaced bare `except Exception` with logged warnings using `type(e).__name__`. Stderr-only (never stdout — that would still corrupt JSON-RPC).
+- **Server name aligned with convention** — FastMCP server name is now `"patha_mcp"` (was `"patha"`), matching the `{service}_mcp` Python MCP convention.
+- **Module docstring** updated with the no-stdout-from-this-process rule, the new error-response shape, and the post-audit usage example.
+
+24 MCP tests still pass against the refactored server (the protocol contract didn't change; only the input shape moved into Pydantic models, which FastMCP handles transparently).
+
+### Why this matters
+
+v0.10.7 / v0.10.8 had a working MCP server *if* you installed it the right way — but the right way was non-obvious (`pip install 'patha-memory[mcp]'` or `uvx --from 'patha-memory[mcp]' patha-mcp`). The default install path (`uv tool install patha-memory`, `pipx install patha-memory`) silently produced a broken `patha-mcp` binary. v0.10.9 fixes that for everyone going forward.
+
+The audit-driven hardening means a tool error inside `patha_ingest` or `patha_query` now returns a clean structured error to Claude instead of crashing the server mid-stdio-frame. That alone closes the most common cause of "Server disconnected" in production MCP servers.
+
+No architectural changes. No detector changes. No benchmark deltas.
+
 ## v0.10.8 (2026-05-06) — Claude conversation import + CLI fixes (REPL, --version, PATHA_DETECTOR env var)
 
 Driven by real user feedback on what the v0.10.7 surfaces actually felt like.
