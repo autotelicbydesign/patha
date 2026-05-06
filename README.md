@@ -26,21 +26,23 @@ The belief store is plain JSONL — `~/.patha/beliefs.jsonl` — that you can re
 
 ## See it run
 
-Four bike purchases across four sessions → *"how much have I spent on bike-related expenses?"* → `$185.00`, derived deterministically from a tuple index, with **zero LLM tokens at recall**.
+### 1. AI memory that does math
+
+Four purchases mentioned across four conversations → *"how much have I spent on bike-related expenses?"* → `$185.00`, computed directly with **zero LLM tokens at recall**.
 
 ![Patha synthesis-intent demo](assets/demo-synthesis.gif)
 
-Reproduce locally:
+### 2. When you change your mind, AI memory should change too
 
-```bash
-pip install patha-memory
-patha ingest "I bought a $50 saddle for my bike"
-patha ingest "I got a $75 helmet for the bike"
-patha ingest "$30 for new bike lights"
-patha ingest "I spent $30 on bike gloves"
-patha ask "how much have I spent on bike-related expenses?"
-# strategy=ganita    tokens=0    answer=185.0 USD
-```
+Tell Patha you love sushi every week. Six months later, tell it you're avoiding raw fish. Ask *"what do I currently eat?"* — the new belief supersedes the old. Ask *"what did I used to think?"* — the old belief is filed under history, not deleted.
+
+![Patha supersession demo](assets/demo-supersession.gif)
+
+### 3. Your AI memory belongs to you
+
+No cloud. No login. No SaaS account. Patha writes to a plain text file at `~/.patha/beliefs.jsonl` that you can grep, git-commit, copy to another machine. The same file feeds every MCP-compatible AI tool (Claude Desktop, Cursor, Zed) — your memory follows you.
+
+![Patha portability demo](assets/demo-portability.gif)
 
 ---
 

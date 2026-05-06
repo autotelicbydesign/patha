@@ -1,18 +1,16 @@
-# Patha synthesis-intent routing demo
+# Patha demo 1: AI memory that does math
 #
-# Runs the canonical $185-across-4-sessions demo end-to-end through
-# the public `patha` CLI, showing strategy=ganita and tokens=0 at recall.
-#
+# Reframed for a non-technical reader.
 # Reproduce: vhs assets/demo-synthesis.tape   (writes assets/demo-synthesis.gif)
 
 Output assets/demo-synthesis.gif
 
-Set FontSize 18
+Set FontSize 20
 Set Width 1200
-Set Height 720
+Set Height 900
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 40ms
-Set Padding 24
+Set Padding 28
 
 # ─── Setup (hidden) ─────────────────────────────────────────────────
 Hide
@@ -28,65 +26,63 @@ Sleep 200ms
 Show
 
 # ─── Title ──────────────────────────────────────────────────────────
-Type "# Patha: synthesis-intent routing"
-Sleep 800ms
-Enter
-Type "# 'How much have I spent on bikes total?' is not a top-K question."
+Type "# Tell your AI things over time. Ask it for totals."
 Sleep 1500ms
 Enter
+Type "# Most AI memory cannot do this. Watch."
+Sleep 2200ms
 Enter
-Sleep 400ms
+Enter
 
-# ─── Step 1: Four bike purchases, four sessions ─────────────────────
-Type "# 1. Ingest four bike purchases, each in its own session"
+# ─── Setup framing ──────────────────────────────────────────────────
+Type "# Over the last few months, you mentioned to your AI:"
 Enter
-Sleep 400ms
+Sleep 700ms
 
 Type "patha ingest 'I bought a $50 saddle for my bike'"
 Enter
-Sleep 2000ms
+Sleep 1800ms
 
 Type "patha ingest 'I got a $75 helmet for the bike'"
 Enter
-Sleep 2000ms
+Sleep 1800ms
 
 Type "patha ingest '$30 for new bike lights'"
 Enter
-Sleep 2000ms
+Sleep 1800ms
 
 Type "patha ingest 'I spent $30 on bike gloves'"
 Enter
-Sleep 2000ms
+Sleep 2200ms
 
 Enter
-Sleep 400ms
 
-# ─── Step 2: The synthesis question ─────────────────────────────────
-Type "# 2. Ask the synthesis question: sum across all 4 sessions"
+# ─── The question ──────────────────────────────────────────────────
+Type "# Today you ask:"
 Enter
-Sleep 600ms
+Sleep 700ms
 
 Type 'patha ask "how much have I spent on bike-related expenses?"'
 Enter
-Sleep 4500ms
+Sleep 5000ms
 
 Enter
-Sleep 200ms
 
-# ─── Step 3: The reveal ─────────────────────────────────────────────
-Type '# strategy=ganita    tokens=0    answer=$185'
-Sleep 1500ms
+# ─── Plain-language reveal ─────────────────────────────────────────
+Type "# Patha added them up. $50 + $75 + $30 + $30 = $185."
+Sleep 2200ms
 Enter
-Type "# Sum is deterministic, derived exhaustively from a tuple index."
-Sleep 1200ms
+Type "# It did NOT ask another AI to do the math."
+Sleep 2200ms
 Enter
-Type "# No LLM was called at recall."
-Sleep 2000ms
+Type "# It computed the answer directly. Zero LLM tokens at recall."
+Sleep 2500ms
+Enter
+Type "# That is faster, cheaper, and always correct."
+Sleep 2500ms
 Enter
 Enter
-
-Type "# pip install patha-memory     github.com/autotelicbydesign/patha"
+Type "# Try it: pip install patha-memory"
 Sleep 4000ms
 
-# Hold the closing frame
 Sleep 1500ms
