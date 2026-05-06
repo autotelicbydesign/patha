@@ -350,6 +350,75 @@ def cmd_ask(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_shell(args: argparse.Namespace) -> int:
+    """Interactive REPL — type sentences to remember, prefix `?` to ask.
+
+    Removes the `patha ingest "..."` boilerplate. Type a statement to
+    remember it. Prefix with `?` to query. Type `exit` or hit Ctrl-D
+    to quit.
+    """
+    memory = _build_memory(args.data_dir, args.detector)
+    print("Patha shell. Type a sentence to remember, prefix `?` to ask.")
+    print("Examples:")
+    print("    patha> I am vegetarian")
+    print("    patha> ? what do I eat?")
+    print("Type `exit` or press Ctrl-D to quit.")
+    print()
+    n_remembered = 0
+    n_asked = 0
+    while True:
+        try:
+            line = input("patha> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not line:
+            continue
+        if line.lower() in ("exit", "quit", ":q"):
+            break
+        # Question — prefix with ? or ends with ?
+        is_question = line.startswith("?") or line.rstrip().endswith("?")
+        if is_question:
+            question = line.lstrip("?").strip() or line.strip()
+            try:
+                rec = memory.recall(question)
+            except Exception as e:
+                print(f"  error: {e}")
+                continue
+            print(f"  [strategy: {rec.strategy}] [tokens: {rec.tokens}]")
+            if rec.ganita is not None:
+                unit = rec.ganita.unit or ""
+                print(f"  → {rec.ganita.value} {unit}".rstrip())
+                if rec.ganita.explanation:
+                    print(f"     {rec.ganita.explanation}")
+            elif rec.answer:
+                print(f"  → {rec.answer}")
+            else:
+                summary = rec.summary or "(no relevant beliefs)"
+                # Indent each line of the summary so the structure is obvious.
+                for ln in summary.splitlines():
+                    print(f"     {ln}")
+            n_asked += 1
+        else:
+            try:
+                ev = memory.remember(line)
+            except Exception as e:
+                print(f"  error: {e}")
+                continue
+            action = ev["action"] if isinstance(ev, dict) else getattr(ev, "action", "?")
+            marker = {
+                "added": "+",
+                "reinforced": "~",
+                "superseded": "!",
+            }.get(action, "?")
+            print(f"  {marker} [{action}]")
+            n_remembered += 1
+        print()
+    if n_remembered or n_asked:
+        print(f"(session: {n_remembered} remembered, {n_asked} asked)")
+    return 0
+
+
 def cmd_history(args: argparse.Namespace) -> int:
     patha = _build_integrated(args.data_dir, args.detector)
     term = " ".join(args.text).lower()
@@ -582,6 +651,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Include supersession lineage in the response",
     )
     p_ask.set_defaults(fn=cmd_ask)
+
+    # shell — interactive REPL
+    p_shell = sub.add_parser(
+        "shell",
+        help="Interactive REPL — type sentences to remember, "
+        "prefix `?` (or end with `?`) to ask questions. No more "
+        "`patha ingest \"...\"` boilerplate.",
+    )
+    p_shell.set_defaults(fn=cmd_shell)
 
     # history
     p_hist = sub.add_parser(
