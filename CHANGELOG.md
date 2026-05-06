@@ -1,5 +1,73 @@
 # Changelog
 
+## v0.10.10 (2026-05-06) — MCP tool signatures: flat params, friendly `--help`
+
+Two follow-ups to v0.10.9, both surfaced by usage:
+
+### Flat tool parameters via `Annotated[..., Field(...)]`
+
+v0.10.9 wrapped each tool's arguments under a single Pydantic `BaseModel` parameter:
+
+```python
+def patha_ingest(params: IngestInput) -> dict: ...
+```
+
+This subtly changed the JSON-RPC argument surface — clients had to nest under `params`:
+
+```json
+{"name": "patha_ingest", "arguments": {"params": {"proposition": "..."}}}
+```
+
+instead of the conventional flat shape every MCP client sends:
+
+```json
+{"name": "patha_ingest", "arguments": {"proposition": "..."}}
+```
+
+CI's MCP protocol test caught this. v0.10.10 refactors all four tools to use `Annotated[type, Field(...)]` per parameter — the signature is flat again, validation is still per-parameter (length, descriptions, type), and the wire format is what every existing MCP client expects.
+
+```python
+def patha_ingest(
+    proposition: Annotated[str, Field(min_length=1, max_length=4000, description="...")],
+    asserted_at: Annotated[Optional[str], Field(default=None, description="...")] = None,
+    ...
+) -> dict: ...
+```
+
+This is the FastMCP-idiomatic pattern the mcp-builder skill actually recommends for parameters; the single-`BaseModel` pattern was a wrong turn in v0.10.9.
+
+### Friendly `patha-mcp --help` and TTY-stdin messages
+
+Stefi sanity-tested v0.10.9 with `patha-mcp --help` and got back a confusing FastMCP error about parsing JSON-RPC. The server was actually starting correctly — the `mcp` package imported, FastMCP entered stdio listen mode, then EOFd because the terminal wasn't sending JSON-RPC. But the diagnostic was useless.
+
+v0.10.10 detects both `--help`/`-h` and a TTY stdin and prints a clear stderr message instead:
+
+```
+$ patha-mcp --help
+patha-mcp — Patha's stdio MCP server.
+
+This is NOT a command-line tool. It's a server that an MCP client
+(Claude Desktop, Cursor, Zed, Goose) runs as a subprocess and talks
+to over stdio JSON-RPC.
+
+To use it, install Patha into your client's MCP config:
+    patha install-mcp --install-detector full-stack-v8 -y
+
+For terminal-side memory work, use the regular `patha` CLI:
+    patha shell                              # interactive REPL
+    patha ask "what do I currently eat?"
+    patha ingest "I am vegetarian"
+    patha import claude-export <zip>
+```
+
+All output goes to stderr — the stdout no-print invariant for stdio JSON-RPC is preserved.
+
+### What didn't change
+
+- The four MCP tool names and their *semantic* behaviour are unchanged.
+- The hardening from v0.10.9 (`mcp` core dep, structured error responses, pagination, length limits, annotations) all still in.
+- 25 MCP tests pass against v0.10.10.
+
 ## v0.10.9 (2026-05-06) — MCP server hardening (audit-driven), `mcp` is now a core dependency
 
 Triggered by Stefi hitting "MCP patha: Server disconnected" in Claude Desktop on a fresh `uv tool install patha-memory`. Root cause: `mcp` Python package was gated behind an optional `[mcp]` extra, so `uv tool install` (which installs core deps only) skipped it. The MCP server then crashed at import time with `ModuleNotFoundError: No module named 'mcp'` and Claude Desktop showed "Server disconnected" with no actionable diagnostic.

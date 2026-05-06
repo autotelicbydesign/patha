@@ -54,7 +54,7 @@ def test_mcp_full_roundtrip():
             },
         })
         resp = _recv(proc)
-        assert resp["result"]["serverInfo"]["name"] == "patha"
+        assert resp["result"]["serverInfo"]["name"] == "patha_mcp"
         assert "tools" in resp["result"]["capabilities"]
 
         # Step 2: initialized notification (no response)

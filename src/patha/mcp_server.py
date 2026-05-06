@@ -54,10 +54,10 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 from mcp.server.fastmcp import FastMCP
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from patha.belief import (
     BeliefLayer,
@@ -236,119 +236,15 @@ def _structured_error(
     return out
 
 
-# ─── Pydantic input models ──────────────────────────────────────────
-# Pydantic validates inputs (length, non-empty, ISO-shape) BEFORE the
-# tool body runs, so malformed inputs return clear validation errors
-# instead of mid-tool crashes.
-
-
-class IngestInput(BaseModel):
-    model_config = ConfigDict(
-        str_strip_whitespace=True, validate_assignment=True, extra="forbid",
-    )
-    proposition: str = Field(
-        ...,
-        min_length=1,
-        max_length=MAX_PROPOSITION_CHARS,
-        description=(
-            "The fact to remember, as a single declarative sentence in "
-            "natural language. Examples: 'I am vegetarian', 'I bought a "
-            "$50 saddle for my bike', 'I just moved to Melbourne'. "
-            "Short, atomic, present-tense ideal."
-        ),
-    )
-    asserted_at: Optional[str] = Field(
-        default=None,
-        description=(
-            "ISO-8601 timestamp the user asserted this belief at "
-            "(defaults to now). Examples: '2026-05-06T14:30:00' or "
-            "'2026-05-06T14:30:00+00:00'."
-        ),
-    )
-    session_id: Optional[str] = Field(
-        default=None, max_length=120,
-        description="Session/bucket id (defaults to today's date YYYY-MM-DD).",
-    )
-    source_id: Optional[str] = Field(
-        default=None, max_length=200,
-        description="Optional upstream identifier for traceability.",
-    )
-    context: Optional[str] = Field(
-        default=None, max_length=MAX_CONTEXT_CHARS,
-        description=(
-            "Optional context tag ('work', 'health', 'travel', ...) for "
-            "context-scoped queries. Use sparingly — the belief layer "
-            "indexes by content, not by tag."
-        ),
-    )
-
-
-class QueryInput(BaseModel):
-    model_config = ConfigDict(
-        str_strip_whitespace=True, validate_assignment=True, extra="forbid",
-    )
-    question: str = Field(
-        ...,
-        min_length=1,
-        max_length=MAX_QUESTION_CHARS,
-        description=(
-            "The user's question or topic, in natural language. "
-            "Examples: 'what do I currently eat?', 'how much have I "
-            "spent on bikes?', 'where do I live?'."
-        ),
-    )
-    at_time: Optional[str] = Field(
-        default=None,
-        description=(
-            "ISO-8601 timestamp to query at (defaults to now). Used to "
-            "answer 'what did I believe on date X?' counterfactuals."
-        ),
-    )
-    include_history: bool = Field(
-        default=False,
-        description=(
-            "If true, also return superseded beliefs in the response. "
-            "Default false to keep responses focused on current state."
-        ),
-    )
-    semantic_filter: Optional[bool] = Field(
-        default=None,
-        description=(
-            "If true (default: follows PATHA_SEMANTIC_FILTER env, on by "
-            "default), narrow the belief store to top-K topically "
-            "relevant beliefs before supersession. Improves answer focus "
-            "on large stores; set false to query the entire store."
-        ),
-    )
-
-
-class HistoryInput(BaseModel):
-    model_config = ConfigDict(
-        str_strip_whitespace=True, validate_assignment=True, extra="forbid",
-    )
-    term: str = Field(
-        ...,
-        min_length=1,
-        max_length=MAX_TERM_CHARS,
-        description=(
-            "Substring to match in the belief proposition text "
-            "(case-insensitive). Examples: 'sushi', 'Lisbon', 'job'."
-        ),
-    )
-    limit: int = Field(
-        default=50, ge=1, le=MAX_HISTORY_LIMIT,
-        description=(
-            f"Maximum results to return. Default 50; max {MAX_HISTORY_LIMIT}. "
-            f"Use the `next_offset` field for pagination."
-        ),
-    )
-    offset: int = Field(
-        default=0, ge=0,
-        description="Number of results to skip for pagination. Default 0.",
-    )
-
-
 # ─── MCP server ─────────────────────────────────────────────────────
+#
+# Tools take flat parameters with `Annotated[type, Field(...)]` for
+# validation + descriptions. This keeps the JSON-RPC argument surface
+# flat (clients send {"arguments": {"proposition": "..."}}, NOT a
+# nested {"arguments": {"params": {"proposition": "..."}}}), which is
+# what every existing MCP client expects. Wrapping arguments under a
+# single `params: BaseModel` would change the wire format and break
+# every caller, so we use Annotated parameters instead.
 
 mcp = FastMCP(
     name="patha_mcp",
@@ -398,7 +294,59 @@ mcp = FastMCP(
         "openWorldHint": False,
     },
 )
-def patha_ingest(params: IngestInput) -> dict[str, Any]:
+def patha_ingest(
+    proposition: Annotated[
+        str,
+        Field(
+            min_length=1,
+            max_length=MAX_PROPOSITION_CHARS,
+            description=(
+                "The fact to remember, as a single declarative sentence "
+                "in natural language. Examples: 'I am vegetarian', "
+                "'I bought a $50 saddle for my bike', 'I just moved to "
+                "Melbourne'. Short, atomic, present-tense ideal."
+            ),
+        ),
+    ],
+    asserted_at: Annotated[
+        Optional[str],
+        Field(
+            default=None,
+            description=(
+                "ISO-8601 timestamp the user asserted this belief at "
+                "(defaults to now). Examples: '2026-05-06T14:30:00' or "
+                "'2026-05-06T14:30:00+00:00'."
+            ),
+        ),
+    ] = None,
+    session_id: Annotated[
+        Optional[str],
+        Field(
+            default=None, max_length=120,
+            description=(
+                "Session/bucket id (defaults to today's date YYYY-MM-DD)."
+            ),
+        ),
+    ] = None,
+    source_id: Annotated[
+        Optional[str],
+        Field(
+            default=None, max_length=200,
+            description="Optional upstream identifier for traceability.",
+        ),
+    ] = None,
+    context: Annotated[
+        Optional[str],
+        Field(
+            default=None, max_length=MAX_CONTEXT_CHARS,
+            description=(
+                "Optional context tag ('work', 'health', 'travel', ...) "
+                "for context-scoped queries. Use sparingly — the belief "
+                "layer indexes by content, not by tag."
+            ),
+        ),
+    ] = None,
+) -> dict[str, Any]:
     """Remember a single proposition. Routes through the full belief
     pipeline (contradiction detection, supersession, plasticity, gaṇita
     tuple extraction).
@@ -421,20 +369,20 @@ def patha_ingest(params: IngestInput) -> dict[str, Any]:
     """
     try:
         try:
-            at = _parse_iso_or_none(params.asserted_at) or datetime.now()
+            at = _parse_iso_or_none(asserted_at) or datetime.now()
         except ValueError as e:
             return _structured_error("invalid_timestamp", str(e))
 
-        session = params.session_id or at.strftime("%Y-%m-%d")
-        src = params.source_id or f"mcp-{session}-{int(at.timestamp())}"
+        session = session_id or at.strftime("%Y-%m-%d")
+        src = source_id or f"mcp-{session}-{int(at.timestamp())}"
 
         patha = _get_patha()
         ev = patha.ingest(
-            proposition=params.proposition,
+            proposition=proposition,
             asserted_at=at,
             asserted_in_session=session,
             source_proposition_id=src,
-            context=params.context,
+            context=context,
         )
         _invalidate_phase1()
 
@@ -443,7 +391,7 @@ def patha_ingest(params: IngestInput) -> dict[str, Any]:
         if _ganita_index is not None and _karana_extractor is not None:
             try:
                 tuples = _karana_extractor.extract(
-                    params.proposition,
+                    proposition,
                     belief_id=ev.new_belief.id,
                     time=at.isoformat(),
                 )
@@ -482,7 +430,55 @@ def patha_ingest(params: IngestInput) -> dict[str, Any]:
         "openWorldHint": False,
     },
 )
-def patha_query(params: QueryInput) -> dict[str, Any]:
+def patha_query(
+    question: Annotated[
+        str,
+        Field(
+            min_length=1,
+            max_length=MAX_QUESTION_CHARS,
+            description=(
+                "The user's question or topic, in natural language. "
+                "Examples: 'what do I currently eat?', 'how much have I "
+                "spent on bikes?', 'where do I live?'."
+            ),
+        ),
+    ],
+    at_time: Annotated[
+        Optional[str],
+        Field(
+            default=None,
+            description=(
+                "ISO-8601 timestamp to query at (defaults to now). Used "
+                "to answer 'what did I believe on date X?' "
+                "counterfactuals."
+            ),
+        ),
+    ] = None,
+    include_history: Annotated[
+        bool,
+        Field(
+            default=False,
+            description=(
+                "If true, also return superseded beliefs in the "
+                "response. Default false to keep responses focused on "
+                "current state."
+            ),
+        ),
+    ] = False,
+    semantic_filter: Annotated[
+        Optional[bool],
+        Field(
+            default=None,
+            description=(
+                "If true (default: follows PATHA_SEMANTIC_FILTER env, "
+                "on by default), narrow the belief store to top-K "
+                "topically relevant beliefs before supersession. "
+                "Improves answer focus on large stores; set false to "
+                "query the entire store."
+            ),
+        ),
+    ] = None,
+) -> dict[str, Any]:
     """Ask what the user currently believes about a topic.
 
     Routes through Phase 1 retrieval (Vedic 7-view + songline graph) →
@@ -510,15 +506,15 @@ def patha_query(params: QueryInput) -> dict[str, Any]:
     """
     try:
         try:
-            at = _parse_iso_or_none(params.at_time) or datetime.now()
+            at = _parse_iso_or_none(at_time) or datetime.now()
         except ValueError as e:
             return _structured_error("invalid_timestamp", str(e))
 
         patha = _get_patha()
 
         use_filter = (
-            params.semantic_filter
-            if params.semantic_filter is not None
+            semantic_filter
+            if semantic_filter is not None
             else SEMANTIC_FILTER_ENABLED
         )
         candidate_belief_ids = None
@@ -528,16 +524,16 @@ def patha_query(params: QueryInput) -> dict[str, Any]:
             if all_beliefs:
                 sfilter = _get_semantic_filter()
                 candidate_belief_ids = sfilter.top_k(
-                    query=params.question,
+                    query=question,
                     beliefs=all_beliefs,
                     k=DEFAULT_SEMANTIC_FILTER_K,
                 )
                 filter_kept = len(candidate_belief_ids)
 
         response = patha.query(
-            params.question,
+            question,
             at_time=at,
-            include_history=params.include_history,
+            include_history=include_history,
             candidate_belief_ids=candidate_belief_ids,
         )
 
@@ -558,7 +554,7 @@ def patha_query(params: QueryInput) -> dict[str, Any]:
                 "asserted_at": b.asserted_at.isoformat(),
                 "confidence": b.confidence,
             }
-            for b in (qr.history if qr and params.include_history else [])
+            for b in (qr.history if qr and include_history else [])
         ]
 
         ganita_block = None
@@ -567,10 +563,10 @@ def patha_query(params: QueryInput) -> dict[str, Any]:
                 retrieved_ids = None
                 if qr is not None:
                     retrieved_ids = {b.id for b in qr.current}
-                    if params.include_history:
+                    if include_history:
                         retrieved_ids |= {b.id for b in qr.history}
                 gres = answer_aggregation_question(
-                    params.question, _ganita_index,
+                    question, _ganita_index,
                     restrict_to_belief_ids=retrieved_ids,
                 )
                 if gres is not None:
@@ -621,7 +617,39 @@ def patha_query(params: QueryInput) -> dict[str, Any]:
         "openWorldHint": False,
     },
 )
-def patha_history(params: HistoryInput) -> dict[str, Any]:
+def patha_history(
+    term: Annotated[
+        str,
+        Field(
+            min_length=1,
+            max_length=MAX_TERM_CHARS,
+            description=(
+                "Substring to match in the belief proposition text "
+                "(case-insensitive). Examples: 'sushi', 'Lisbon', 'job'."
+            ),
+        ),
+    ],
+    limit: Annotated[
+        int,
+        Field(
+            default=50, ge=1, le=MAX_HISTORY_LIMIT,
+            description=(
+                f"Maximum results to return. Default 50; "
+                f"max {MAX_HISTORY_LIMIT}. Use the `next_offset` field "
+                f"for pagination."
+            ),
+        ),
+    ] = 50,
+    offset: Annotated[
+        int,
+        Field(
+            default=0, ge=0,
+            description=(
+                "Number of results to skip for pagination. Default 0."
+            ),
+        ),
+    ] = 0,
+) -> dict[str, Any]:
     """Find every belief (current OR superseded) whose proposition
     contains ``term`` (case-insensitive).
 
@@ -647,22 +675,22 @@ def patha_history(params: HistoryInput) -> dict[str, Any]:
     try:
         patha = _get_patha()
         store = patha.belief_layer.store
-        needle = params.term.lower()
+        needle = term.lower()
         all_matches = [
             b for b in store.all() if needle in b.proposition.lower()
         ]
         all_matches.sort(key=lambda b: b.asserted_at)
 
         total = len(all_matches)
-        page = all_matches[params.offset : params.offset + params.limit]
-        end = params.offset + len(page)
+        page = all_matches[offset : offset + limit]
+        end = offset + len(page)
         has_more = end < total
 
         return {
-            "term": params.term,
+            "term": term,
             "total": total,
             "count": len(page),
-            "offset": params.offset,
+            "offset": offset,
             "next_offset": end if has_more else None,
             "has_more": has_more,
             "matches": [
