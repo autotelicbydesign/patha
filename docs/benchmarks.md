@@ -233,7 +233,7 @@ Per-strategy on the canonical token-overlap run:
 - 0.308 with a 14B local model is a *floor for "real LLMs in the loop,"* not a ceiling. qwen2.5:14b is small relative to frontier models (Claude Sonnet 4, GPT-4o, Gemini 2.5 Pro), and inspection of failures shows two clusters: (a) hallucinated specific values (e.g. gold "$400,000" → answer "$350,000") and (b) prose verbosity that defeats strict scorers despite a correct fact (e.g. gold "Three times a week" → answer correctly mentions "2-3 times" inside a longer paragraph). A frontier-class model would likely reduce both.
 - **Frontier-LLM measurement pending.** This will likely lift the number substantially; it'll be published in v0.11.
 
-Reproduce:
+Reproduce (full run — re-calls the LLM, ~12 min, needs Ollama + qwen2.5:14b):
 ```bash
 uv run python -m eval.run_answer_eval \
     --data data/longmemeval_ku_78.json \
@@ -241,6 +241,22 @@ uv run python -m eval.run_answer_eval \
     --scorer overlap \
     --output runs/answer_eval/ku-qwen14b-overlap.json
 ```
+
+Or re-score the existing numeric run's stored answers under the overlap
+scorer (instant, no LLM — the model's answers don't depend on the
+scorer, so this reproduces 24/78 = 0.308 deterministically):
+```bash
+uv run python -m eval.rescore \
+    --in runs/answer_eval/ku-qwen14b-numeric.json \
+    --scorer overlap \
+    --out runs/answer_eval/ku-qwen14b-overlap.json
+```
+
+(The first time these numbers were published, only the numeric artifact
+had been persisted; the overlap variant was computed ad-hoc. `eval/rescore.py`
+exists so the overlap number is reproducible from the committed numeric
+answers without a fresh 12-minute LLM run. `runs/` is gitignored, so the
+artifacts live locally; the tool + data + this command are the reproducibility path.)
 
 ### What Phase 3 doesn't yet measure (deferred to v0.11+)
 
