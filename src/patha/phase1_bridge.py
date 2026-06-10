@@ -262,6 +262,28 @@ class LazyPhase1Retriever:
     def is_built(self) -> bool:
         return self._indexes is not None and not self._dirty
 
+    @property
+    def songline_graph(self):
+        """The built SonglineGraph (or None). Triggers a build if stale.
+
+        Exposed for the narrative-walk recall strategy, which traverses
+        the graph directly rather than running the retrieval pipeline.
+        """
+        self._ensure_built()
+        assert self._indexes is not None
+        return self._indexes[3]
+
+    @property
+    def id_map(self) -> dict[str, str]:
+        """chunk_id → source_proposition_id map. Triggers a build if stale.
+
+        Lets the narrative walk resolve graph nodes back to beliefs via
+        ``store.by_proposition`` without re-running retrieval.
+        """
+        self._ensure_built()
+        assert self._indexes is not None
+        return self._indexes[2]
+
 
 def build_phase1_retriever(
     belief_store: BeliefStore,

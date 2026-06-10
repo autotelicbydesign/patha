@@ -72,19 +72,24 @@ class Recall:
                    for the currently valid beliefs.
         history:   list of superseded beliefs (only populated when
                    `include_history=True` was passed).
-        strategy:  "direct_answer" | "structured" | "raw" | "ganita" — how
-                   the response was built.
+        strategy:  "direct_answer" | "structured" | "raw" | "ganita" |
+                   "narrative" — how the response was built.
         tokens:    token count of the summary (for budgeting).
         ganita:    optional GanitaResult — when the question is an
                    aggregation ("how much total", "how many", etc), the
                    procedural-arithmetic layer fills this with the
                    computed value and its contributing source belief ids.
                    None if no aggregation operator was detected.
+        narrative: optional NarrativeResult — when the question is a
+                   narrative query ("how has my thinking on X evolved?",
+                   "trace my views on Y"), the songline-walk strategy
+                   fills this with the temporally-ordered beats and a
+                   deterministic through-line. None otherwise.
     """
 
     __slots__ = (
         "answer", "summary", "current", "history", "strategy", "tokens",
-        "ganita",
+        "ganita", "narrative",
     )
 
     def __init__(
@@ -92,12 +97,14 @@ class Recall:
         response: IntegratedResponse,
         include_history: bool,
         ganita_result=None,
+        narrative_result=None,
     ) -> None:
         self.answer: str | None = response.answer or None
         self.summary: str = response.prompt
         self.strategy: str = response.strategy
         self.tokens: int = response.tokens_in
         self.ganita = ganita_result  # GanitaResult | None
+        self.narrative = narrative_result  # NarrativeResult | None
         rr = response.retrieval_result
         self.current = [
             {
@@ -157,6 +164,7 @@ class Memory:
         enable_phase1: bool = True,
         phase1_top_k: int = 20,
         enable_ganita: bool = True,
+        enable_narrative: bool = True,
         hebbian_expansion: bool = True,
         hebbian_top_k_per_seed: int = 3,
         hebbian_max_added: int = 30,
@@ -229,6 +237,10 @@ class Memory:
         self._phase1_enabled = enable_phase1
         self._phase1_top_k = phase1_top_k
         self._ganita_enabled = enable_ganita
+        # Narrative synthesis needs the songline graph, which only the
+        # Phase 1 retriever builds — so it's only available when Phase 1
+        # is on. Off otherwise (no graph to walk).
+        self._narrative_enabled = enable_narrative and enable_phase1
 
         store = BeliefStore(persistence_path=path)
         layer = BeliefLayer(store=store, detector=make_detector(detector))
@@ -521,6 +533,21 @@ class Memory:
             return Recall(response, include_history=include_history,
                           ganita_result=ganita_result)
 
+        # ── Narrative path (itihāsa) ──────────────────────────────
+        # Between synthesis and retrieval: a narrative query ("how has my
+        # thinking on X evolved?") wants a temporally-ordered thematic
+        # walk, not top-K and not a SUM. Tried only AFTER gaṇita has
+        # declined (so synthesis phrasings still go to gaṇita), and it
+        # self-guards: if the walk can't assemble ≥2 on-theme beats it
+        # returns None and we fall through to the ordinary retrieval
+        # path — zero regression on anything the walk can't serve.
+        if self._narrative_enabled:
+            narrative_recall = self._try_narrative(
+                question, at, include_history,
+            )
+            if narrative_recall is not None:
+                return narrative_recall
+
         # ── Retrieval path ────────────────────────────────────────
         response = self._patha.query(
             question,
@@ -548,6 +575,93 @@ class Memory:
         return Recall(
             response, include_history=include_history,
             ganita_result=ganita_result,
+        )
+
+    def _try_narrative(self, question: str, at, include_history: bool):
+        """Attempt the narrative songline-walk path. Returns a Recall or
+        None (→ caller falls through to retrieval).
+
+        Defensive throughout: any missing dependency (no graph yet, no
+        theme, walk too sparse) yields None rather than an error, so a
+        narrative-looking query the walker can't serve degrades to the
+        ordinary retrieval path instead of failing.
+        """
+        from patha.belief.itihasa import detect_narrative, extract_theme
+
+        op = detect_narrative(question)
+        if op is None:
+            return None
+        theme = extract_theme(question)
+        if not theme:
+            return None
+        retriever = self._phase1_retriever
+        if retriever is None:
+            return None
+        try:
+            graph = retriever.songline_graph
+            id_map = retriever.id_map
+        except Exception:
+            return None
+        if graph is None or not id_map:
+            return None
+
+        from patha.retrieval.narrative_walk import narrative_walk
+
+        store = self._patha.belief_layer.store
+        try:
+            result = narrative_walk(
+                question, op, theme,
+                graph=graph, id_map=id_map, store=store,
+                phase1_retrieve=retriever,
+            )
+        except Exception:
+            return None
+        if result is None:
+            return None
+        return self._build_narrative_recall(question, result, include_history)
+
+    def _build_narrative_recall(self, question, narrative, include_history):
+        """Wrap a NarrativeResult into a Recall, mirroring how the gaṇita
+        branch synthesizes an IntegratedResponse."""
+        from patha.belief.layer import BeliefQueryResult
+        from patha.integrated import IntegratedResponse
+
+        store = self._patha.belief_layer.store
+        current_beliefs = []
+        history_beliefs = []
+        for beat in narrative.beats:
+            b = store.get(beat.belief_id)
+            if b is None:
+                continue
+            if beat.supersession_status in ("revised-from", "superseded"):
+                history_beliefs.append(b)
+            else:
+                current_beliefs.append(b)
+
+        summary = narrative.as_timeline()
+        # The synthesis (selection + ordering + supersession-tagging) used
+        # zero LLM tokens; `tokens` is the cost of feeding the resulting
+        # timeline to an LLM downstream (char/4 heuristic, for budgeting).
+        est_tokens = max(0, len(summary) // 4)
+        response = IntegratedResponse(
+            query=question,
+            strategy="narrative",
+            prompt=summary,
+            answer="",  # narrative has no single short answer
+            belief_ids=list(narrative.contributing_belief_ids),
+            source_proposition_ids=[
+                b.source_proposition_id for b in current_beliefs
+            ],
+            tokens_in=est_tokens,
+            retrieval_result=BeliefQueryResult(
+                current=current_beliefs,
+                history=history_beliefs if include_history else [],
+                tokens_in_summary=est_tokens,
+            ),
+        )
+        return Recall(
+            response, include_history=include_history,
+            narrative_result=narrative,
         )
 
     def history(self, term: str) -> list[dict[str, Any]]:
