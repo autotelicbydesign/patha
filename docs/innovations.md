@@ -6,22 +6,36 @@ The branch sits on top of `phase-2-belief-layer` at v0.9.3 (LongMemEval-S 500q =
 
 ## The architectural claim
 
-Two classes of question. Two pramāṇa. Two paths.
+Different questions are different epistemic acts. **The *pramāṇa* — the Nyāya taxonomy of valid means of knowledge — is a near-complete map of the operations a memory must support, and Patha routes `recall()` by which one a question demands.** This is the load-bearing idea; the encoding mechanics (below) are supporting design philosophy.
 
-| Class | Example | Pramāṇa | Path |
-|---|---|---|---|
-| **Retrieval** | "What did I say about the saddle?" | *pratyakṣa* — direct perception | Phase 1 (7-view dense + BM25 + RRF + reranker + songlines) → Phase 2 (current-state filter) → direct-answer or structured summary |
-| **Synthesis** | "How much have I spent on bikes total?" | *anumāna* — inference across many facts | Gaṇita queries the belief store directly and exhaustively over preserved tuples. Phase 1 runs in parallel to populate retrieval context, but the synthesis answer is independent of Phase 1's top-K. Zero LLM tokens at recall. |
+| Class | Example | Pramāṇa | Path | Status |
+|---|---|---|---|---|
+| **Retrieval** | "What did I say about the saddle?" | *pratyakṣa* — perception | Phase 1 (dense + BM25 + RRF + reranker) → current-state filter → direct-answer or structured summary | shipped |
+| **Synthesis** | "How much have I spent on bikes total?" | *anumāna* — inference | Gaṇita over preserved tuples, exhaustive, zero LLM tokens at recall (top-K runs in parallel for context but the answer is independent of it) | shipped |
+| **Narrative** | "How has my thinking on agency evolved?" | *itihāsa* (emplotment of *śabda*) | Songline walk — a temporally-ordered traversal of a theme, ordered beats + supersession structure | wired, validating |
 
-The reason: **top-K retrieval is the wrong primitive for synthesis.** A question like "how much have I spent on bikes" has no single right session. The answer requires every bike-aliased expense tuple, summed. Top-100 of 1000 sessions misses 90% of the inputs.
+The reason: **top-K retrieval is the wrong primitive for synthesis *and* narrative.** "How much have I spent on bikes" has no single right session — it needs every bike-aliased tuple, summed; top-100 of 1000 misses 90%. "How has my thinking evolved" needs *sequence* — a ranked bag has no notion of order. Each pramāṇa is a primitive the others can't serve.
 
-The traditional alignment is exact: pratyakṣa (perception) and anumāna (inference) are distinct pramāṇa in Nyāya epistemology. The architecture reflects this rather than collapsing both into one funnel.
+The alignment is not loose: pratyakṣa, anumāna, and śabda are distinct pramāṇa in Nyāya, and they correspond to genuinely distinct memory operations. The remaining pramāṇa map just as cleanly to operations Patha hasn't built yet (see "The epistemology roadmap" below) — which is why the philosophy is a *blueprint*, not ornament.
 
-### What's *not* a first-class path yet — narrative synthesis
+### Narrative synthesis (itihāsa) — now a first-class path
 
-`recall()` handles two kinds of synthesis today: (1) **numerical** synthesis via gaṇita (`sum/count/avg/min/max/difference` over the preserved tuple index, exhaustive, zero LLM tokens at recall), and (2) **belief-evolution narrative** via `include_history=True` (the supersession lineage rendered as a deterministic timeline).
+Earlier versions of this doc listed narrative synthesis as deferred. It is now **wired end-to-end** (`belief/itihasa.py` intent detector + `retrieval/narrative_walk.py` walker + a routing gate in `Memory.recall()`), and exercised by unit + end-to-end tests. It is not yet *validated on real data* — the songline graph's **topic channel** isn't populated (only entity/temporal/session/speaker edges exist today), and there's no authored evolution benchmark yet. So it's reachable but pre-release; it ships as a headline once those land.
 
-What it does **not** have is a first-class path for **semantic / narrative synthesis** — questions like *"what patterns do I notice in how I think about my grandfather?"*, *"what's the through-line of my reflections on agency?"*, *"summarise my evolving thinking on X"*. These currently flow through the standard retrieval path: Phase 1 returns top-K relevant beliefs, the structured summary lists them, and any narrative composition across those beliefs happens **downstream in whatever LLM you pipe `rec.summary` into**. The same critique that motivated gaṇita applies — top-K of N misses (N-K), and the synthesis work is offloaded to per-token LLM cost — but the architectural answer (a narrative-synthesis path analogous to gaṇita) is deliberately deferred to a future phase. Phase 3 (end-to-end answer eval) is the prerequisite: without an LLM-as-judge scorer for free-form answers we'd be shipping a narrative path with no way to prove it works. Tracked as Phase 4 work.
+The mechanism: a narrative question resolves a *theme*, anchors on the theme's beliefs (union of Phase-1 semantic top-K and direct entity-channel members — the gaṇita lesson, don't let top-K bound a synthesis query), then walks the songline graph *staying on-theme* (entity/topic edges always followed; temporal/session edges only to on-theme endpoints — the inverse of Phase 1's diversity-seeking `songline_walk`). It folds in each surfaced belief's supersession lineage (the "used to think X, now Y" beats), orders by time, and renders a deterministic through-line — **zero LLM tokens for the selection/ordering/supersession-tagging**; an LLM only verbalizes the pre-structured timeline.
+
+This is also where the **songline graph finally earns its place.** Ablations show it contributes ≈0 to top-K retrieval R@5 — because top-K never needed graph traversal. Narrative is the first recall strategy where traversal is the *only* right primitive, so the graph investment becomes load-bearing exactly here.
+
+### The epistemology roadmap — the remaining pramāṇa
+
+The taxonomy predicts what's left to build, and one piece is already half-built:
+
+- **Anupalabdhi** (non-apprehension) → *absence* queries: "what have I **not** decided about X?" The `abhāva` modules exist but are dormant; wiring them into a recall path is the next clean primitive.
+- **Upamāna** (comparison) → *analogical* recall: "what does this remind me of? have I faced this before?" Similarity-across-difference, distinct from top-K-by-embedding.
+- **Composition** → chaining pramāṇa: a *time-series of sums* (narrative + synthesis), e.g. "how has my spending evolved?" — a primitive no other memory system has.
+- **Arthāpatti** (postulation) → *abductive* gap-fill: "what must be true, given X and Z?" Research-stage.
+
+*Śabda* (testimony) isn't a query path — it's the substrate: every belief in the store **is** the user's own recorded word. The narrative path (itihāsa) is the emplotment of that testimony, which is why its epistemic grounding is śabda rather than a pramāṇa of its own.
 
 ## The four supporting components
 

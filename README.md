@@ -54,7 +54,7 @@ No cloud. No login. No SaaS account. Patha writes to a plain text file at `~/.pa
 - **6.5× token reduction** on the LongMemEval-S multi-session stratum (118,761 → 18,384 tokens/summary)
 - **Zero LLM tokens at recall** on synthesis questions (gaṇita queries a preserved tuple index)
 - **95.8% non-commutative** — on 240 supersession scenarios, reversing ingest order produces a different final belief set
-- **799 unit tests pass** (3 skipped on optional deps)
+- **817 unit tests pass** (3 skipped on optional deps)
 
 Methodology and full tables in [docs/benchmarks.md](docs/benchmarks.md). Caveats and metric definitions there too — these are Patha's own measured numbers; cross-system comparison is left to the reader on like-for-like terms.
 
@@ -68,12 +68,31 @@ Patha has two internal layers that run inside `Memory.recall()`. The third piece
 - **Belief Layer (Anumāna)** — *"knowledge that follows from what is observed,"* inference. Contradiction detection (NLI + adhyāsa + numerical + sequential), non-destructive supersession, plasticity (LTP, LTD, Hebbian co-retrieval, homeostasis, pruning), validity, pramāṇa, vṛtti. Function: reason over time — what do I currently believe? what changed?
 - **Articulation Bridge** *(not a runtime layer)* — the connection from Patha's memory output to a user's LLM, plus the methodology for measuring how well it works. Five scorers (exact / normalised / numeric / token-overlap / embedding-cosine / LLM-as-judge), three LLM adapters (Null / Claude / Ollama), one runner CLI. Function: given Patha's output, does the user's LLM articulate the right answer?
 
-`Memory.recall()` routes by question intent:
+`Memory.recall()` routes by question intent — and the intents map to the *pramāṇa*, the classical Indian theory of how a mind validly comes to know. This is the load-bearing idea, not decoration: different kinds of question are different epistemic acts, and each wants a different primitive.
 
-- **Retrieval intent** — *"What did I say about the saddle?"* Retrieval Layer → Belief Layer's current-state filter → direct-answer or structured summary.
-- **Synthesis intent** — *"How much have I spent on bikes total?"* The gaṇita component of the Belief Layer queries the preserved tuple index exhaustively. Pure deterministic arithmetic. **Zero LLM tokens at recall.** The Retrieval Layer still runs in parallel to populate retrieval context, but the synthesis answer is independent of its top-K.
+- **Retrieval** — *pratyakṣa* (perception). *"What did I say about the saddle?"* Retrieval Layer → Belief Layer's current-state filter → direct-answer or structured summary.
+- **Synthesis** — *anumāna* (inference). *"How much have I spent on bikes total?"* The gaṇita component queries the preserved tuple index exhaustively. Pure deterministic arithmetic. **Zero LLM tokens at recall** (paid once at ingest, never per query). Top-K still runs in parallel for context, but the answer is independent of it.
+- **Narrative** — *itihāsa* (narrative-historical emplotment, grounded in *śabda*). *"How has my thinking on agency evolved?"* A temporally-ordered walk of a theme across the songline graph — ordered beats + supersession structure, not a ranked bag. *(Wired end-to-end on `main`; validating on real data before it ships in a release — see Roadmap.)*
 
-Top-K retrieval is the wrong primitive for synthesis: top-100 of 1000 sessions misses 90% of the inputs you'd need to sum. Mainstream AI memory systems force every question through the same retrieval funnel and let an LLM clean up at recall — paying tokens per query, indefinitely. Patha doesn't.
+Top-K retrieval is the wrong primitive for synthesis *and* narrative: top-100 of 1000 sessions misses 90% of the inputs you'd need to sum, and a ranked bag has no notion of *sequence*. Mainstream AI memory systems force every question through the same retrieval funnel and let an LLM clean up at recall — paying tokens per query, indefinitely. Patha routes by what the question actually is.
+
+> **On the Vedic 7-view encoding and the songline graph — honest framing.** These are *design philosophy*, not the source of the retrieval numbers: ablations show the cross-encoder reranker does the heavy lifting and two views perform nearly as well as seven (full table in [docs/benchmarks.md](docs/benchmarks.md)). The songline graph contributes ≈0 to top-K retrieval — *because top-K never needed graph traversal.* The **narrative path is the first recall strategy where traversal is the only right primitive** (top-K and SUM both fail on "how did this evolve?"), so it's where the songline graph finally becomes load-bearing. The philosophy earns its keep when the question class demands it.
+
+## The architecture is the epistemology
+
+Most memory systems pick a data structure (vector store, knowledge graph) and bolt question-answering on top. Patha starts from the other end: **the *pramāṇa* — the classical Indian taxonomy of valid means of knowledge — is a near-complete map of the distinct operations a memory must support.** Nyāya names six. They are not decoration; each one is a genuinely different retrieval primitive that the others cannot serve, and they generate Patha's roadmap.
+
+| Pramāṇa | Memory operation | Question it answers | Status |
+|---|---|---|:--|
+| **Pratyakṣa** — perception | retrieval | *"what did I say about X?"* | ✅ shipped |
+| **Anumāna** — inference | gaṇita synthesis | *"how much / how many total?"* | ✅ shipped |
+| **Śabda** — testimony | *the substrate* — every belief in the store **is** the user's own recorded word | — | (foundation, not a path) |
+| *itihāsa* (emplotment of śabda) | narrative walk | *"how has my thinking on X evolved?"* | ◧ wired, validating |
+| **Anupalabdhi** — non-apprehension | absence queries | *"what have I **not** decided about X?"* | ◔ `abhāva` half-built |
+| **Upamāna** — comparison | analogical recall | *"what does this remind me of? have I faced this before?"* | ○ planned |
+| **Arthāpatti** — postulation | abductive gap-fill | *"what must be true, given X and Z?"* | ○ research |
+
+Three of these operations ship today; a fourth (narrative) is wired and validating; a fifth (absence) is half-built in the dormant `abhāva` modules. **The claim isn't "we built six clever tricks" — it's that an honest epistemology of *how knowing happens* turns out to be a buildable architecture for memory, and it tells us what's left.** That's the differentiation a vector store can't copy: it requires committing to the philosophy as the blueprint.
 
 ## What ships in v0.10
 
@@ -345,10 +364,13 @@ INGEST:  conversation turn
      BeliefStore  ──────►  ~/.patha/beliefs.jsonl   (append-only event log)
            │
            ▼
-QUERY:    current-only  or  current + history
+QUERY:    recall() routes by pramāṇa →
+           ├─ pratyakṣa  → retrieval     (top-K → current-state filter)
+           ├─ anumāna    → gaṇita        (exhaustive arithmetic, 0 LLM tokens)
+           └─ itihāsa    → narrative walk (songline traversal → ordered beats)
            │
            ▼
-     strategy: direct-answer (no LLM) | structured summary | raw
+     strategy: direct-answer (no LLM) | structured | ganita | narrative | raw
            │
            └─────────────►  Patha output (ends here)
                                        │
@@ -429,7 +451,7 @@ uv run python -m eval.run_answer_eval \
     --llm null --scorer numeric                     # baseline floor: 5/78
 
 # Full test suite
-uv run pytest tests/ -q                             # 799 tests, ~75s
+uv run pytest tests/ -q                             # 817 tests, ~75s
 ```
 
 ---
@@ -448,17 +470,27 @@ uv run pytest tests/ -q                             # 799 tests, ~75s
 - MCP server, CLI, Streamlit viewer, Python library
 - Published to PyPI as `patha-memory`
 
-**Near-term:**
-- Belief Layer + Retrieval Layer integration inside the MCP server (retrieval-filtered supersession)
-- Real LLM runs on the Articulation Bridge (Claude / Ollama on KU and BeliefEval)
-- Karaṇa-quality correlation: how does the Articulation Bridge accuracy curve change as the karaṇa extractor moves from regex → ollama-7b → hybrid-14b?
-- BeliefEval adapter for the Articulation Bridge runner (300 supersession scenarios via the same engine)
+**Near-term — make the narrative path (itihāsa) real:**
+- Topic channel in the songline graph (currently entity/temporal/session/speaker), so themes connect across sessions — the piece that makes traversal fully load-bearing
+- Authored *evolution* benchmark + deterministic ordering/coverage scorers + LLM-judge rubric — there is no standard benchmark for "did the system track how a belief evolved?"; we intend to define one
+- Then ship narrative synthesis as the v0.11 headline
+
+**Near-term — close the measurement gaps:**
+- Karaṇa-quality benchmark: the extraction quality that bounds every synthesis claim is currently unmeasured (regex → ollama-7b → hybrid-14b)
+- Frontier-LLM Articulation Bridge run (Claude / GPT-4o on KU + 500q); full 500q R@5
+- BeliefEval adapter for the Articulation Bridge runner
+
+**The epistemology roadmap (the remaining pramāṇa):**
+- **Anupalabdhi** — absence queries ("what have I *not* decided about X?"), wiring the dormant `abhāva` modules into a recall path
+- **Upamāna** — analogical recall ("what does this remind me of?"), a similarity-across-difference primitive distinct from top-K
+- **Composition** — chaining pramāṇa: a *time-series of sums* (narrative + synthesis = "how has my spending evolved?"), a primitive no other system has
+- **Arthāpatti** — abductive gap-fill (research)
 
 **Longer-term:**
-- Multi-user belief attribution (whose belief is it?)
-- Bayesian confidence propagation
+- Principled forgetting — wiring plasticity/decay into recall so the store stays signal, not noise (the preserve-vs-release question the source traditions are *about*)
+- Persistent index API for the Retrieval Layer (cross-session retrieval without re-embedding)
+- Multi-agent belief attribution (which tool/session asserted what?) as agentic workflows share one store
 - Adapters for LangChain / LlamaIndex
-- Persistent index API for the Retrieval Layer, so the MCP server can run dense retrieval across sessions without re-embedding
 
 ---
 
