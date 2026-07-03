@@ -244,9 +244,15 @@ def import_file(
         stats.skipped_paths.append(str(path))
         return stats
 
-    frontmatter: dict = {}
-    if obsidian:
-        frontmatter, text = _split_frontmatter(text)
+    # Frontmatter (`---\ndate: ...\n---`) is a generic Markdown
+    # convention, not an Obsidian-ism — parse it unconditionally so
+    # (a) `date:` is honored for asserted_at in every import mode, and
+    # (b) the frontmatter block never leaks into proposition text.
+    # (Found via dogfooding: plain-folder imports were ingesting the
+    # literal "---\ndate: ...\n---" as a belief and stamping everything
+    # with the file mtime.) Obsidian-specific extras (wikilinks/tags as
+    # entity hints) remain gated on `obsidian=True`.
+    frontmatter, text = _split_frontmatter(text)
 
     # Pick asserted_at: frontmatter date > file mtime > now.
     asserted_at: datetime | None = None
@@ -316,13 +322,19 @@ def import_folder(
             rel = path.relative_to(folder)
         except ValueError:
             rel = path.with_suffix("")
-        # Session id: parent folder name, or '<vault-root>' if the
-        # file sits directly in the root.
+        # Session id: parent folder path for nested files (groups e.g.
+        # everything under `journal/2024/`), but the FILE stem for files
+        # sitting directly in the root. Previously root files all shared
+        # the folder name as one session, which collapsed a flat folder
+        # of unrelated documents into a single session — the songline
+        # session channel then connected everything to everything
+        # (found via dogfooding: 18 files → 1 session → a 91-node
+        # near-clique). Per-file sessions keep session edges meaningful.
         rel_parent = rel.parent
         sid = (
             str(rel_parent).replace("/", "·")
             if str(rel_parent) not in (".", "")
-            else folder.name
+            else path.stem
         )
         import_file(
             path, memory,

@@ -130,6 +130,16 @@ _NARRATIVE_STOPWORDS = {
     "approach", "reason", "reasoning", "journey", "connect", "relate",
     "fit", "together", "got", "made", "led", "into", "time", "long",
     "about",
+    # Mental-verb gerunds/inflections — scaffolding, never the theme.
+    # (Found via dogfooding: "when did I first start doubting the
+    # benchmark numbers?" resolved theme='doubting' instead of
+    # 'benchmark'.)
+    "doubt", "doubting", "doubted", "wonder", "wondering", "wondered",
+    "questioning", "questioned", "realize", "realizing", "realized",
+    "realise", "realising", "realised", "notice", "noticing", "noticed",
+    "believe", "believing", "believed", "belief", "beliefs",
+    "mention", "mentioning", "mentioned", "consider", "considering",
+    "considered", "understand", "understanding", "understood",
 }
 
 
