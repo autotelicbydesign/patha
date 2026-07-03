@@ -34,6 +34,34 @@ def _populate(store: BeliefStore) -> None:
         )
 
 
+class _SimilarityEmbedder:
+    """Deterministic embedder that can EXPRESS similarity (StubEmbedder's
+    hash-vectors are pairwise ~orthogonal, so topic clustering correctly
+    yields all-None on them). Texts sharing a keyword get near-identical
+    vectors; everything else lands on its own axis."""
+
+    dim = 16
+
+    _KEYWORD_AXIS = {"sushi": 0, "fish": 0, "tea": 3, "rent": 6}
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        out = []
+        for i, t in enumerate(texts):
+            v = [0.0] * self.dim
+            axis = None
+            for kw, ax in self._KEYWORD_AXIS.items():
+                if kw in t.lower():
+                    axis = ax
+                    break
+            if axis is None:
+                axis = 8 + (i % 7)
+            v[axis] = 1.0
+            v[(axis + 1) % self.dim] = 0.05 * (i % 3)  # slight wobble
+            norm = sum(x * x for x in v) ** 0.5
+            out.append([x / norm for x in v])
+        return out
+
+
 class TestBuildPhase1Indexes:
     def test_empty_store_returns_empty_indexes(self, tmp_path):
         store = BeliefStore(persistence_path=tmp_path / "beliefs.jsonl")
@@ -65,6 +93,50 @@ class TestBuildPhase1Indexes:
         # installed in CI); songline graph still builds from session/
         # speaker/temporal channels.
         assert songline is not None
+
+    def test_bridge_populates_topic_channel(self, tmp_path):
+        # The two fish/sushi beliefs share a keyword axis in the
+        # similarity embedder → same cluster → topic channel + edge.
+        store = BeliefStore(persistence_path=tmp_path / "beliefs.jsonl")
+        _populate(store)
+        _, _, _, songline = build_phase1_indexes(
+            store, embedder=_SimilarityEmbedder(), enable_entities=False,
+        )
+        assert songline is not None
+        topics = songline._channel_index.get("topic", {})
+        assert topics, "topic channel should be populated"
+        # sushi + fish chunks share a topic
+        cids = {cid for members in topics.values() for cid in members}
+        assert len(cids) >= 2
+        # topic_of agrees with the channel index
+        some = next(iter(cids))
+        assert songline.topic_of(some) is not None
+
+    def test_topic_labels_deterministic_across_rebuilds(self, tmp_path):
+        store = BeliefStore(persistence_path=tmp_path / "beliefs.jsonl")
+        _populate(store)
+
+        def build_topic_map():
+            _, _, _, sl = build_phase1_indexes(
+                store, embedder=_SimilarityEmbedder(), enable_entities=False,
+            )
+            return {
+                cid: sl.topic_of(cid)
+                for members in sl._channel_index.get("topic", {}).values()
+                for cid in members
+            }
+
+        assert build_topic_map() == build_topic_map()
+
+    def test_patha_topics_off_disables_channel(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("PATHA_TOPICS", "off")
+        store = BeliefStore(persistence_path=tmp_path / "beliefs.jsonl")
+        _populate(store)
+        _, _, _, songline = build_phase1_indexes(
+            store, embedder=_SimilarityEmbedder(), enable_entities=False,
+        )
+        assert songline is not None
+        assert not songline._channel_index.get("topic", {})
 
 
 class TestBuildPhase1Retriever:

@@ -142,6 +142,33 @@ def narrative_walk(
         anchor_chunks, key=lambda c: (_on_theme(c), _degree(c)), reverse=True
     )[:max_anchors]
 
+    # Topic clusters represented among the anchors. Membership in one
+    # of these makes a node on-theme even when the theme token is
+    # paraphrased away (dogfood finding F4/F5: abstract themes are
+    # never in the entity channel, and substring gating misses
+    # paraphrases). Defensive getattr: hand-built/mock graphs may
+    # predate topic_of. Degenerate clusters spanning >50% of the graph
+    # are ignored — a chained mega-cluster must not blow the gate open.
+    _topic_of = getattr(graph, "topic_of", None) or (lambda cid: None)
+    n_nodes = max(1, graph.node_count())
+    topic_index = graph._channel_index.get("topic", {})
+    anchor_topics: set = set()
+    for c in ranked_anchors:
+        t = _topic_of(c)
+        if t is None:
+            continue
+        if len(topic_index.get(t, ())) > 0.5 * n_nodes:
+            continue
+        anchor_topics.add(t)
+
+    def _on_theme_node(cid: str, belief) -> bool:
+        """On-theme := theme substring in text OR shares a topic cluster
+        with an anchor."""
+        if _belief_mentions_theme(belief, theme):
+            return True
+        t = _topic_of(cid)
+        return t is not None and t in anchor_topics
+
     # ── B. THEME-CONSTRAINED MULTI-HOP WALK ─────────────────────────
     visited: set[str] = set(ranked_anchors)
     # discovered: chunk -> (best cumulative weight, channel path)
@@ -159,11 +186,13 @@ def narrative_walk(
                 if nbr in visited:
                     continue
                 nbr_belief = _resolve_belief(nbr, id_map, store)
-                on_theme = _belief_mentions_theme(nbr_belief, theme)
+                on_theme = _on_theme_node(nbr, nbr_belief)
                 # Gate: entity/topic edges always allowed; temporal +
-                # session/speaker only if the endpoint is on-theme. This
-                # is what keeps the walk from drifting into whatever else
-                # happened to be in a shared session.
+                # session/speaker only if the endpoint is on-theme
+                # (substring OR shares a topic cluster with an anchor,
+                # so paraphrased beliefs pass). This is what keeps the
+                # walk from drifting into whatever else happened to be
+                # in a shared session.
                 if channel in ("temporal", "session", "speaker") and not on_theme:
                     continue
                 step = w + _CHANNEL_PREF.get(channel, 0.1)

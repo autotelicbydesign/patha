@@ -424,7 +424,16 @@ def run_evaluation(
         # Optionally build songline graph
         songline_graph = None
         if use_songline:
-            songline_graph = build_songline_graph(list(store.all_rows()))
+            rows = list(store.all_rows())
+            # Topic-channel parity with the production bridge: cluster
+            # over v1 embeddings so eval measures the same graph the
+            # MCP path serves. Fail-open (rows without views → None).
+            try:
+                from patha.indexing.topics import assign_topic_clusters
+                assign_topic_clusters(rows)
+            except Exception:
+                pass
+            songline_graph = build_songline_graph(rows)
 
         # Run retrieval
         qr = run_single_question(

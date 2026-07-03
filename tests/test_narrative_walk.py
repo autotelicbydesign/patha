@@ -162,3 +162,120 @@ class TestNarrativeWalk:
             graph=g, id_map=id_map, store=store,
         )
         assert res is None
+
+
+# ─── Topic-cluster gate (dogfood F4/F5 fixes) ───────────────────────
+
+
+def _agency_fixture_with_topics():
+    """Agency store + graph where beliefs b5/b6 are PARAPHRASES (no
+    'agency' substring) linked to anchors only via topic clusters."""
+    store = BeliefStore()
+
+    def add(bid, prop, month, session):
+        store.add(
+            proposition=prop,
+            asserted_at=datetime(2025, month, 1, 12, 0),
+            asserted_in_session=session,
+            source_proposition_id=f"prop-{bid}",
+            belief_id=bid,
+        )
+
+    add("b1", "agency is about removing constraints", 1, "s1")
+    add("b2", "agency means having more options", 3, "s2")
+    # b5: paraphrase — same topic, no 'agency' substring, reachable ONLY
+    # via a topic edge from b1's cluster.
+    add("b5", "true autonomy comes from owning your decisions", 5, "s5")
+    # b6: paraphrase reachable ONLY via a temporal edge from b1 — the
+    # old substring gate excluded this; the cluster-share gate admits it.
+    add("b6", "self-direction matters more than raw options", 1, "s6")
+    # b9: off-theme, in its own cluster, session-linked to b1.
+    add("b9", "I had pasta for dinner", 1, "s1")
+
+    g = SonglineGraph(
+        adjacency=defaultdict(list),
+        _channel_index=defaultdict(lambda: defaultdict(set)),
+    )
+    # entity channel: only b1/b2 mention 'agency' literally
+    for c in ("c1", "c2"):
+        g._channel_index["entity"]["agency"].add(c)
+    g.adjacency["c1"].append(("c2", 0.5, "entity"))
+    g.adjacency["c2"].append(("c1", 0.5, "entity"))
+    # topic channel: c1, c2, c5, c6 share topic "t0"; c9 in "t9"
+    for c in ("c1", "c2", "c5", "c6"):
+        g._channel_index["topic"]["t0"].add(c)
+    g._channel_index["topic"]["t9"].add("c9")
+    # topic edge c2 -> c5 (paraphrase reachable via topic edge)
+    g.adjacency["c2"].append(("c5", 0.5, "topic"))
+    g.adjacency["c5"].append(("c2", 0.5, "topic"))
+    # temporal edge c1 -> c6 (same day) — the headline gate case
+    g.adjacency["c1"].append(("c6", 0.4, "temporal"))
+    g.adjacency["c6"].append(("c1", 0.4, "temporal"))
+    # session edge c1 -> c9 (off-theme; different topic cluster)
+    g.adjacency["c1"].append(("c9", 0.4, "session"))
+    g.adjacency["c9"].append(("c1", 0.4, "session"))
+
+    # Padding: two disconnected off-theme pairs so the anchor cluster
+    # t0 (4 members) stays under the walker's >50%-of-nodes mega-cluster
+    # guard (4/9 nodes). Unreachable from the anchors, so they never
+    # surface in beats and need no store entries.
+    for a, b in (("c20", "c21"), ("c22", "c23")):
+        g.adjacency[a].append((b, 0.3, "session"))
+        g.adjacency[b].append((a, 0.3, "session"))
+
+    id_map = {f"c{i}": f"prop-b{i}" for i in [1, 2, 5, 6, 9]}
+    return store, g, id_map
+
+
+class TestTopicClusterGate:
+    def test_walker_traverses_topic_edge_to_paraphrase(self):
+        store, g, id_map = _agency_fixture_with_topics()
+        res = narrative_walk(
+            "trace my thinking on agency", "throughline", "agency",
+            graph=g, id_map=id_map, store=store,
+        )
+        assert res is not None
+        ids = {b.belief_id for b in res.beats}
+        assert "b5" in ids, "paraphrase via topic edge must be included"
+
+    def test_temporal_edge_to_cluster_mate_passes_gate(self):
+        # THE headline regression: b6 has no 'agency' substring and is
+        # reachable only via a temporal edge — under the old substring
+        # gate it was excluded; sharing anchor cluster t0 admits it.
+        store, g, id_map = _agency_fixture_with_topics()
+        res = narrative_walk(
+            "trace my thinking on agency", "throughline", "agency",
+            graph=g, id_map=id_map, store=store,
+        )
+        assert res is not None
+        ids = {b.belief_id for b in res.beats}
+        assert "b6" in ids, (
+            "temporal edge to a cluster-mate paraphrase must pass the gate"
+        )
+
+    def test_off_theme_session_mate_still_excluded_with_topics(self):
+        store, g, id_map = _agency_fixture_with_topics()
+        res = narrative_walk(
+            "trace my thinking on agency", "throughline", "agency",
+            graph=g, id_map=id_map, store=store,
+        )
+        assert res is not None
+        ids = {b.belief_id for b in res.beats}
+        assert "b9" not in ids, (
+            "off-theme session-mate in a different cluster stays excluded"
+        )
+
+    def test_mega_cluster_topic_ignored(self):
+        # If an anchor's cluster spans >50% of nodes, it must not admit
+        # off-theme temporal neighbors.
+        store, g, id_map = _agency_fixture_with_topics()
+        # blow t0 up to cover ALL nodes including c9
+        g._channel_index["topic"]["t0"] |= {"c9"}
+        g._topic_by_chunk = None  # reset lazy cache
+        res = narrative_walk(
+            "trace my thinking on agency", "throughline", "agency",
+            graph=g, id_map=id_map, store=store,
+        )
+        assert res is not None
+        ids = {b.belief_id for b in res.beats}
+        assert "b9" not in ids, "mega-cluster must not blow the gate open"

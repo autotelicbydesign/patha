@@ -51,6 +51,8 @@ class SonglineGraph:
     )
     # Global value frequency across all channels (for specificity weighting)
     _value_freq: Counter = field(default_factory=Counter)
+    # Lazily built inverse of _channel_index["topic"]: chunk_id → topic key.
+    _topic_by_chunk: dict | None = field(default=None, repr=False)
 
     def node_count(self) -> int:
         """Number of unique nodes that have at least one edge."""
@@ -63,6 +65,23 @@ class SonglineGraph:
     def neighbors(self, chunk_id: str) -> list[tuple[str, float, str]]:
         """Return (neighbor_id, weight, channel) for a node."""
         return self.adjacency.get(chunk_id, [])
+
+    def topic_of(self, chunk_id: str) -> str | None:
+        """Topic-cluster key for a chunk, or None if unclustered.
+
+        Lazily inverts ``_channel_index["topic"]`` — the single source
+        of truth, so hand-built test graphs that populate the channel
+        index get this for free. Clustering is a partition (each chunk
+        has at most one topic), and graphs are build-once/read-only, so
+        the cached inverse never goes stale.
+        """
+        if self._topic_by_chunk is None:
+            inv: dict = {}
+            for value, members in self._channel_index.get("topic", {}).items():
+                for cid in members:
+                    inv[cid] = value
+            self._topic_by_chunk = inv
+        return self._topic_by_chunk.get(chunk_id)
 
 
 def _specificity_weight(freq: int) -> float:

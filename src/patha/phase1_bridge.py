@@ -54,6 +54,7 @@ benchmarking, tiny stores, offline profiling), set
 
 from __future__ import annotations
 
+import os
 import threading
 from typing import Callable
 
@@ -89,7 +90,10 @@ def build_phase1_indexes(
     enable_songline: bool = True,
 ) -> tuple[InMemoryStore, SimpleBM25, dict[str, str], SonglineGraph | None]:
     """Embed every belief across the 7 Vedic views + BM25 + optional
-    songline graph over entity / session / speaker / temporal channels.
+    songline graph over entity / session / speaker / temporal / topic
+    channels (topic = deterministic agglomerative clustering over the
+    v1 embeddings; PATHA_TOPICS=off disables, PATHA_TOPIC_THRESHOLD
+    tunes, default 0.55).
 
     Returns:
         store    — InMemoryStore populated with all beliefs' views
@@ -157,6 +161,26 @@ def build_phase1_indexes(
         rows.append(row)
         id_map[prop.chunk_id] = belief.source_proposition_id
         bm25.add(prop.chunk_id, prop.text)
+
+    # Topic clustering over the v1 (pada) view — reuses the already-
+    # computed proposition-alone embeddings; no second embedding pass.
+    # Populates row["topic_cluster"], which build_songline_graph turns
+    # into topic-channel edges. Env knobs read at call time so tests
+    # can monkeypatch. Fail-open like entity extraction above.
+    enable_topics = os.environ.get("PATHA_TOPICS", "on").lower() != "off"
+    if enable_topics and enable_songline:
+        try:
+            from patha.indexing.topics import assign_topic_clusters
+            thr = float(os.environ.get("PATHA_TOPIC_THRESHOLD", "0.55"))
+            assign_topic_clusters(rows, similarity_threshold=thr)
+        except Exception as e:
+            import sys
+            print(
+                f"[phase1_bridge] topic clustering failed "
+                f"({type(e).__name__}: {e}); songline graph will lack "
+                f"topic edges.",
+                file=sys.stderr,
+            )
 
     store.upsert(rows)
 
