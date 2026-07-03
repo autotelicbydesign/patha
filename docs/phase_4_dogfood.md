@@ -51,8 +51,24 @@ After F1+F2: 77 beliefs (was 91 — frontmatter-block "beliefs" gone), 18 sessio
 2. **N1 (songline)**: the walk says the arc runs Apr 17 → Apr 20 with no reversals. Your actual arc: introduced-with-conviction (Apr 14) → ablations-showed-≈0 (Apr 17) → redeemed-as-philosophy (Apr 20). The Apr-14 origin is missing (F6) and the "no reversals" through-line is wrong for this theme — the ablation *was* the reversal. The through-line currently only detects reversals via supersession edges, which don't exist inside an imported one-way corpus. → benchmark scenario family: *reversal detection without explicit supersession*.
 3. Sanity: do the N2/N4 timelines read as *your* thinking, or as generic chunks that mention the word? (Grounds the F5 precision finding.)
 
+## Step 4 — topic channel A/B (before/after)
+
+Same store, same four narrative questions, `PATHA_TOPICS=off` vs `on`.
+
+**Structural result (unambiguous):**
+
+| | topics OFF | topics ON |
+|---|---|---|
+| graph edges | 3,928 | **4,310** (+382 topic edges) |
+| channels | entity 117 · temporal 18 · session 18 | + **topic 16** (16 real clusters over MiniLM v1 embeddings) |
+
+**Capability result (verified):** the cluster-share gate admits paraphrased on-theme beliefs that the substring gate excluded — proven by unit regression (`test_temporal_edge_to_cluster_mate_passes_gate`) and observed on the corpus: with topics ON, N2 recovered its **true origin** — *"Memory was designed before writing was invented"* (update_02, Apr 14) — the exact F6-class miss the gate was built for.
+
+**Honest composition result (mixed, knob-sensitive):** both configs saturate `max_beats=24`, so widening the gate *substitutes* beats rather than strictly adding — and which true beats survive is sensitive to the walk budgets. Two walker refinements came out of this A/B (shipped): score-aware thinning (`_temporal_thin` keeps the strongest-connected middle beats instead of an even stride — F7 fix) and a graph-size-scaled frontier budget (`max_branch` defaults to `node_count/4`, floored at 8 — a fixed 8 gave 4×8=32 visits against a 76-node graph, structurally starving the walk).
+
+**Discipline stop.** After those two structural fixes, further knob-tuning against these 4 questions would be fitting the dogfood set — the BeliefEval-overfit pattern this plan explicitly guards against. Per-question beat composition is hereby handed to the Step-5 evolution benchmark: coverage/ordering/origin-identification scorers on held-out scenarios are the instrument that can adjudicate knob values; four eyeballed questions are not.
+
 ## Next (per the approved plan)
 
-- **Step 3**: topic channel (clustering over the already-computed v1 embeddings) + walker cluster-gate → attacks F4 + F5.
-- **Step 4**: re-run this exact harness, topic on vs off; before/after appended here.
-- **Step 5**: evolution benchmark authored from F5/F6/F7 + the reversal-without-supersession case in scenario families (`progressive_revelation`, `multi_factor_change`, `perspective_shift`, `reversed_belief_chain`), with the 70/30 sealed split and frozen rubric.
+- **Step 5**: evolution benchmark authored from the verified failure modes above (F5/F6/F7 + reversal-without-supersession) in scenario families (`progressive_revelation`, `multi_factor_change`, `perspective_shift`, `reversed_belief_chain`), with the 70/30 sealed split, frozen rubric, and the walk-knob sweep (threshold 0.45/0.55/0.65, budgets) run against the dev set only.
+- **Gate**: Stefi's ground-truth verification of the Step-2 timelines (the three checks above) feeds scenario authoring.

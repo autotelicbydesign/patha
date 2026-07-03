@@ -87,7 +87,7 @@ def narrative_walk(
     phase1_retrieve: Optional[Callable[[str, int], list[str]]] = None,
     max_anchors: int = 4,
     hops: int = 4,
-    max_branch: int = 8,
+    max_branch: int | None = None,
     max_beats: int = 24,
     recency_window: Optional[timedelta] = None,
     now: Optional[datetime] = None,
@@ -106,6 +106,15 @@ def narrative_walk(
     theme = _canonicalize_entity(theme)
     if not theme:
         return None
+
+    # Frontier budget: hops × max_branch bounds total walk visits. A
+    # fixed max_branch=8 starved real corpora (4×8 = 32 visits against a
+    # 76-node dogfood graph — true on-theme beats were displaced at the
+    # frontier once the topic gate widened admission). Scale with graph
+    # size, floored at 8; final tuning belongs to the evolution-benchmark
+    # sweep, not per-corpus hand-fitting.
+    if max_branch is None:
+        max_branch = max(8, graph.node_count() // 4)
 
     # ── A. ANCHOR SELECTION ─────────────────────────────────────────
     # Union of (Phase 1 semantic top-K) and (direct entity-channel
@@ -303,12 +312,17 @@ def narrative_walk(
 
 
 def _temporal_thin(beats: list, max_beats: int) -> list:
-    """Down-sample to max_beats while preserving the arc endpoints.
+    """Down-sample to max_beats while preserving the arc.
 
     Always keep the first (origin) and last (current head) beat plus any
-    supersession/revision beats (those carry the evolution signal); thin
-    the remaining middle by an even stride so the timeline keeps its
-    shape instead of collapsing to the densest cluster.
+    supersession/revision beats (those carry the evolution signal). The
+    remaining middle is kept by descending ``walk_score`` — the walk's
+    own connectivity signal, which encodes on-theme edge strength — then
+    re-sorted by time. (Dogfood step-4 A/B finding: an even-stride
+    middle is relevance-blind — under beat-cap saturation it kept
+    weakly-related beats while dropping strongly-connected true ones,
+    e.g. N3 losing "the ablations humbled me" when the topic gate
+    widened the candidate pool.)
     """
     if len(beats) <= max_beats:
         return beats
@@ -318,17 +332,18 @@ def _temporal_thin(beats: list, max_beats: int) -> list:
             must_keep_idx.add(i)
     must_keep = [beats[i] for i in sorted(must_keep_idx)]
     if len(must_keep) >= max_beats:
-        # Even the must-keeps exceed budget: stride over them too.
+        # Even the must-keeps exceed budget: stride over them (they're
+        # temporally sorted, so a stride preserves the arc's shape).
         stride = max(1, len(must_keep) // max_beats)
         return must_keep[::stride][:max_beats]
-    # Fill the remaining budget from the non-must-keep middle by stride.
+    # Fill the remaining budget with the strongest-connected middle
+    # beats (walk_score desc; date as deterministic tiebreak).
     remaining_budget = max_beats - len(must_keep)
     middle = [beats[i] for i in range(len(beats)) if i not in must_keep_idx]
-    if remaining_budget > 0 and middle:
-        stride = max(1, len(middle) // remaining_budget)
-        sampled = middle[::stride][:remaining_budget]
-    else:
-        sampled = []
+    middle.sort(
+        key=lambda x: (-x.walk_score, x.asserted_at or _DATETIME_MIN),
+    )
+    sampled = middle[:remaining_budget]
     combined = must_keep + sampled
     combined.sort(key=lambda x: (x.asserted_at or _DATETIME_MIN))
     return combined
