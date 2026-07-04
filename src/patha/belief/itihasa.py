@@ -86,12 +86,21 @@ _NARRATIVE_PATTERNS: list[tuple[NarrativeOp, re.Pattern]] = [
         r"\bthrough[\s-]?line\b"
         r"|\btrace\s+(?:my|the)\s+"
         r"(?:thinking|thoughts|reasoning|views?|journey|arc)\b"
+        r"|\btrace\s+how\b"
+        r"|\bback\s+and\s+forth\b"
         r"|\bwhat'?s\s+the\s+"
         r"(?:arc|story|trajectory|narrative|thread|throughline)\b"
         r"|\bpatterns?\s+in\s+how\s+i\s+"
         r"(?:think|write|feel|approach|talk|reason)\b"
         r"|\bthe\s+thread\s+(?:running\s+)?through\b"
         r"|\bhow\s+do\s+my\b.{0,40}?\b(?:connect|relate|fit\s+together)\b",
+        re.I)),
+    # "how has my relationship with X changed/evolved/gone" — a common
+    # natural phrasing for evolution questions (EvolutionEval dev
+    # baseline: reversed_belief_chain routed 0/8 on exactly this form).
+    ("evolution", re.compile(
+        r"\brelationship\s+with\b.{0,50}?"
+        r"\b(?:chang|evolv|shift|gone|grown|develop)",
         re.I)),
 ]
 
@@ -130,6 +139,10 @@ _NARRATIVE_STOPWORDS = {
     "approach", "reason", "reasoning", "journey", "connect", "relate",
     "fit", "together", "got", "made", "led", "into", "time", "long",
     "about",
+    # Narrative-phrasing scaffolding (EvolutionEval: "trace how my
+    # relationship with coffee has gone back and forth" must resolve
+    # theme='coffee', not 'relationship').
+    "relationship", "gone", "forth",
     # Mental-verb gerunds/inflections — scaffolding, never the theme.
     # (Found via dogfooding: "when did I first start doubting the
     # benchmark numbers?" resolved theme='doubting' instead of

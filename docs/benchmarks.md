@@ -176,6 +176,35 @@ uv run python -m eval.run_answer_eval --data data/longmemeval_ku_78.json \
     --output runs/answer_eval/ku-qwen14b-overlap.json                      # Articulation Bridge end-to-end
 ```
 
+## EvolutionEval — narrative evolution (Phase 4; category-defining)
+
+**The first benchmark measuring whether a memory system can reconstruct how a theme evolved** — ordered beats, origin identification, revision tagging, distractor exclusion. Nothing external measures this (LongMemEval's temporal-reasoning is timestamp arithmetic; knowledge-update is single-fact replacement). Instrument documentation, scenario schema, the four families, and the frozen v1 rubric: [eval/evolution_data/README.md](../eval/evolution_data/README.md).
+
+**Protocol**: 36 templated dev scenarios (tuning allowed) / 16 hand-written sealed held-out scenarios in disjoint domains (release reports only; runner refuses them without `--include-heldout`). Walker frozen before scenario authoring; rubric frozen before the first reported run. Run-to-run determinism verified (two full runs, identical scores; the benchmark itself caught and forced the fix of a hash-seed-dependent anchor-ordering bug on day one).
+
+**Dev set, current numbers** (rubric v1, `stub` detector, real MiniLM + real songline graph):
+
+| family | routed | coverage | precision | ordering | origin | supersession |
+|---|---|---|---|---|---|---|
+| progressive_revelation | 1.000 | 0.775 | 0.775 | **1.000** | **1.000** | — |
+| multi_factor_change | 1.000 | **1.000** | 0.750 | **1.000** | **1.000** | 0.000 |
+| perspective_shift | 1.000 | **1.000** | **1.000** | **1.000** | **1.000** | 0.000 |
+| reversed_belief_chain | 1.000 | 0.917 | 0.688 | **1.000** | **1.000** | 0.000 |
+| **overall** | **1.000** | 0.919 | 0.799 | **1.000** | **1.000** | 0.000 (26) |
+
+Honest reading:
+- **ordering = 1.000 and origin = 1.000 across all 36 questions** — when the walk returns a timeline, the sequence is always right and the first beat is always the true origin. The core temporal claims hold on authored scenarios.
+- **supersession = 0.000 is the quantified headroom, by design.** The scenarios' expected revisions are *reinterpretive* (perspective shifts) or *causal* (multi-factor) — no lexical contradiction — and the stub detector never fires on them. This is the dogfood N1 finding turned into a number; a detector sweep (`full-stack-v8`) is the obvious next experiment, and the benchmark can now measure whether it helps.
+- **precision 0.75–0.80 outside perspective_shift** — distractor leakage; the knob-sweep target (`PATHA_TOPIC_THRESHOLD` 0.45/0.55/0.65, walk budgets), to be run against dev only.
+- Held-out numbers are **deliberately unreported** here — the set stays sealed until a release report (v0.11), where dev and held-out publish side by side and the gap is the honest generalization signal.
+
+Reproduce:
+```bash
+uv run python -m eval.evolution_eval \
+    --data eval/evolution_data/dev_scenarios.jsonl \
+    --output runs/evolution/dev.json
+```
+
 ## Phase 3 — End-to-end answer evaluation
 
 Phase 1 measures retrieval (R@k) and Phase 2 measures supersession (did the right belief end up `current`?). Both are surrogates. The product question is: **given Patha's output, does the user's LLM produce the right answer?**

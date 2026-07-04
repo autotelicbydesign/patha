@@ -147,8 +147,14 @@ def narrative_walk(
         b = _resolve_belief(cid, id_map, store)
         return 1 if _belief_mentions_theme(b, theme) else 0
 
+    # chunk_id as final tiebreak: anchor_chunks is a set, and without a
+    # total order, ties fall back to set-iteration order — which is
+    # hash-seed dependent and made benchmark runs non-reproducible
+    # (EvolutionEval caught this on day one: progressive_revelation
+    # scores shifted between identical runs).
     ranked_anchors = sorted(
-        anchor_chunks, key=lambda c: (_on_theme(c), _degree(c)), reverse=True
+        anchor_chunks,
+        key=lambda c: (-_on_theme(c), -_degree(c), c),
     )[:max_anchors]
 
     # Topic clusters represented among the anchors. Membership in one
@@ -208,7 +214,8 @@ def narrative_walk(
                 new_w = cum_w + step
                 scored_next.append((nbr, new_w, chpath + [channel]))
         # bound blow-up: keep the strongest max_branch of this hop
-        scored_next.sort(key=lambda x: x[1], reverse=True)
+        # (chunk_id tiebreak for run-to-run determinism)
+        scored_next.sort(key=lambda x: (-x[1], x[0]))
         scored_next = scored_next[:max_branch]
         frontier = []
         for nbr, new_w, path in scored_next:

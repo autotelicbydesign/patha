@@ -52,8 +52,19 @@ class TestDetectNarrative:
             "what's the arc of my career decisions?",
             "patterns in how I think about money",
             "the thread running through my reflections on grief",
+            "trace how my relationship with coffee has gone back and forth",
         ]:
             assert detect_narrative(q) == "throughline", q
+
+    def test_relationship_with_phrasing(self):
+        # EvolutionEval dev-baseline finding: this natural phrasing
+        # family routed 0/8 before the pattern was added.
+        assert detect_narrative(
+            "how has my relationship with alcohol changed?"
+        ) == "evolution"
+        assert extract_theme(
+            "trace how my relationship with coffee has gone back and forth"
+        ) == "coffee"
 
     def test_non_narrative_rejected(self):
         # Plain retrieval and synthesis questions must NOT route narrative.
