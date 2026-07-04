@@ -46,7 +46,7 @@ _MAX_N = 5000
 def cluster_topics(
     embeddings,
     *,
-    similarity_threshold: float = 0.55,
+    similarity_threshold: float = 0.35,
     min_cluster_size: int = 2,
 ) -> list[int | None]:
     """Cluster unit-ish vectors into topics. Returns one label per input
@@ -59,10 +59,16 @@ def cluster_topics(
         un-normalized inputs cluster identically.
     similarity_threshold
         Clusters keep merging while their average pairwise cosine
-        similarity stays above this. 0.55 is a MiniLM-tuned default:
-        paraphrases land ~0.6–0.85, same-topic-different-fact ~0.4–0.65,
+        similarity stays above this. Default 0.35, set by the
+        EvolutionEval dev sweep (docs/benchmarks.md): coverage and
+        precision improve monotonically from 0.65 down to 0.35
+        (0.912/0.792 → 0.951/0.826), and the first metric crack appears
+        at 0.25 (origin identification drops 1.000 → 0.972 as clusters
+        broaden). 0.35 is the best point that preserves perfect
+        ordering AND origin. MiniLM heuristics for orientation:
+        paraphrases ~0.6–0.85, same-topic-different-fact ~0.4–0.65,
         unrelated <0.3. Higher → more, smaller clusters (fails safe:
-        everything a singleton = today's no-topic-channel behavior).
+        everything a singleton = the old no-topic-channel behavior).
     min_cluster_size
         Clusters smaller than this become ``None`` — a size-1 "cluster"
         can't produce a graph edge or be shared with an anchor anyway.
@@ -114,7 +120,7 @@ def assign_topic_clusters(
     rows: list[dict],
     *,
     view: str = "v1",
-    similarity_threshold: float = 0.55,
+    similarity_threshold: float = 0.35,
     min_cluster_size: int = 2,
 ) -> list[int | None]:
     """Cluster rows by their ``views[view]["embedding"]`` and write

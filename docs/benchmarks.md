@@ -194,9 +194,42 @@ uv run python -m eval.run_answer_eval --data data/longmemeval_ku_78.json \
 
 Honest reading:
 - **ordering = 1.000 and origin = 1.000 across all 36 questions** — when the walk returns a timeline, the sequence is always right and the first beat is always the true origin. The core temporal claims hold on authored scenarios.
-- **supersession = 0.000 is the quantified headroom, by design.** The scenarios' expected revisions are *reinterpretive* (perspective shifts) or *causal* (multi-factor) — no lexical contradiction — and the stub detector never fires on them. This is the dogfood N1 finding turned into a number; a detector sweep (`full-stack-v8`) is the obvious next experiment, and the benchmark can now measure whether it helps.
-- **precision 0.75–0.80 outside perspective_shift** — distractor leakage; the knob-sweep target (`PATHA_TOPIC_THRESHOLD` 0.45/0.55/0.65, walk budgets), to be run against dev only.
+- **supersession = 0.000 is the quantified headroom, by design.** The scenarios' expected revisions are *reinterpretive* (perspective shifts) or *causal* (multi-factor) — no lexical contradiction — and the stub detector never fires on them. This is the dogfood N1 finding turned into a number. **The detector sweep below answers it.**
+- **precision 0.75–0.80 outside perspective_shift** — distractor leakage; the knob-sweep target. **The threshold sweep below answers it.**
 - Held-out numbers are **deliberately unreported** here — the set stays sealed until a release report (v0.11), where dev and held-out publish side by side and the gap is the honest generalization signal.
+
+### Sweeps (dev-only, per protocol)
+
+**Experiment 1 — topic-cluster similarity threshold** (`PATHA_TOPIC_THRESHOLD`, stub detector held fixed):
+
+| threshold | coverage | precision | ordering | origin |
+|---|---|---|---|---|
+| 0.65 | 0.912 | 0.792 | 1.000 | 1.000 |
+| 0.55 (launch baseline) | 0.919 | 0.799 | 1.000 | 1.000 |
+| 0.45 | 0.942 | 0.819 | 1.000 | 1.000 |
+| **0.35** | **0.951** | **0.826** | **1.000** | **1.000** |
+| 0.25 | 0.965 | 0.832 | 1.000 | **0.972** ⚠ |
+
+Coverage and precision improve **together, monotonically** as the threshold loosens — looser clusters merge more paraphrase beats into anchor clusters, and those true beats displace distractors from the fixed beat budget (no coverage/precision trade-off in this regime). The curve cracks at 0.25: **origin identification is the first casualty** (1.000 → 0.972) as clusters broaden enough to pull a wrong first beat. **Default set to 0.35** — the best point that preserves both perfect temporal claims. (Shipped: `topics.py` / `phase1_bridge.py` defaults.)
+
+**Experiment 2 — detector sweep** (`stub` → `full-stack-v8`, threshold held at 0.55): **the first measurement of reinterpretation-detection in a memory system.**
+
+| family | supersession (stub) | supersession (v8) |
+|---|---|---|
+| perspective_shift (reinterpretive reversals — the dogfood N1 finding) | 0.000 | **0.875** |
+| multi_factor_change (causal revisions) | 0.000 | **0.900** |
+| reversed_belief_chain (nonmonotonic X→Y→X′) | 0.000 | **0.688** |
+| **overall** | **0.000** | **0.827** |
+
+Nothing else regressed: ordering/origin/routed stayed 1.000, coverage ticked up (0.919 → 0.926). The "reversal without lexical contradiction" gap is real, measurable, and mostly closed by the production NLI stack; nonmonotonic chains remain the hardest case.
+
+**Recommended production config — the wins compose** (`full-stack-v8` + threshold 0.35):
+
+| routed | coverage | precision | ordering | origin | supersession |
+|---|---|---|---|---|---|
+| 1.000 | **0.965** | 0.811 | **1.000** | **1.000** | **0.808** |
+
+Highest coverage of any measured config, both temporal claims perfect, and revision tagging at 0.808 — vs the all-stub launch baseline's 0.919 / 0.000. All artifacts under `runs/evolution/`; every row reproducible via the commands above with `--detector` / `PATHA_TOPIC_THRESHOLD` set accordingly.
 
 Reproduce:
 ```bash

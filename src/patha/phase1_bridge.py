@@ -93,7 +93,7 @@ def build_phase1_indexes(
     songline graph over entity / session / speaker / temporal / topic
     channels (topic = deterministic agglomerative clustering over the
     v1 embeddings; PATHA_TOPICS=off disables, PATHA_TOPIC_THRESHOLD
-    tunes, default 0.55).
+    tunes, default 0.35 — set by the EvolutionEval dev sweep).
 
     Returns:
         store    — InMemoryStore populated with all beliefs' views
@@ -171,7 +171,7 @@ def build_phase1_indexes(
     if enable_topics and enable_songline:
         try:
             from patha.indexing.topics import assign_topic_clusters
-            thr = float(os.environ.get("PATHA_TOPIC_THRESHOLD", "0.55"))
+            thr = float(os.environ.get("PATHA_TOPIC_THRESHOLD", "0.35"))
             assign_topic_clusters(rows, similarity_threshold=thr)
         except Exception as e:
             import sys
