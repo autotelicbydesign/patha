@@ -231,6 +231,29 @@ Nothing else regressed: ordering/origin/routed stayed 1.000, coverage ticked up 
 
 Highest coverage of any measured config, both temporal claims perfect, and revision tagging at 0.808 — vs the all-stub launch baseline's 0.919 / 0.000. All artifacts under `runs/evolution/`; every row reproducible via the commands above with `--detector` / `PATHA_TOPIC_THRESHOLD` set accordingly.
 
+### The held-out reveal (unsealed 2026-07-04 — one shot, numbers frozen as-run)
+
+The 16 hand-written scenarios in disjoint domains, never run before this date, never tuned against, run exactly once per reported config under the frozen rubric. **Whatever they showed, they publish.** This is the honest-generalization number BeliefEval never had (its 1.000 dev collapsed to 0.885 external because the detectors were tuned on the benchmark).
+
+| config | set | routed | coverage | precision | ordering | origin | supersession |
+|---|---|---|---|---|---|---|---|
+| stub @ 0.35 (shipped default) | dev | 1.000 | 0.951 | 0.826 | 1.000 | 1.000 | 0.000 |
+| stub @ 0.35 | **held-out** | **1.000** | **0.944** | **0.828** | **1.000** | **1.000** | 0.000 |
+| v8 @ 0.35 (recommended) | dev | 1.000 | 0.965 | 0.811 | 1.000 | 1.000 | 0.808 |
+| v8 @ 0.35 | **held-out** | **1.000** | **0.944** | **0.791** | **1.000** | **1.000** | **0.625** |
+
+**The generalization verdict:**
+- **The temporal core generalizes with ZERO gap.** Routing, ordering, and origin identification are perfect on all 52 questions across both sets — dev and held-out, both configs. The structural overfit guards (walker frozen before authoring, rubric frozen before running, sealed split) did their job.
+- **On the shipped default config, the dev/held-out gap is statistical noise**: coverage −0.007, precision +0.002 (held-out slightly *higher*).
+- **The one real gap is v8 supersession: 0.808 → 0.625 (−0.183)**, concentrated in `multi_factor_change` (0.900 → 0.500).
+
+**Failure decomposition (the v0.12 fix list):**
+1. **Causal-revision detection is phrasing-sensitive** (2 of 4 mf pairs missed): "I play tennis with Dad every Saturday" → "Saturdays are doubles with Dad coaching; I hit with the ball machine Wednesdays" is a revision with no lexical contradiction. The NLI stack needs arrangement-change semantics, not just negation.
+2. **The nonmonotonic return-link misses** (every rb chain scored exactly 1 of 2 pairs): X→Y fires ("quit coffee" contradicts "coffee non-negotiable"), but Y→X′ doesn't — "back on coffee, one cup before noon" doesn't lexically contradict "quit entirely." Return-with-nuance is a distinct detection class.
+3. **Bug caught by the unseal**: theme canonicalization false-plural stemming — "tennis" → "tenni", "thesis" → "thesi" (`_canonicalize_entity` strips trailing *s* from non-plurals). The substring gate survived by accident ("tenni" ⊂ "tennis"); entity-channel exact-match lookups would not.
+
+**Protocol note.** These held-out numbers are frozen as-run for this report. The fixes above will be built from the general failure classes, measured on dev, and validated on a **future held-out batch 2** authored after the fixes ship. This held-out set is now spent as an unseen instrument and will be folded into dev for future work.
+
 Reproduce:
 ```bash
 uv run python -m eval.evolution_eval \
