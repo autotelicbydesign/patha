@@ -262,18 +262,18 @@ All three failure classes from the reveal, shipped as a new detector stack (publ
 2. **`SymmetricContradictionDetector`** — wraps the NLI core only. Belief contradiction is symmetric; NLI is premise/hypothesis-asymmetric (diagnosed pairs scored CONTRADICTS ≥ 0.94 in one direction, NEUTRAL ≥ 0.95 in the other). Reverse-direction contradictions are adopted at a conservative ≥ 0.90 bar. Direction-*dependent* outer detectors (sequential, numerical, learned) stay one-way by design.
 3. **`RevisionPatternDetector`** — three marker families the stack had no coverage for: **resumption** (cessation → "back on / X again now"), **settlement** ("landed on / on my own terms"), **arrangement** ("is/are now", "we do X now"). Same additive architecture as the sequential detector: embedding topic-overlap gate, additive-marker veto, negated-resumption veto, confidence 0.84.
 
-**Validation (dev + guards):**
+**Validation (dev + guards).** The first v9 iteration showed a precision dip (0.811 → 0.797) that was initially mis-read as benign "supersession folding." Beat-set diffing traced it to a real defect: **ungated symmetric-NLI reverse adoptions created false supersession edges between distractors and on-theme beliefs** — DeBERTa is confidently wrong on some completely unrelated pairs (measured: "I finally fixed the squeaky hinge" vs an on-theme critique reflection, CONTRADICTS 0.992 in reverse) — and the lineage fold then pulled the falsely-superseded distractors into timelines. A confidence bar cannot filter a model that is *sure*; the fix is the codebase's standard **topic-overlap gate** (embedding sim ≥ 0.35, same as sequential/revision detectors) on reverse adoptions: contradiction presupposes a shared locus (*virodha* requires a common *viṣaya*). The gate honestly costs ~0.06 supersession (a few true reinterpretation pairs whose surface content diverges below the gate) in exchange for eliminating store-corrupting false lineage — the right trade, and the threshold is the codebase-wide standard, not tuned to this set.
 
-| measurement | v8 | **v9** |
-|---|---|---|
-| EvolutionEval dev — supersession | 0.808 | **0.942** (mf 1.000 · ps 1.000 · rb 0.812) |
-| EvolutionEval dev — coverage | 0.965 | **0.972** |
-| EvolutionEval dev — ordering / origin / routed | 1.000 | **1.000** |
-| EvolutionEval dev — precision | 0.811 | 0.797 (supersession folding pulls more revised beats in) |
-| BeliefEval (regression guard) | 1.000 | **1.000** |
-| False-contradiction FP rate (guard) | 0.0625 | **0.0625 — identical**: same single pre-existing FP (fc-07, v7-era sequential detector); the v9 additions introduced **zero** new false positives |
+| measurement | v8 | v9 ungated | **v9 (gated, final)** |
+|---|---|---|---|
+| EvolutionEval dev — supersession | 0.808 | 0.942 ⚠ (incl. false edges) | **0.885** (mf 1.000 · ps 0.875 · rb 0.750) |
+| EvolutionEval dev — coverage | 0.965 | 0.972 | **0.972** |
+| EvolutionEval dev — precision | 0.811 | 0.797 ⚠ (distractor leak) | **0.812** |
+| EvolutionEval dev — ordering / origin / routed | 1.000 | 1.000 | **1.000** |
+| BeliefEval (regression guard) | 1.000 | 1.000 | **1.000** |
+| False-contradiction FP rate (guard) | 0.0625 | 0.0625 | **0.0625 — identical**: same single pre-existing FP (fc-07, v7-era sequential detector); the v9 additions introduced **zero** new false positives |
 
-Generalization claims for v9 await **held-out batch 2** (to be authored fresh, after this ships) — the spent batch cannot be reused as evidence, per protocol.
+**v9 (gated) strictly dominates v8 on every metric.** Generalization claims for v9 await **held-out batch 2** (to be authored fresh, after this ships) — the spent batch cannot be reused as evidence, per protocol.
 
 Reproduce:
 ```bash

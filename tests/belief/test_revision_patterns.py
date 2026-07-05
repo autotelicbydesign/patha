@@ -200,7 +200,9 @@ class _WeakDirectionalInner(_DirectionalInner):
 
 class TestSymmetricDetector:
     def test_adopts_high_confidence_reverse(self):
-        det = SymmetricContradictionDetector(_DirectionalInner())
+        det = SymmetricContradictionDetector(
+            _DirectionalInner(), similarity_fn=_high_sim,
+        )
         r = det.detect("OLD: I was rejected", "NEW: she was protecting me")
         assert r.label == ContradictionLabel.CONTRADICTS
         assert "reverse-direction" in (r.rationale or "")
@@ -209,10 +211,27 @@ class TestSymmetricDetector:
     def test_reverse_below_bar_not_adopted(self):
         det = SymmetricContradictionDetector(
             _WeakDirectionalInner(), reverse_min_confidence=0.90,
+            similarity_fn=_high_sim,
         )
         r = det.detect("OLD: I was rejected", "NEW: she was protecting me")
         assert r.label == ContradictionLabel.NEUTRAL
         assert det.reverse_adoptions == 0
+
+    def test_offtopic_reverse_not_adopted(self):
+        # The dev-measured failure: NLI confidently contradicts an
+        # unrelated pair in reverse ("squeaky hinge" vs a critique
+        # reflection @ 0.992). The topic-overlap gate must reject it
+        # regardless of confidence.
+        det = SymmetricContradictionDetector(
+            _DirectionalInner(), similarity_fn=_low_sim,
+        )
+        r = det.detect(
+            "OLD: I finally fixed the squeaky hinge",
+            "NEW: that critique is why the redesign is my strongest work",
+        )
+        assert r.label == ContradictionLabel.NEUTRAL
+        assert det.reverse_adoptions == 0
+        assert det.reverse_rejected_offtopic == 1
 
     def test_forward_contradiction_needs_no_reverse(self):
         class _ForwardInner(_DirectionalInner):
@@ -224,13 +243,17 @@ class TestSymmetricDetector:
                     for _ in pairs
                 ]
 
-        det = SymmetricContradictionDetector(_ForwardInner())
+        det = SymmetricContradictionDetector(
+            _ForwardInner(), similarity_fn=_high_sim,
+        )
         r = det.detect("a", "b")
         assert r.label == ContradictionLabel.CONTRADICTS
         assert det.reverse_adoptions == 0
 
     def test_batch_only_reverses_non_contradictions(self):
-        det = SymmetricContradictionDetector(_DirectionalInner())
+        det = SymmetricContradictionDetector(
+            _DirectionalInner(), similarity_fn=_high_sim,
+        )
         results = det.detect_batch([
             ("OLD: quit entirely", "NEW: back on it"),
             ("OLD: I like tea", "plain neutral pair"),

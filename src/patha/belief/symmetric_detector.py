@@ -31,23 +31,48 @@ are frozen for reproducibility of published numbers.
 
 from __future__ import annotations
 
+from typing import Callable
+
 from patha.belief.contradiction import ContradictionDetector
 from patha.belief.types import ContradictionLabel, ContradictionResult
 
 
 class SymmetricContradictionDetector:
-    """Run the inner detector both ways; adopt a high-confidence
-    reverse-direction contradiction the forward pass missed."""
+    """Run the inner detector both ways; adopt a high-confidence,
+    TOPIC-OVERLAPPING reverse-direction contradiction the forward pass
+    missed.
+
+    The topic-overlap gate exists because NLI models can be confidently
+    wrong on completely unrelated pairs — measured on the EvolutionEval
+    dev set: DeBERTa scored "I finally fixed the squeaky hinge on the
+    bathroom door" vs an on-theme critique reflection as CONTRADICTS
+    0.992 in the reverse direction. A confidence bar alone cannot filter
+    that; the model is *sure*. Requiring embedding similarity ≥ 0.35
+    (the same gate the sequential and revision-pattern detectors use)
+    encodes the actual constraint: a contradiction between two beliefs
+    requires them to be about the same thing — in Nyāya terms, virodha
+    presupposes a shared viṣaya (common locus). The genuine asymmetric
+    pairs this wrapper exists for (reinterpretations, returns) are
+    same-topic by nature and clear the gate comfortably.
+    """
 
     def __init__(
         self,
         inner: ContradictionDetector,
         *,
         reverse_min_confidence: float = 0.90,
+        similarity_fn: Callable[[str, str], float] | None = None,
+        similarity_threshold: float = 0.35,
     ) -> None:
         self._inner = inner
         self._reverse_min = reverse_min_confidence
+        if similarity_fn is None:
+            from patha.belief.sequential_detector import _DEFAULT_EMBED_CACHE
+            similarity_fn = _DEFAULT_EMBED_CACHE.similarity
+        self._sim = similarity_fn
+        self._sim_threshold = similarity_threshold
         self.reverse_adoptions = 0
+        self.reverse_rejected_offtopic = 0
 
     def detect(self, p1: str, p2: str) -> ContradictionResult:
         return self.detect_batch([(p1, p2)])[0]
@@ -74,10 +99,18 @@ class SymmetricContradictionDetector:
                 rev.label == ContradictionLabel.CONTRADICTS
                 and rev.confidence >= self._reverse_min
             ):
+                # Topic-overlap gate: same-locus check before adoption.
+                sim = self._sim(pairs[i][0], pairs[i][1])
+                if sim < self._sim_threshold:
+                    self.reverse_rejected_offtopic += 1
+                    continue
                 out[i] = ContradictionResult(
                     label=ContradictionLabel.CONTRADICTS,
                     confidence=rev.confidence,
-                    rationale="symmetric-nli: reverse-direction contradiction",
+                    rationale=(
+                        f"symmetric-nli: reverse-direction contradiction "
+                        f"(topic sim={sim:.2f})"
+                    ),
                 )
                 self.reverse_adoptions += 1
         return out
