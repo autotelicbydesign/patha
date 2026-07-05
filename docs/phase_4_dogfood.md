@@ -68,6 +68,13 @@ Same store, same four narrative questions, `PATHA_TOPICS=off` vs `on`.
 
 **Discipline stop.** After those two structural fixes, further knob-tuning against these 4 questions would be fitting the dogfood set — the BeliefEval-overfit pattern this plan explicitly guards against. Per-question beat composition is hereby handed to the Step-5 evolution benchmark: coverage/ordering/origin-identification scorers on held-out scenarios are the instrument that can adjudicate knob values; four eyeballed questions are not.
 
+## Post-fix addendum — v9 on real data (ingest sanity, 2026-07-06)
+
+Re-ingested the corpus with `full-stack-v9` (all prior dogfoods used `stub`). Findings:
+- **The new v9 components are quiet on real writing**: `RevisionPatternDetector` fired **0** times (no false positives in the wild); `SymmetricContradictionDetector` adopted 2 reverse edges, rejected 0 as off-topic (the gate had nothing to catch here — its value was demonstrated on the scenario corpus).
+- **17 of the 19 supersession edges come from the inherited v8 stack** running NLI over ~2,000-char essay chunks. Some are sensible draft-consolidation (later "Three things no other system ships" superseding the earlier "Fork it" claims); some are weak ("The silent veto" superseding "What I'm building"). **Known behavior, pre-existing**: chunk-level supersession on long-form imports is noisy; supersession semantics are cleanest on atomic facts. Documented as a limitation for imported-essay corpora, not a v9 regression.
+- Rubric-v2 note: EvolutionEval currently scores supersession *recall* only; a supersession-**precision** scorer (penalizing unexpected edges between golds) is queued so false-edge inflation can never hide again.
+
 ## Next (per the approved plan)
 
 - **Step 5**: evolution benchmark authored from the verified failure modes above (F5/F6/F7 + reversal-without-supersession) in scenario families (`progressive_revelation`, `multi_factor_change`, `perspective_shift`, `reversed_belief_chain`), with the 70/30 sealed split, frozen rubric, and the walk-knob sweep (threshold 0.45/0.55/0.65, budgets) run against the dev set only.

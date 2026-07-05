@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.11.0 (2026-07-06) — narrative synthesis (itihāsa): the third question class, with receipts
+
+The milestone release. `Memory.recall()` now routes **three** question classes, each an epistemically distinct operation with its own primitive:
+
+- **Retrieval** (*pratyakṣa*) — "what did I say about X?" → top-K.
+- **Synthesis** (*anumāna*) — "how much on X total?" → gaṇita exhaustive arithmetic, zero LLM tokens at recall.
+- **Narrative** (*itihāsa*, new) — "how has my thinking on X evolved?" → a temporally-ordered, supersession-tagged walk of the songline graph. `Recall.narrative` carries the beats + a deterministic through-line; `strategy="narrative"`.
+
+**This is where the songline graph becomes load-bearing.** Ablations always showed it contributed ≈0 to top-K retrieval — because top-K never needed traversal. Narrative questions are the first class where traversal is the only correct primitive.
+
+### The narrative path
+- `belief/itihasa.py` — intent detector (evolution / origin / throughline), theme extraction, `NarrativeResult`/`NarrativeBeat`, deterministic through-line rendering.
+- `retrieval/narrative_walk.py` — theme-constrained songline walk: anchor union (Phase-1 semantic seeds + entity channel), on-theme gate (substring OR shared topic cluster), supersession lineage fold, temporal ordering, score-aware thinning, graph-scaled frontier budget.
+- Routing gate in `Memory.recall()` between gaṇita and retrieval; degrades to plain retrieval when the walk can't assemble ≥2 on-theme beats (zero regression by construction).
+- `enable_narrative=True` (requires `enable_phase1`).
+
+### Topic channel — songline graph completed
+- `indexing/topics.py` — deterministic agglomerative clustering (cosine, average-linkage, first-occurrence label canonicalization) over the **already-computed** v1 "pada" embeddings; no second embedding pass. Populates the long-vaporware `topic_cluster` field; `build_songline_graph` turns it into topic edges.
+- `SonglineGraph.topic_of()` accessor; walker's paraphrase gate; mega-cluster guard.
+- `PATHA_TOPICS` (on/off), `PATHA_TOPIC_THRESHOLD` (default **0.35**, set by the EvolutionEval dev sweep: coverage/precision improve monotonically to 0.35; origin identification cracks at 0.25).
+
+### EvolutionEval — the first narrative-evolution benchmark
+No external benchmark measures whether a memory system can reconstruct how thinking evolved (LongMemEval's temporal-reasoning is timestamp arithmetic). EvolutionEval defines the category:
+- 36 templated dev scenarios + 16 hand-written **sealed held-out** scenarios in disjoint domains, across 4 families grounded in observed dogfood failures (`progressive_revelation`, `multi_factor_change`, `perspective_shift`, `reversed_belief_chain`).
+- Frozen rubric v1: routed / coverage / precision / ordering / origin / supersession. Deterministic (run-to-run identical, verified). Artifacts persisted for re-scoring.
+- **The held-out reveal** (one shot, numbers frozen as-run): the temporal core generalizes with **zero gap** — routing, ordering, origin all 1.000 on all 52 questions, dev *and* held-out. On the shipped default config the dev/held-out delta is noise (coverage −0.007, precision +0.002).
+- Full experimental chain in `docs/benchmarks.md`: threshold curve (with located cliff), detector sweep (the first reinterpretation-detection measurement: stub 0.000 → v8 0.827), composition run, reveal, fix validation.
+
+### full-stack-v9 detector (recommended; v7/v8 frozen for reproducibility)
+The held-out reveal's three failure classes, fixed:
+- **Stemming bug** — `_canonicalize_entity` no longer strips `-is/-us/-ss` false plurals ("tennis"→"tenni" gone).
+- **`SymmetricContradictionDetector`** — NLI checked in both directions (belief contradiction is symmetric; NLI isn't), reverse adoptions require confidence ≥ 0.90 **and topic overlap ≥ 0.35** (*virodha* needs a shared *viṣaya* — a confidence bar alone cannot filter a model that is confidently wrong on unrelated pairs).
+- **`RevisionPatternDetector`** — resumption ("back on X", "X again now"), settlement ("landed on"), arrangement ("is/are now") marker families with embedding topic gates and additive-marker vetoes.
+- Validation: EvolutionEval dev supersession 0.808 → **0.885** with precision *and* coverage above v8 (strict domination); BeliefEval 300-scenario **347/347** (published v0.10 baseline was 336/347); false-contradiction FP rate **identical** to v8 (zero new false positives); quiet on real data (0 revision-pattern fires on the writeups corpus).
+- v9 generalization claims await held-out **batch 2** (the spent batch cannot be reused as evidence).
+
+### Also
+- Importer fixes from real-data dogfooding: frontmatter parsed in ALL import modes (was Obsidian-only — plain imports were ingesting `---date:---` blocks as beliefs and losing dates); per-file sessions for root-level folder imports (was one folder-wide session → a near-clique session channel).
+- Narrative-theme stopwords extended (mental-verb inflections; "relationship with X" phrasing family).
+- Known behavior documented: chunk-level NLI supersession on long-form essay imports is noisy (17 v8-era edges on the writeups corpus, some sensible draft-consolidation, some weak). Supersession semantics are cleanest on atomic facts.
+- Rubric v2 (planned): supersession-*precision* scorer, so unexpected edges between gold beliefs can never hide.
+
+878 tests. CI green throughout.
+
 ## v0.10.10 (2026-05-06) — MCP tool signatures: flat params, friendly `--help`
 
 Two follow-ups to v0.10.9, both surfaced by usage:

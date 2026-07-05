@@ -54,7 +54,8 @@ No cloud. No login. No SaaS account. Patha writes to a plain text file at `~/.pa
 - **6.5× token reduction** on the LongMemEval-S multi-session stratum (118,761 → 18,384 tokens/summary)
 - **Zero LLM tokens at recall** on synthesis questions (gaṇita queries a preserved tuple index)
 - **95.8% non-commutative** — on 240 supersession scenarios, reversing ingest order produces a different final belief set
-- **817 unit tests pass** (3 skipped on optional deps)
+- **EvolutionEval** (the first narrative-evolution benchmark, ours): temporal core generalizes with **zero dev/held-out gap** — ordering 1.000, origin 1.000 on all 52 questions
+- **878 unit tests pass** (3 skipped on optional deps)
 
 Methodology and full tables in [docs/benchmarks.md](docs/benchmarks.md). Caveats and metric definitions there too — these are Patha's own measured numbers; cross-system comparison is left to the reader on like-for-like terms.
 
@@ -72,7 +73,7 @@ Patha has two internal layers that run inside `Memory.recall()`. The third piece
 
 - **Retrieval** — *pratyakṣa* (perception). *"What did I say about the saddle?"* Retrieval Layer → Belief Layer's current-state filter → direct-answer or structured summary.
 - **Synthesis** — *anumāna* (inference). *"How much have I spent on bikes total?"* The gaṇita component queries the preserved tuple index exhaustively. Pure deterministic arithmetic. **Zero LLM tokens at recall** (paid once at ingest, never per query). Top-K still runs in parallel for context, but the answer is independent of it.
-- **Narrative** — *itihāsa* (narrative-historical emplotment, grounded in *śabda*). *"How has my thinking on agency evolved?"* A temporally-ordered walk of a theme across the songline graph — ordered beats + supersession structure, not a ranked bag. *(Wired end-to-end on `main`; validating on real data before it ships in a release — see Roadmap.)*
+- **Narrative** — *itihāsa* (narrative-historical emplotment, grounded in *śabda*). *"How has my thinking on agency evolved?"* A temporally-ordered walk of a theme across the songline graph — ordered beats + supersession structure, not a ranked bag. *(Shipped in v0.11 — validated on real data and on EvolutionEval, the first narrative-evolution benchmark; dev + held-out numbers published in [docs/benchmarks.md](docs/benchmarks.md).)*
 
 Top-K retrieval is the wrong primitive for synthesis *and* narrative: top-100 of 1000 sessions misses 90% of the inputs you'd need to sum, and a ranked bag has no notion of *sequence*. Mainstream AI memory systems force every question through the same retrieval funnel and let an LLM clean up at recall — paying tokens per query, indefinitely. Patha routes by what the question actually is.
 
@@ -87,14 +88,22 @@ Most memory systems pick a data structure (vector store, knowledge graph) and bo
 | **Pratyakṣa** — perception | retrieval | *"what did I say about X?"* | ✅ shipped |
 | **Anumāna** — inference | gaṇita synthesis | *"how much / how many total?"* | ✅ shipped |
 | **Śabda** — testimony | *the substrate* — every belief in the store **is** the user's own recorded word | — | (foundation, not a path) |
-| *itihāsa* (emplotment of śabda) | narrative walk | *"how has my thinking on X evolved?"* | ◧ wired, validating |
+| *itihāsa* (emplotment of śabda) | narrative walk | *"how has my thinking on X evolved?"* | ✅ shipped (v0.11) |
 | **Anupalabdhi** — non-apprehension | absence queries | *"what have I **not** decided about X?"* | ◔ `abhāva` half-built |
 | **Upamāna** — comparison | analogical recall | *"what does this remind me of? have I faced this before?"* | ○ planned |
 | **Arthāpatti** — postulation | abductive gap-fill | *"what must be true, given X and Z?"* | ○ research |
 
 Three of these operations ship today; a fourth (narrative) is wired and validating; a fifth (absence) is half-built in the dormant `abhāva` modules. **The claim isn't "we built six clever tricks" — it's that an honest epistemology of *how knowing happens* turns out to be a buildable architecture for memory, and it tells us what's left.** That's the differentiation a vector store can't copy: it requires committing to the philosophy as the blueprint.
 
-## What ships in v0.10
+## What ships in v0.11
+
+- **Narrative synthesis (itihāsa)** — the third question class. `recall()` detects evolution/origin/throughline intent, walks the songline graph theme-constrained, and returns `Recall.narrative`: temporally-ordered beats with supersession structure + a deterministic through-line. Zero LLM tokens for the selection/ordering/tagging.
+- **Topic channel** — deterministic clustering over the already-computed v1 embeddings populates the songline graph's topic edges (`PATHA_TOPIC_THRESHOLD`, default 0.35 — set by the EvolutionEval dev sweep). This is where the songline graph becomes load-bearing.
+- **EvolutionEval** — the first benchmark measuring whether a memory system can reconstruct how thinking evolved. 36 dev + 16 sealed held-out scenarios, frozen rubric, published dev/held-out gap. **The temporal core generalizes with zero gap: ordering 1.000, origin 1.000 on all 52 questions, both sets.**
+- **`full-stack-v9` detector** (recommended) — symmetric NLI with topic-overlap gating + resumption/settlement/arrangement revision patterns. EvolutionEval dev supersession 0.808 → 0.885 with zero new false positives; BeliefEval 300-scenario 347/347.
+- **Importer fixes** — frontmatter dates honored in all import modes; per-file sessions for flat folders.
+
+## What shipped in v0.10
 
 - **Synthesis-intent routing** — `Memory.recall()` detects sum/count/avg/min/max/difference and routes to gaṇita. Verified by `test_synthesis_intent_independent_of_phase1`, which forces the Retrieval Layer to return `[]` and the gaṇita layer still recovers the canonical $185.
 - **Retrieval Layer R@5: 1.000** on the LongMemEval-KU 78-question public subset.
@@ -470,10 +479,11 @@ uv run pytest tests/ -q                             # 817 tests, ~75s
 - MCP server, CLI, Streamlit viewer, Python library
 - Published to PyPI as `patha-memory`
 
-**Near-term — make the narrative path (itihāsa) real:**
-- Topic channel in the songline graph (currently entity/temporal/session/speaker), so themes connect across sessions — the piece that makes traversal fully load-bearing
-- Authored *evolution* benchmark + deterministic ordering/coverage scorers + LLM-judge rubric — there is no standard benchmark for "did the system track how a belief evolved?"; we intend to define one
-- Then ship narrative synthesis as the v0.11 headline
+**Shipped in v0.11:** the narrative path (itihāsa) — topic channel, walker, recall routing, EvolutionEval (dev + sealed held-out, zero temporal gap), the v9 detector stack. Receipts in [docs/benchmarks.md](docs/benchmarks.md).
+
+**Near-term:**
+- EvolutionEval held-out **batch 2** (validates the v9 fixes on unseen scenarios) + rubric v2 (supersession-*precision* scorer)
+- Composition — chaining pramāṇa: a *time-series of sums* (narrative + synthesis = "how has my spending evolved?")
 
 **Near-term — close the measurement gaps:**
 - Karaṇa-quality benchmark: the extraction quality that bounds every synthesis claim is currently unmeasured (regex → ollama-7b → hybrid-14b)

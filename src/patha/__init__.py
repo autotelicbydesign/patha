@@ -43,7 +43,7 @@ from patha.belief import (
 )
 from patha.integrated import IntegratedPatha, IntegratedResponse
 
-__version__ = "0.10.10"
+__version__ = "0.11.0"
 
 __all__ = [
     "Memory",
@@ -153,7 +153,9 @@ class Memory:
         - ``"full-stack"`` — NLI + adhyasa + numerical change detection.
         - ``"full-stack-v7"`` — full-stack + sequential-event detection.
         - ``"full-stack-v8"`` — full-stack-v7 + learned classifier.
-          Recommended for production.
+        - ``"full-stack-v9"`` — full-stack-v8 + symmetric NLI (topic-
+          gated) + revision patterns (resumption / settlement /
+          arrangement). Recommended for production.
     """
 
     def __init__(

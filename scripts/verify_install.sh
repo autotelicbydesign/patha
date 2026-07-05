@@ -8,9 +8,9 @@
 # a release Makefile target.
 #
 # Usage:
-#   scripts/verify_install.sh dist/patha_memory-0.10.10-py3-none-any.whl
-#   scripts/verify_install.sh patha-memory==0.10.10                       # from PyPI
-#   scripts/verify_install.sh -i https://test.pypi.org/simple/ patha-memory==0.10.10
+#   scripts/verify_install.sh dist/patha_memory-0.11.0-py3-none-any.whl
+#   scripts/verify_install.sh patha-memory==0.11.0                       # from PyPI
+#   scripts/verify_install.sh -i https://test.pypi.org/simple/ patha-memory==0.11.0
 #
 # Requirements: python3.11 on PATH (or settable via PYTHON env var).
 
