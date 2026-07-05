@@ -515,10 +515,11 @@ def _make_detector(name: str) -> ContradictionDetector:
                 )
             )
         )
-    if name == "full-stack-v8":
-        # v0.8: learned-classifier outer wrapper around v0.7.
+    if name in ("full-stack-v8", "full-stack-v9"):
+        # v0.8+: delegate to the shared factory (v9 = v8 + symmetric NLI
+        # + revision patterns, the EvolutionEval held-out fixes).
         from patha.belief import make_detector as _shared_factory
-        return _shared_factory("full-stack-v8")
+        return _shared_factory(name)
     if name == "adhyasa-hybrid":
         # Adhyāsa + NLI + scripted LLM judge. Strongest v0.5 config
         # without a live LLM.
@@ -606,7 +607,8 @@ def main(argv: list[str] | None = None) -> None:
         choices=[
             "stub", "nli", "hybrid",
             "adhyasa-nli", "adhyasa-hybrid",
-            "live-ollama-hybrid", "full-stack", "full-stack-v7", "full-stack-v8",
+            "live-ollama-hybrid", "full-stack", "full-stack-v7",
+            "full-stack-v8", "full-stack-v9",
         ],
         default="stub",
         help=(

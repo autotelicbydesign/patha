@@ -241,13 +241,26 @@ _ATTR_KEYWORDS: list[tuple[re.Pattern, str]] = [
 ]
 
 
+# English words ending in -s that are NOT plurals must never be
+# stripped: -ss (chess, glass), -is (tennis, thesis, analysis, basis),
+# -us (status, focus, campus). Found by the EvolutionEval held-out
+# reveal: "tennis" → "tenni" and "thesis" → "thesi" leaked into theme
+# resolution — the substring gate survived by accident ("tenni" ⊂
+# "tennis"), but entity-channel exact-match lookups would not.
+_NON_PLURAL_S_ENDINGS = ("ss", "is", "us")
+
+
 def _canonicalize_entity(text: str) -> str:
     """Lowercase, strip plurals, apply alias table."""
     t = text.lower().strip()
     if t in ENTITY_ALIASES:
         return ENTITY_ALIASES[t]
-    # naive de-pluralisation
-    if len(t) > 3 and t.endswith("s") and not t.endswith("ss"):
+    # naive de-pluralisation, guarded against common false-plurals
+    if (
+        len(t) > 3
+        and t.endswith("s")
+        and not t.endswith(_NON_PLURAL_S_ENDINGS)
+    ):
         singular = t[:-1]
         if singular in ENTITY_ALIASES:
             return ENTITY_ALIASES[singular]

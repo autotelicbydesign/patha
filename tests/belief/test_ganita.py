@@ -210,6 +210,19 @@ class TestEntityCanon:
         assert "bike" in ents_a
         assert "bike" in ents_b
 
+    def test_false_plurals_not_stemmed(self):
+        # Held-out reveal bug: "tennis" → "tenni", "thesis" → "thesi".
+        # Words ending in -is / -us / -ss are not plurals.
+        from patha.belief.ganita import _canonicalize_entity
+        assert _canonicalize_entity("tennis") == "tennis"
+        assert _canonicalize_entity("thesis") == "thesis"
+        assert _canonicalize_entity("chess") == "chess"
+        assert _canonicalize_entity("status") == "status"
+        assert _canonicalize_entity("analysis") == "analysis"
+        # Real plurals still strip / alias
+        assert _canonicalize_entity("bikes") == "bike"
+        assert _canonicalize_entity("chisels") == "chisel"
+
 
 # ─── Index ───────────────────────────────────────────────────────────
 

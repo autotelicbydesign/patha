@@ -254,6 +254,27 @@ The 16 hand-written scenarios in disjoint domains, never run before this date, n
 
 **Protocol note.** These held-out numbers are frozen as-run for this report. The fixes above will be built from the general failure classes, measured on dev, and validated on a **future held-out batch 2** authored after the fixes ship. This held-out set is now spent as an unseen instrument and will be folded into dev for future work.
 
+### The fixes — `full-stack-v9` (post-reveal; v7/v8 frozen)
+
+All three failure classes from the reveal, shipped as a new detector stack (published v8 numbers stay reproducible):
+
+1. **Stemming bug** — `_canonicalize_entity` no longer strips the trailing *s* from -is/-us/-ss words ("tennis", "thesis", "status"); real plurals still normalize.
+2. **`SymmetricContradictionDetector`** — wraps the NLI core only. Belief contradiction is symmetric; NLI is premise/hypothesis-asymmetric (diagnosed pairs scored CONTRADICTS ≥ 0.94 in one direction, NEUTRAL ≥ 0.95 in the other). Reverse-direction contradictions are adopted at a conservative ≥ 0.90 bar. Direction-*dependent* outer detectors (sequential, numerical, learned) stay one-way by design.
+3. **`RevisionPatternDetector`** — three marker families the stack had no coverage for: **resumption** (cessation → "back on / X again now"), **settlement** ("landed on / on my own terms"), **arrangement** ("is/are now", "we do X now"). Same additive architecture as the sequential detector: embedding topic-overlap gate, additive-marker veto, negated-resumption veto, confidence 0.84.
+
+**Validation (dev + guards):**
+
+| measurement | v8 | **v9** |
+|---|---|---|
+| EvolutionEval dev — supersession | 0.808 | **0.942** (mf 1.000 · ps 1.000 · rb 0.812) |
+| EvolutionEval dev — coverage | 0.965 | **0.972** |
+| EvolutionEval dev — ordering / origin / routed | 1.000 | **1.000** |
+| EvolutionEval dev — precision | 0.811 | 0.797 (supersession folding pulls more revised beats in) |
+| BeliefEval (regression guard) | 1.000 | **1.000** |
+| False-contradiction FP rate (guard) | 0.0625 | **0.0625 — identical**: same single pre-existing FP (fc-07, v7-era sequential detector); the v9 additions introduced **zero** new false positives |
+
+Generalization claims for v9 await **held-out batch 2** (to be authored fresh, after this ships) — the spent batch cannot be reused as evidence, per protocol.
+
 Reproduce:
 ```bash
 uv run python -m eval.evolution_eval \

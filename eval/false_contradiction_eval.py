@@ -45,6 +45,7 @@ def main(argv: list[str] | None = None) -> None:
             "stub", "nli", "hybrid",
             "adhyasa-nli", "adhyasa-hybrid",
             "full-stack", "full-stack-v7",
+            "full-stack-v8", "full-stack-v9",
         ],
     )
     ap.add_argument("--output", default="runs/false_contradiction/results.json")

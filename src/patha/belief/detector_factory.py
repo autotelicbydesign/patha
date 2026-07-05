@@ -37,6 +37,7 @@ AVAILABLE_DETECTORS: tuple[str, ...] = (
     "full-stack",
     "full-stack-v7",
     "full-stack-v8",
+    "full-stack-v9",
 )
 
 
@@ -77,6 +78,30 @@ def make_detector(name: str) -> ContradictionDetector:
             ),
             threshold=0.7,
         )
+    if name == "full-stack-v9":
+        # v0.11: v8 + the two fixes from the EvolutionEval held-out
+        # reveal (docs/benchmarks.md). SymmetricNLI wraps the NLI core
+        # ONLY (direction-dependent outer detectors stay one-way);
+        # RevisionPatternDetector adds resumption / settlement /
+        # arrangement families. v7/v8 remain frozen so published
+        # numbers stay reproducible.
+        from patha.belief.learned_supersession import LearnedSupersessionDetector
+        from patha.belief.revision_patterns import RevisionPatternDetector
+        from patha.belief.symmetric_detector import SymmetricContradictionDetector
+        return LearnedSupersessionDetector(
+            inner=NumericalAwareDetector(
+                inner=RevisionPatternDetector(
+                    inner=SequentialEventDetector(
+                        inner=AdhyasaAwareDetector(
+                            inner=SymmetricContradictionDetector(
+                                inner=NLIContradictionDetector(),
+                            )
+                        )
+                    )
+                )
+            ),
+            threshold=0.7,
+        )
     raise ValueError(
         f"unknown detector {name!r}; choose from {AVAILABLE_DETECTORS}"
     )
@@ -91,4 +116,8 @@ def describe_detector(name: str) -> str:
         "full-stack": "numerical + adhyāsa + NLI (v0.6)",
         "full-stack-v7": "full-stack + sequential-event supersession (v0.7)",
         "full-stack-v8": "full-stack-v7 + learned classifier, 0% FPR (v0.8)",
+        "full-stack-v9": (
+            "full-stack-v8 + symmetric NLI + revision patterns "
+            "(resumption/settlement/arrangement) — the held-out fixes (v0.11)"
+        ),
     }.get(name, "unknown detector")
