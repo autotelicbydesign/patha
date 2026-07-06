@@ -2,9 +2,18 @@
 
 Measures whether Patha's narrative path reconstructs how a theme
 evolved: ordered beats, origin, revision tagging, distractor exclusion.
-Scenario format + the frozen scoring rubric (v1) are documented in
+Scenario format + the frozen scoring rubric are documented in
 eval/evolution_data/README.md. Rubric changes require a version bump
 and a re-report — never silent edits.
+
+Rubric history:
+- v1 (frozen 2026-07-04): routed/coverage/precision/ordering/origin/
+  supersession (recall-only).
+- v2 (2026-07-06): adds supersession_precision — of the beats the walk
+  TAGS as revised/superseded, the fraction that are old-ends of expected
+  pairs. v1 could not see unexpected supersession edges (found by the
+  v0.11.0 real-data audit); v2 closes that blind spot. All v1 scorers
+  unchanged, so v1 numbers remain comparable.
 
 Design notes:
 - Scoring is by exact belief-id → proposition-index mapping captured at
@@ -32,12 +41,12 @@ import tempfile
 import time
 from pathlib import Path
 
-RUBRIC_VERSION = "v1"
+RUBRIC_VERSION = "v2"
 
 _REVISED = ("revised-from", "superseded")
 
 
-# ─── Scorers (frozen rubric v1 — see evolution_data/README.md) ──────
+# ─── Scorers (frozen rubric — see evolution_data/README.md) ─────────
 
 
 def score_coverage(returned: list[int], gold: list[int]) -> float:
@@ -102,6 +111,29 @@ def score_supersession(
     return hits / len(applicable)
 
 
+def score_supersession_precision(
+    returned: list[int],
+    statuses: dict[int, str],
+    expected_pairs: list[list[int]],
+) -> float | None:
+    """Over returned beats the walk TAGGED revised/superseded (its
+    claimed old-ends): fraction that are old-ends of an expected pair.
+    A tagged distractor, or a tagged gold beat outside the expected
+    pairs, is a false claim and counts against precision. None when the
+    walk claimed nothing (precision of zero claims is undefined — the
+    recall scorer owns misses).
+
+    Asymmetry with score_supersession is deliberate: no expectations +
+    claims present → 0.0 here (every claim is unexpected), None there
+    (nothing to find). This is the scorer that makes unexpected
+    supersession edges visible — rubric v1 could not see them."""
+    claimed = [i for i in returned if statuses.get(i) in _REVISED]
+    if not claimed:
+        return None
+    expected_olds = {p[0] for p in expected_pairs}
+    return sum(1 for i in claimed if i in expected_olds) / len(claimed)
+
+
 def score_question(
     routed: bool,
     returned: list[int],
@@ -113,22 +145,26 @@ def score_question(
         return {
             "routed": 0.0, "coverage": None, "precision": None,
             "ordering": None, "origin": None, "supersession": None,
+            "supersession_precision": None,
         }
     gold = question["expected_beat_order"]
+    expected_pairs = question.get("expected_supersessions", [])
     return {
         "routed": 1.0,
         "coverage": score_coverage(returned, gold),
         "precision": score_precision(returned, gold),
         "ordering": score_ordering(returned, gold),
         "origin": score_origin(returned, question["expected_origin"]),
-        "supersession": score_supersession(
-            returned, statuses, question.get("expected_supersessions", []),
+        "supersession": score_supersession(returned, statuses, expected_pairs),
+        "supersession_precision": score_supersession_precision(
+            returned, statuses, expected_pairs,
         ),
     }
 
 
 _SCORER_NAMES = [
     "routed", "coverage", "precision", "ordering", "origin", "supersession",
+    "supersession_precision",
 ]
 
 

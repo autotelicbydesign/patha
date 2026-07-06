@@ -178,7 +178,7 @@ uv run python -m eval.run_answer_eval --data data/longmemeval_ku_78.json \
 
 ## EvolutionEval — narrative evolution (Phase 4; category-defining)
 
-**The first benchmark measuring whether a memory system can reconstruct how a theme evolved** — ordered beats, origin identification, revision tagging, distractor exclusion. Nothing external measures this (LongMemEval's temporal-reasoning is timestamp arithmetic; knowledge-update is single-fact replacement). Instrument documentation, scenario schema, the four families, and the frozen v1 rubric: [eval/evolution_data/README.md](../eval/evolution_data/README.md).
+**The first benchmark measuring whether a memory system can reconstruct how a theme evolved** — ordered beats, origin identification, revision tagging, distractor exclusion. Nothing external measures this (LongMemEval's temporal-reasoning is timestamp arithmetic; knowledge-update is single-fact replacement). Instrument documentation, scenario schema, the four families, and the frozen rubric (v2 — version history inside): [eval/evolution_data/README.md](../eval/evolution_data/README.md).
 
 **Protocol**: 36 templated dev scenarios (tuning allowed) / 16 hand-written sealed held-out scenarios in disjoint domains (release reports only; runner refuses them without `--include-heldout`). Walker frozen before scenario authoring; rubric frozen before the first reported run. Run-to-run determinism verified (two full runs, identical scores; the benchmark itself caught and forced the fix of a hash-seed-dependent anchor-ordering bug on day one).
 
@@ -275,11 +275,40 @@ All three failure classes from the reveal, shipped as a new detector stack (publ
 
 **v9 (gated) strictly dominates v8 on every metric.** Generalization claims for v9 await **held-out batch 2** (to be authored fresh, after this ships) — the spent batch cannot be reused as evidence, per protocol.
 
+### Rubric v2 — supersession *precision* (2026-07-06)
+
+The v0.11.0 real-data audit found supersession edges the system created that **no scorer could see**: rubric v1 measured supersession *recall* only (were expected revisions tagged?), so unexpected edges were invisible. Rubric v2 adds `supersession_precision`: of the beats a timeline *tags* as revised/superseded, what fraction are old-ends of expected pairs? Per protocol this is a version bump; all v1 scorers are byte-identical, and the numbers below are **re-scored from persisted run artifacts** (deterministic, verified twice) — nothing was re-run, no held-out scenario was touched.
+
+| config | set | supersession (recall) | **supersession_precision (new)** |
+|---|---|---|---|
+| stub @ 0.35 (shipped default) | dev | 0.000 | — (never tags) |
+| stub @ 0.35 | held-out b1 | 0.000 | — (never tags) |
+| v8 @ 0.35 | dev | 0.808 | **0.449** |
+| v8 @ 0.35 | held-out b1 | 0.625 | **0.494** |
+| v9-gated @ 0.35 (recommended) | dev | 0.885 | **0.475** |
+
+**The finding, stated plainly: the NLI stack over-tags revision on arcs that never reversed.** Family decomposition (v9-gated, dev): `reversed_belief_chain` 0.750, `multi_factor_change` 0.658, `perspective_shift` 0.512, `progressive_revelation` **0.000**. The pr family has *zero* expected pairs by design — refinement ("been thinking about making things with my hands" → specific craft) is not revision — yet the stack tags refinement beats `revised-from` on nearly every pr timeline, and in one case tagged the off-theme distractor ("the dentist moved my appointment to Thursday"). Sequential additive events ("started running twice a week" → "signed up for a 10k") also draw edges: phrasings the additive/sequential vetoes don't cover.
+
+Three honest observations:
+
+1. **This is not a v9 regression** — v9-gated scores *above* v8 on the new axis (0.475 vs 0.449 dev), and the symmetric-adoption topic gate holds. The over-tagging is inherited base-NLI supersession behavior, present in every published config, measurable only now.
+2. **The false-contradiction guard (FP 0.0625) did not generalize to this distribution.** That eval's 20 hand-crafted pairs cover marker-driven classes; scenario-corpus refinement arcs are a different distribution, and the instrument that sees them is this scorer.
+3. **User-visible meaning**: a narrative timeline may claim "you changed your mind" where you actually *sharpened* it. Recall of true revisions is strong (0.885); precision of the claim is roughly a coin flip (0.475). Both numbers are the product truth; quoting the first without the second would be cherry-picking.
+
+**Fix program (v0.12, instrument-first — no detector changes ship today):** refinement-vs-revision discrimination (specificity-increase veto), additive-phrasing coverage, and chunk-scale propositionization, each measured against this scorer on dev and validated on held-out batch 2+. v7/v8/v9 stay frozen; fixes ship as v10.
+
+Held-out **batch 2** (next section of work) reports under rubric v2 from its first run.
+
 Reproduce:
 ```bash
 uv run python -m eval.evolution_eval \
     --data eval/evolution_data/dev_scenarios.jsonl \
     --output runs/evolution/dev.json
+# re-score any stored artifact under the current rubric (no re-run):
+uv run python -m eval.evolution_eval \
+    --data eval/evolution_data/dev_scenarios.jsonl \
+    --rescore runs/evolution/dev-v9b-thr035.json \
+    --output runs/evolution/v2/dev-v9b-thr035.v2.json
 ```
 
 ## Phase 3 — End-to-end answer evaluation

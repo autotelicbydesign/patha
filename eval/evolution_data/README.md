@@ -71,7 +71,7 @@ these scenarios were authored. The scoring rubric below was frozen in
 `eval/evolution_eval.py` *before* the first reported run. Walker-knob sweeps
 (`PATHA_TOPIC_THRESHOLD`, budgets) run against **dev only**.
 
-## Frozen scoring rubric (v1 — changes require a version bump + re-report)
+## Frozen scoring rubric (v2 — changes require a version bump + re-report)
 
 All scorers operate on the returned beat sequence mapped to proposition
 indices. Per question:
@@ -86,6 +86,21 @@ indices. Per question:
 - **supersession** — over `expected_supersessions` pairs with both ends
   returned: fraction where the old end is tagged `revised-from`/`superseded`;
   `None` if no pair has both ends returned
+- **supersession_precision** *(added in v2)* — over returned beats *tagged*
+  `revised-from`/`superseded` (the walk's claimed old-ends): fraction that are
+  old-ends of an expected pair. A tagged distractor, or a tagged gold beat
+  outside the expected pairs, counts against it; `None` when nothing was
+  tagged (precision of zero claims is undefined — recall owns misses).
+
+### Rubric version history
+
+- **v1** (frozen 2026-07-04, commit `78575fb`): the six scorers above minus
+  supersession_precision. Frozen before the first reported run.
+- **v2** (2026-07-06): adds **supersession_precision**. Motivated by the
+  v0.11.0 real-data audit, which found supersession edges the system created
+  that no scorer could see (unexpected edges are invisible to a recall-only
+  scorer). All v1 scorers are byte-identical, so v1 numbers remain directly
+  comparable; prior runs are re-scored from persisted artifacts, never re-run.
 
 Aggregation: mean per scorer per family and overall, `None`s excluded;
 routed-fraction reported separately. Artifacts (returned indices + statuses

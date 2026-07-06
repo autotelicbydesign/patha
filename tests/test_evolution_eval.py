@@ -17,12 +17,14 @@ from pathlib import Path
 from eval.evolution_eval import (
     RUBRIC_VERSION,
     aggregate,
+    rescore_rows,
     score_coverage,
     score_ordering,
     score_origin,
     score_precision,
     score_question,
     score_supersession,
+    score_supersession_precision,
 )
 
 DATA_DIR = Path(__file__).parent.parent / "eval" / "evolution_data"
@@ -83,6 +85,33 @@ class TestScorers:
             [0, 2, 4, 6], st, [[0, 4], [2, 6]],
         ) == 0.5
 
+    def test_supersession_precision(self):
+        # THE blind-spot case rubric v2 exists for: an unexpected edge
+        # between gold beats — v1 recall is blind to it, v2 scores 0.
+        st = {0: "current", 2: "revised-from", 4: "current"}
+        assert score_supersession_precision([0, 2, 4], st, [[0, 4]]) == 0.0
+        # ...while v1 recall over the same outcome sees only the miss
+        assert score_supersession([0, 2, 4], st, [[0, 4]]) == 0.0
+        # correct claim → 1.0
+        st = {0: "revised-from", 2: "current", 4: "current"}
+        assert score_supersession_precision([0, 2, 4], st, [[0, 4]]) == 1.0
+        # one correct claim + one tagged distractor → 0.5
+        st = {0: "superseded", 1: "revised-from", 4: "current"}
+        assert score_supersession_precision([0, 1, 4], st, [[0, 4]]) == 0.5
+        # no claims → None (recall owns misses)
+        st = {0: "current", 4: "current"}
+        assert score_supersession_precision([0, 4], st, [[0, 4]]) is None
+        # claims but NO expectations → 0.0 here, None on the recall side
+        st = {0: "revised-from"}
+        assert score_supersession_precision([0, 4], st, []) == 0.0
+        assert score_supersession([0, 4], st, []) is None
+        # chain X→Y→Z: Y is old of one pair and new of another — its
+        # tag is an expected claim
+        st = {0: "superseded", 2: "superseded", 4: "current"}
+        assert score_supersession_precision(
+            [0, 2, 4], st, [[0, 2], [2, 4]],
+        ) == 1.0
+
     def test_score_question_not_routed_gates_everything(self):
         q = {
             "expected_beat_order": [0, 2],
@@ -94,27 +123,54 @@ class TestScorers:
         assert all(
             s[k] is None
             for k in ("coverage", "precision", "ordering", "origin",
-                      "supersession")
+                      "supersession", "supersession_precision")
         )
 
     def test_aggregate_excludes_nones(self):
         rows = [
             {"scores": {"routed": 1.0, "coverage": 1.0, "precision": 1.0,
                         "ordering": None, "origin": 1.0,
-                        "supersession": None}},
+                        "supersession": None,
+                        "supersession_precision": None}},
             {"scores": {"routed": 1.0, "coverage": 0.5, "precision": 1.0,
                         "ordering": 1.0, "origin": 0.0,
-                        "supersession": 0.0}},
+                        "supersession": 0.0,
+                        "supersession_precision": 1.0}},
         ]
         agg = aggregate(rows)
         assert agg["coverage"]["mean"] == 0.75 and agg["coverage"]["n"] == 2
         assert agg["ordering"]["mean"] == 1.0 and agg["ordering"]["n"] == 1
         assert agg["supersession"]["n"] == 1
+        assert agg["supersession_precision"]["n"] == 1
+
+    def test_rescore_v1_artifact_rows_gain_precision_scorer(self):
+        # A row persisted under rubric v1 (no supersession_precision key)
+        # re-scores under the current rubric from its artifacts alone.
+        scenario = {
+            "id": "s1",
+            "questions": [{
+                "q": "how has my thinking on x evolved?",
+                "expected_beat_order": [0, 2],
+                "expected_origin": 0,
+                "expected_supersessions": [[0, 2]],
+            }],
+        }
+        v1_row = {
+            "scenario_id": "s1",
+            "question": "how has my thinking on x evolved?",
+            "returned_indices": [0, 2],
+            "statuses": {"0": "revised-from"},
+            "scores": {"routed": 1.0, "coverage": 1.0, "precision": 1.0,
+                       "ordering": 1.0, "origin": 1.0, "supersession": 1.0},
+        }
+        out = rescore_rows([v1_row], {"s1": scenario})
+        assert out[0]["scores"]["supersession_precision"] == 1.0
+        assert out[0]["scores"]["supersession"] == 1.0  # v1 scorers unchanged
 
     def test_rubric_version_pinned(self):
         # Rubric changes require a version bump — this test forces the
         # conversation if anyone edits scorers without bumping.
-        assert RUBRIC_VERSION == "v1"
+        assert RUBRIC_VERSION == "v2"
 
 
 # ─── 2. Data integrity ──────────────────────────────────────────────
