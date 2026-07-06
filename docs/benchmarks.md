@@ -297,7 +297,24 @@ Three honest observations:
 
 **Fix program (v0.12, instrument-first — no detector changes ship today):** refinement-vs-revision discrimination (specificity-increase veto), additive-phrasing coverage, and chunk-scale propositionization, each measured against this scorer on dev and validated on held-out batch 2+. v7/v8/v9 stay frozen; fixes ship as v10.
 
-Held-out **batch 2** (next section of work) reports under rubric v2 from its first run.
+### Held-out batch 2 — the v9 generalization verdict (2026-07-06)
+
+20 hand-written scenarios (5 per family) in domains disjoint from dev *and* batch 1, authored **after** the v9 stack froze (v0.11.0) and **after** rubric v2 froze (`fddea0b`), sealed at commit `93e8765` before any run, run exactly once per reported config. The batch was designed to probe exactly what batch 1's failure decomposition named: resumption/settlement/arrangement phrasings in unseen domains (v9's new detectors' first held-out test), harder token-less paraphrase origin beats, and zero-expected-pair refinement arcs (the supersession-precision probes). Numbers as-run:
+
+| config | routed | coverage | precision | ordering | origin | supersession (recall) | supersession_precision |
+|---|---|---|---|---|---|---|---|
+| stub @ 0.35 (shipped default) | 1.000 | 0.848 | 0.975 | 1.000 | **0.850** | 0.000 | — (never tags) |
+| v8 @ 0.35 | 1.000 | 0.925 | 0.784 | 1.000 | 1.000 | 0.967 | 0.230 |
+| **v9-gated @ 0.35 (recommended)** | 1.000 | 0.925 | 0.784 | 1.000 | 1.000 | **1.000** | 0.233 |
+
+**The verdict, in order of importance:**
+
+1. **The v9 fixes generalize — the fix loop is closed.** Batch 1 exposed v8 supersession recall collapsing 0.808 → 0.625; the three fixes were built from that decomposition, validated on dev, and batch 2 is their first unseen test: **v9 recall 1.000** (15 applicable pairs), including every reversed-belief-chain return-link (rb 1.000 vs v8's 0.900 — precisely the resumption/settlement class `RevisionPatternDetector` was built for, firing correctly in domains it has never seen). Decompose → fix → validate-on-fresh-sealed-data: the whole discipline paid off in one number.
+2. **The temporal core holds for the third consecutive set.** Routing 1.000 and ordering 1.000 on all 20 questions, every config — now demonstrated on dev (36q), batch 1 (16q), and batch 2 (20q).
+3. **Batch 2 found the shipped default config's edge — publishing it.** With `stub` (no supersession edges), coverage drops to 0.848 and **origin identification cracks to 0.850 overall / 0.600 on progressive_revelation**: batch 2's token-less paraphrase origin beats (e.g. "I keep stopping on the roof to stare at the sky" for an astronomy arc) are genuinely harder than batch 1's, and the topic-channel walk alone misses some of them. The NLI configs score origin 1.000 partly *because* their (often false) supersession edges pull origin beats into the walk — false lineage accidentally helps recall-side metrics while beat precision pays for it (0.784 vs stub's 0.975). Batch 2 is the first set to cleanly price this trade.
+4. **Supersession precision degrades further out-of-domain: 0.230** (dev was 0.475), with claims on all 20 questions and progressive_revelation at 0.000 again — on fresh refinement arcs, roughly 4 of 5 revision claims are unwarranted. This is now a held-out-validated systemic finding and **the v0.12 fix program's target number**: refinement-vs-revision discrimination, measured by this scorer, dev-first, validated on a future batch 3.
+
+**Protocol note.** Batch 2 is now spent as an unseen instrument (folded into dev for future work). Batch 3, when needed, gets authored fresh after the next fix wave ships.
 
 Reproduce:
 ```bash

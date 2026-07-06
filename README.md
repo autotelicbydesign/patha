@@ -54,8 +54,8 @@ No cloud. No login. No SaaS account. Patha writes to a plain text file at `~/.pa
 - **6.5× token reduction** on the LongMemEval-S multi-session stratum (118,761 → 18,384 tokens/summary)
 - **Zero LLM tokens at recall** on synthesis questions (gaṇita queries a preserved tuple index)
 - **95.8% non-commutative** — on 240 supersession scenarios, reversing ingest order produces a different final belief set
-- **EvolutionEval** (the first narrative-evolution benchmark, ours): temporal core generalizes with **zero dev/held-out gap** — ordering 1.000, origin 1.000 on all 52 questions
-- **878 unit tests pass** (3 skipped on optional deps)
+- **EvolutionEval** (the first narrative-evolution benchmark, ours): routing and ordering **1.000 across all 72 questions of all three sets** — dev + two sealed held-out batches. Supersession detection: recall **1.000** held-out with `full-stack-v9`, precision 0.23 (the system over-claims revision on arcs that only *refined* — measured by our own rubric-v2 scorer, published, top of the fix list)
+- **882 unit tests pass** (3 skipped on optional deps)
 
 Methodology and full tables in [docs/benchmarks.md](docs/benchmarks.md). Caveats and metric definitions there too — these are Patha's own measured numbers; cross-system comparison is left to the reader on like-for-like terms.
 
@@ -99,8 +99,8 @@ Three of these operations ship today; a fourth (narrative) is wired and validati
 
 - **Narrative synthesis (itihāsa)** — the third question class. `recall()` detects evolution/origin/throughline intent, walks the songline graph theme-constrained, and returns `Recall.narrative`: temporally-ordered beats with supersession structure + a deterministic through-line. Zero LLM tokens for the selection/ordering/tagging.
 - **Topic channel** — deterministic clustering over the already-computed v1 embeddings populates the songline graph's topic edges (`PATHA_TOPIC_THRESHOLD`, default 0.35 — set by the EvolutionEval dev sweep). This is where the songline graph becomes load-bearing.
-- **EvolutionEval** — the first benchmark measuring whether a memory system can reconstruct how thinking evolved. 36 dev + 16 sealed held-out scenarios, frozen rubric, published dev/held-out gap. **The temporal core generalizes with zero gap: ordering 1.000, origin 1.000 on all 52 questions, both sets.**
-- **`full-stack-v9` detector** (recommended) — symmetric NLI with topic-overlap gating + resumption/settlement/arrangement revision patterns. EvolutionEval dev supersession 0.808 → 0.885 with zero new false positives; BeliefEval 300-scenario 347/347.
+- **EvolutionEval** — the first benchmark measuring whether a memory system can reconstruct how thinking evolved. 36 dev + two sealed held-out batches (16 + 20 scenarios, disjoint domains), versioned rubric, every gap published as-run. **Routing and ordering: 1.000 on all 72 questions across all three sets.** Origin identification: 1.000 with the NLI detectors; batch 2 located the default `stub` config's edge (0.850 — published, see [docs/benchmarks.md](docs/benchmarks.md)).
+- **`full-stack-v9` detector** (recommended) — symmetric NLI with topic-overlap gating + resumption/settlement/arrangement revision patterns. **Held-out batch 2 verdict: supersession recall 1.000 in never-seen domains** (v8: 0.967; v8 on batch 1 was 0.625 — the fixes were built from that decomposition and generalized). Honest counterpart: supersession *precision* is 0.23 held-out — the stack claims "revised" on refinement arcs ~4× more often than warranted; rubric v2 measures it and the v0.12 fix program targets it. BeliefEval 300-scenario 347/347; zero new false positives.
 - **Importer fixes** — frontmatter dates honored in all import modes; per-file sessions for flat folders.
 
 ## What shipped in v0.10
@@ -182,6 +182,8 @@ Quit + restart Claude Desktop. Four tools (`patha_ingest`, `patha_query`, `patha
 
 Restart your client. Four tools become available: `patha_ingest`, `patha_query`, `patha_history`, `patha_stats`. Your AI assistant can now remember things across sessions, detect contradictions, and reason over a personal belief store. See [docs/mcp.md](docs/mcp.md) for the full install guide + Claude Desktop walkthrough.
 
+> **Detector choice matters here.** The MCP server defaults to the instant heuristic `stub` detector — fast startup, but it won't catch real contradictions. For production use add `"env": {"PATHA_DETECTOR": "full-stack-v9"}` to the config block above, and run `patha verify --detector full-stack-v9 --preload` **once from a terminal first** (~1.7 GB model download) so your client's first ingest doesn't hang while models download.
+
 ### 2. As a CLI
 
 ```bash
@@ -206,7 +208,7 @@ patha import claude-export ~/Downloads/data-export.zip
 #  Only your messages are imported; Claude's replies are skipped.)
 ```
 
-Use `--detector full-stack-v7` to switch to the production NLI + adhyāsa + numerical + sequential detector (downloads ~1.7 GB on first run). Default is `stub` for instant startup.
+Use `--detector full-stack-v9` to switch to the production detector stack (NLI + adhyāsa + numerical + sequential + symmetric + revision patterns; downloads ~1.7 GB on first run). Default is `stub` for instant startup.
 
 ### 3. As a Python library (for developers building LLM apps)
 
@@ -227,7 +229,7 @@ The import name is `patha`; the PyPI distribution is `patha-memory`. If you see 
 ```python
 import patha
 
-memory = patha.Memory(detector="full-stack-v8")
+memory = patha.Memory(detector="full-stack-v9")
 memory.remember("I live in Lisbon")
 memory.remember("I am avoiding raw fish on my doctor's advice")
 
@@ -242,7 +244,7 @@ print(rec.answer)            # direct answer (when the layer can produce one)
 import anthropic, patha
 
 client = anthropic.Anthropic()
-memory = patha.Memory(detector="full-stack-v8")
+memory = patha.Memory(detector="full-stack-v9")
 
 def on_user_message(text: str) -> str:
     memory.remember(text)                      # auto-ingest user fact
@@ -261,7 +263,7 @@ def on_user_message(text: str) -> str:
 - **Token bill.** Naive conversation-history dumping is ~280–325 tokens per turn. Patha's structured summary is ~20 tokens on the same benchmark — a 10–15× cut. At $3–15 / 1M tokens × many users × many turns, that's real money.
 - **Contradiction handling.** When a user changes their mind, `.remember()` resolves it via supersession. Your app doesn't overwrite facts silently.
 - **Local-only by default.** No SaaS, no API keys, no rate limits. The belief store is a JSONL file in `~/.patha/` that your user owns.
-- **Swap detectors.** Use `"stub"` in CI (instant, no models), `"full-stack-v8"` in prod (DeBERTa-large NLI + lexical + numerical + learned classifier, ~1.7 GB first-download).
+- **Swap detectors.** Use `"stub"` in CI (instant, no models), `"full-stack-v9"` in prod (DeBERTa-large NLI + lexical + numerical + learned classifier + symmetric/revision layers, ~1.7 GB first-download).
 
 **Power-user APIs:**
 
@@ -279,7 +281,7 @@ import patha
 from patha.belief.karana import HybridKaranaExtractor
 
 memory = patha.Memory(
-    detector="full-stack-v8",
+    detector="full-stack-v9",
     karana_extractor=HybridKaranaExtractor(
         model="qwen2.5:14b-instruct",  # or your model
     ),
@@ -341,7 +343,9 @@ Full numbers with caveats, ablations, and methodology live in [docs/benchmarks.m
 | LongMemEval-KU answer-in-summary alternate scoring | 0.885 (69/78) | stub null baseline: 0.795 |
 | Articulation Bridge baseline floor (KU 78q, NullTemplateLLM, numeric scorer) | 5/78 = 0.064 | the bar a real LLM should beat |
 | Non-commutativity on 240 supersession scenarios | 95.8% | 0% on reinforcement |
-| Test suite | 799 pass | 3 skip on optional deps |
+| **EvolutionEval** (narrative evolution — our benchmark, category-defining) | routing/ordering **1.000** on all 72q, 3 sets | supersession recall **1.000** held-out (v9) / precision 0.23 — both published; see caveat pattern below |
+| LongMemEval-S full 500q answer-recall (session-level) | 0.952 (472/496) | weakest stratum: multi-session **0.857** — synthesis-bounded questions need better karaṇa extraction than regex; the top capability item on the roadmap |
+| Test suite | 882 pass | 3 skip on optional deps |
 
 ¹ One question excluded from answer-recall scoring due to a known datetime-tz edge case; scored over 77.
 
@@ -481,13 +485,13 @@ uv run pytest tests/ -q                             # 817 tests, ~75s
 
 **Shipped in v0.11:** the narrative path (itihāsa) — topic channel, walker, recall routing, EvolutionEval (dev + sealed held-out, zero temporal gap), the v9 detector stack. Receipts in [docs/benchmarks.md](docs/benchmarks.md).
 
-**Near-term:**
-- EvolutionEval held-out **batch 2** (validates the v9 fixes on unseen scenarios) + rubric v2 (supersession-*precision* scorer)
-- Composition — chaining pramāṇa: a *time-series of sums* (narrative + synthesis = "how has my spending evolved?")
+**Shipped post-v0.11 (docs/eval):** EvolutionEval rubric **v2** (supersession-*precision* scorer — found and published the over-tagging blind spot) + sealed held-out **batch 2** run (v9 supersession recall **1.000** in unseen domains — the batch-1 fix loop closed; precision 0.23 published as the next target).
 
-**Near-term — close the measurement gaps:**
-- Karaṇa-quality benchmark: the extraction quality that bounds every synthesis claim is currently unmeasured (regex → ollama-7b → hybrid-14b)
-- Frontier-LLM Articulation Bridge run (Claude / GPT-4o on KU + 500q); full 500q R@5
+**Near-term (the v0.12 program):**
+- **Karaṇa extraction v2** — the multi-session 0.857 fix: NER + dependency-parse tuple extraction replacing regex; bounds every synthesis claim
+- **Supersession precision** — refinement-vs-revision discrimination + chunk-scale propositionization, measured by rubric v2, validated on a fresh batch 3
+- Composition — chaining pramāṇa: a *time-series of sums* (narrative + synthesis = "how has my spending evolved?")
+- Frontier-LLM Articulation Bridge run (Claude / GPT-4o on KU + 500q)
 - BeliefEval adapter for the Articulation Bridge runner
 
 **The epistemology roadmap (the remaining pramāṇa):**

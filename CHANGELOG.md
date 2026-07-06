@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased (eval + docs; no library changes)
+
+### EvolutionEval rubric v2 — supersession precision
+- New scorer `supersession_precision`: of the beats a timeline tags revised/superseded, the fraction that are old-ends of expected pairs. Closes the blind spot the v0.11.0 real-data audit found (unexpected edges were invisible to the recall-only v1 rubric). All v1 scorers byte-identical; stored artifacts re-scored, nothing re-run.
+- **The finding**: the NLI stacks over-tag revision on arcs that only refined — v9-gated dev recall 0.885 / precision 0.475; `progressive_revelation` 0.000. Not a v9 regression (v9 ≥ v8 on the new axis). Fix program targeted for v0.12.
+
+### Held-out batch 2 — the v9 generalization verdict
+- 20 hand-written sealed scenarios in fresh domains (sealed at `93e8765` before any run; run once per config).
+- **v9 supersession recall 1.000 held-out** (v8: 0.967; v8 on batch 1 was 0.625) — the batch-1 decompose→fix→validate loop closed on unseen data, including every reversed-chain return-link (the `RevisionPatternDetector` class).
+- Routing/ordering 1.000 on all 72 questions across all three sets. Batch 2 also located the default `stub` config's origin edge (0.850 overall / 0.600 pr on harder token-less paraphrase origins) and held-out supersession precision at 0.230 — both published as-run.
+
+### Credibility sweep
+- README: batch-2-backed EvolutionEval claims (recall AND precision, side by side); LongMemEval-S 500q row with the multi-session 0.857 weakness + karaṇa root cause stated; MCP detector-choice note (`stub` default vs `full-stack-v9` + `--preload` tip); examples bumped to `full-stack-v9`; test count reconciled to the real 882.
+- `CONTRIBUTING.md` + GitHub issue templates (bug/feature) — the benchmark-protocol ground rules are now contributor-facing.
+
 ## v0.11.0 (2026-07-06) — narrative synthesis (itihāsa): the third question class, with receipts
 
 The milestone release. `Memory.recall()` now routes **three** question classes, each an epistemically distinct operation with its own primitive:
