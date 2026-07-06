@@ -201,6 +201,23 @@ class TestDataIntegrity:
         fams = {s["family"] for s in scenarios}
         assert len(fams) == 4
 
+    def test_heldout_batch2_shape_and_seal(self):
+        scenarios = _load(DATA_DIR / "heldout_batch2.jsonl")
+        assert len(scenarios) == 20
+        assert all(s.get("heldout") is True for s in scenarios)
+        assert all(s.get("batch") == 2 for s in scenarios)
+        fams = [s["family"] for s in scenarios]
+        assert {f: fams.count(f) for f in set(fams)} == {
+            "progressive_revelation": 5, "multi_factor_change": 5,
+            "perspective_shift": 5, "reversed_belief_chain": 5,
+        }
+        # the precision probes: pr scenarios expect ZERO supersessions
+        for s in scenarios:
+            if s["family"] == "progressive_revelation":
+                assert all(
+                    q["expected_supersessions"] == [] for q in s["questions"]
+                ), s["id"]
+
     def test_split_ratio(self):
         dev = _load(DATA_DIR / "dev_scenarios.jsonl")
         held = _load(DATA_DIR / "heldout_scenarios.jsonl")
@@ -211,6 +228,7 @@ class TestDataIntegrity:
         for path in (
             DATA_DIR / "dev_scenarios.jsonl",
             DATA_DIR / "heldout_scenarios.jsonl",
+            DATA_DIR / "heldout_batch2.jsonl",
         ):
             for s in _load(path):
                 n = len(s["propositions"])
@@ -250,6 +268,20 @@ class TestDataIntegrity:
         assert not dev_themes & held_themes, (
             f"held-out themes must be disjoint: {dev_themes & held_themes}"
         )
+
+    def test_batch2_domains_disjoint_from_everything(self):
+        prior = {
+            q["expected_theme"]
+            for name in ("dev_scenarios.jsonl", "heldout_scenarios.jsonl")
+            for s in _load(DATA_DIR / name)
+            for q in s["questions"]
+        }
+        b2 = {
+            q["expected_theme"]
+            for s in _load(DATA_DIR / "heldout_batch2.jsonl")
+            for q in s["questions"]
+        }
+        assert not prior & b2, f"batch-2 themes must be fresh: {prior & b2}"
 
 
 # ─── 3. Generator determinism ───────────────────────────────────────
