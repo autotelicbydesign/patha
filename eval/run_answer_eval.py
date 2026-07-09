@@ -144,7 +144,10 @@ def _build_llm(name: str, *, ollama_model: str, claude_model: str):
     if name == "null":
         return NullTemplateLLM()
     if name == "claude":
-        return ClaudeLLM(model=claude_model)
+        # temperature=None: the Claude 5 family rejects the parameter as
+        # deprecated; answers persist in the artifact, so scoring stays
+        # reproducible from artifacts regardless of sampling.
+        return ClaudeLLM(model=claude_model, temperature=None)
     if name == "ollama":
         return OllamaLLM(model=ollama_model)
     raise ValueError(f"unknown --llm: {name!r}")

@@ -435,12 +435,15 @@ class ClaudeLLM:
 
     Defaults to claude-sonnet-4 with deterministic temperature for
     reproducible eval runs. Pass `model="claude-haiku-4"` etc. to
-    swap.
+    swap. `temperature=None` omits the parameter entirely — required
+    for the Claude 5 family, where the API rejects it as deprecated;
+    answers are persisted in the run artifact either way, so scoring
+    stays reproducible from artifacts regardless of sampling.
     """
 
     model: str = "claude-sonnet-4-20250514"
     api_key: str | None = None  # falls back to ANTHROPIC_API_KEY
-    temperature: float = 0.0
+    temperature: float | None = 0.0
     max_tokens: int = 256
     system: str = (
         "You are a careful assistant answering a user's question using "
@@ -475,13 +478,15 @@ class ClaudeLLM:
         client = Anthropic(api_key=api_key)
         start = _time.monotonic()
         try:
-            resp = client.messages.create(
+            kwargs = dict(
                 model=self.model,
                 max_tokens=self.max_tokens,
-                temperature=self.temperature,
                 system=self.system,
                 messages=[{"role": "user", "content": prompt}],
             )
+            if self.temperature is not None:
+                kwargs["temperature"] = self.temperature
+            resp = client.messages.create(**kwargs)
         finally:
             self.calls += 1
             self.total_latency_s += _time.monotonic() - start
