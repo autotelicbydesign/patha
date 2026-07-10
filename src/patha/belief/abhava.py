@@ -96,7 +96,14 @@ _PRADHVAMSABHAVA_PATTERNS: list[re.Pattern] = [
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(?:i|we)\s+(?:stopped|quit|gave\s+up|ended|finished|dropped)\b",
+        r"\b(?:i|we)\s+(?:stopped|quit|gave\s+up|ended|finished|dropped|cancell?ed|called\s+off)\b",
+        re.IGNORECASE,
+    ),
+    # implicit first-person subject: "cancelled the veg box for good",
+    # "cleared out and cancelled the storage unit" (added 2026-07-08
+    # for anupalabdhi; additive — no prior match changes)
+    re.compile(
+        r"\b(?:cancell?ed|called\s+off)\s+(?:the|my|our|it)\b",
         re.IGNORECASE,
     ),
     re.compile(
@@ -187,7 +194,7 @@ _NEGATION_CUES: frozenset[str] = frozenset({
     "haven't", "hasn't", "hadn't",
     "won't", "wouldn't", "shouldn't", "couldn't",
     "stopped", "quit", "gave up", "ended", "no longer",
-    "used to",
+    "used to", "cancelled", "canceled", "called off",
 })
 
 
@@ -219,6 +226,8 @@ def _extract_referenced_state(text: str, kind: AbhavaKind) -> str | None:
             r"\bgave\s+up\s+(\w+(?:\s+\w+){0,3})",
             r"\bno\s+longer\s+(\w+(?:\s+\w+){0,3})",
             r"\bdon'?t\s+(\w+(?:\s+\w+){0,3})\s+anymore",
+            r"\bcancell?ed\s+(?:the\s+|my\s+|our\s+)?(\w+(?:\s+\w+){0,3})",
+            r"\bcalled\s+off\s+(?:the\s+|my\s+|our\s+)?(\w+(?:\s+\w+){0,3})",
         ]:
             m = re.search(pat, text, re.IGNORECASE)
             if m:

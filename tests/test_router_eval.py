@@ -227,24 +227,27 @@ class TestDataIntegrity:
 
     def test_family_counts_pinned(self):
         fams = [q["family"] for q in _load()]
+        # rt-retr-13 re-familied to boundary 2026-07-08: "am/do I still
+        # X" is AbsenceEval's still-family shape — gold corrected to
+        # absence (secondary retrieval) for inter-instrument consistency.
         assert {f: fams.count(f) for f in set(fams)} == {
-            "retrieval_plain": 14,
+            "retrieval_plain": 13,
             "synthesis_plain": 14,
             "narrative_plain": 14,
             "composition_plain": 12,
             "absence_plain": 12,
             "analogy_plain": 9,
-            "boundary": 15,
+            "boundary": 16,
         }
 
     def test_gold_route_distribution_pinned(self):
         golds = [q["gold_route"] for q in _load()]
         assert {r: golds.count(r) for r in ROUTES} == {
-            "retrieval": 16,
+            "retrieval": 15,
             "synthesis": 17,
             "narrative": 17,
             "composition": 13,
-            "absence": 16,
+            "absence": 17,
             "analogy": 11,
         }
         # all six classes represented — the matrix has no empty gold row
@@ -300,24 +303,35 @@ class TestIntentRouterAdapter:
         assert emitted <= set(INTENT_ROUTER_COVERAGE)
 
     def test_gate_order_hand_verified(self):
-        # The three-class routing recall() performs today.
+        # The four-class routing recall() performs today (absence gate
+        # shipped 2026-07-08, between synthesis and narrative).
         assert intent_router(
             "how much did I spend on the bike in total?") == "synthesis"
         assert intent_router(
             "how has my thinking about bouldering evolved?") == "narrative"
         assert intent_router(
             "what did I say about the saddle?") == "retrieval"
+        assert intent_router("have I ever lived abroad?") == "absence"
         # gaṇita gate is consulted BEFORE narrative (recall()'s order):
         # a count marker wins even when a change marker is present.
         assert intent_router(
             "how many times have I changed my mind about remote work?"
         ) == "synthesis"
+        # …and the absence gate's aggregation guard keeps threshold
+        # phrasings OFF the absence route ("have I ever spent more than
+        # 100…" is arithmetic territory). gaṇita's own detector does
+        # not claim thresholds today, so this lands in retrieval — the
+        # pin is that it must never land in absence.
+        assert intent_router(
+            "have I ever spent more than 100 in one go on food?"
+        ) in ("synthesis", "retrieval")
 
     def test_documented_current_confusions(self):
-        # These pins DESCRIBE the pre-composition/absence/analogy
-        # router — they are the baseline the roadmap gates must move.
-        # Update them (with a re-reported confusion matrix) when the
-        # corresponding gate ships.
+        # These pins DESCRIBE the pre-composition/analogy router — the
+        # baseline the remaining roadmap gates must move. Update them
+        # (with a re-reported confusion matrix) when the corresponding
+        # gate ships. (The absence line moved 2026-07-08 when the
+        # anupalabdhi gate shipped — see test_gate_order_hand_verified.)
         #
         # Composition-gold splits into narrative (evolution marker)…
         assert intent_router(
@@ -325,8 +339,6 @@ class TestIntentRouterAdapter:
         # …or retrieval (no marker at all).
         assert intent_router(
             "show me my coffee spending over time") == "retrieval"
-        # Absence-gold lands in retrieval wholesale.
-        assert intent_router("have I ever lived abroad?") == "retrieval"
         # Analogy-gold: the 'most similar' superlative trips the
         # gaṇita 'most' (max) marker.
         assert intent_router(

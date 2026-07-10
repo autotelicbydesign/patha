@@ -85,11 +85,18 @@ class Recall:
                    "trace my views on Y"), the songline-walk strategy
                    fills this with the temporally-ordered beats and a
                    deterministic through-line. None otherwise.
+        absence:   optional AbsenceResult — when the question asks about
+                   absence ("have I ever…?", "have we decided… yet?",
+                   "do I still…?", "am I a…?"), the anupalabdhi path
+                   fills this with a verdict grounded in exhaustive
+                   search: present-with-evidence, or absent-with-kind
+                   (four-fold abhāva taxonomy), the search receipt, and
+                   nearest present beliefs as contrast. None otherwise.
     """
 
     __slots__ = (
         "answer", "summary", "current", "history", "strategy", "tokens",
-        "ganita", "narrative",
+        "ganita", "narrative", "absence",
     )
 
     def __init__(
@@ -98,6 +105,7 @@ class Recall:
         include_history: bool,
         ganita_result=None,
         narrative_result=None,
+        absence_result=None,
     ) -> None:
         self.answer: str | None = response.answer or None
         self.summary: str = response.prompt
@@ -105,6 +113,7 @@ class Recall:
         self.tokens: int = response.tokens_in
         self.ganita = ganita_result  # GanitaResult | None
         self.narrative = narrative_result  # NarrativeResult | None
+        self.absence = absence_result  # AbsenceResult | None
         rr = response.retrieval_result
         self.current = [
             {
@@ -535,6 +544,18 @@ class Memory:
             return Recall(response, include_history=include_history,
                           ganita_result=ganita_result)
 
+        # ── Absence path (anupalabdhi) ────────────────────────────
+        # After gaṇita, before narrative: "have I ever…?", "have we
+        # decided… yet?", "do I still…?", "am I a…?" want a verdict
+        # grounded in *absence of belief after qualified search* — a
+        # primitive neither top-K nor arithmetic provides (surfacing
+        # similar beliefs is not certifying that none settles the
+        # question). Detection is conservative (aggregation frames
+        # decline), and any failure degrades to the retrieval path.
+        absence_recall = self._try_absence(question, include_history)
+        if absence_recall is not None:
+            return absence_recall
+
         # ── Narrative path (itihāsa) ──────────────────────────────
         # Between synthesis and retrieval: a narrative query ("how has my
         # thinking on X evolved?") wants a temporally-ordered thematic
@@ -578,6 +599,101 @@ class Memory:
             response, include_history=include_history,
             ganita_result=ganita_result,
         )
+
+    def _try_absence(self, question: str, include_history: bool):
+        """Attempt the anupalabdhi absence path. Returns a Recall or
+        None (→ caller falls through to narrative/retrieval).
+
+        Same defensive contract as _try_narrative: detection is
+        conservative and any internal failure yields None, never an
+        error. The similarity hook for contrast ranking is wired only
+        when Phase 1's embedder is already available — the verdict
+        itself never depends on it."""
+        from patha.belief.anupalabdhi import (
+            answer_absence,
+            detect_absence_question,
+        )
+
+        qi = detect_absence_question(question)
+        if qi is None:
+            return None
+        store = self._patha.belief_layer.store
+        try:
+            similarity_fn = self._absence_similarity_fn()
+            result = answer_absence(
+                qi, store=store, similarity_fn=similarity_fn,
+            )
+        except Exception:
+            return None
+
+        from patha.belief.layer import BeliefQueryResult
+        from patha.integrated import IntegratedResponse
+
+        cited = []
+        for bid in result.contrast_ids:
+            b = store.get(bid)
+            if b is not None:
+                cited.append(b)
+        evidence_texts = []
+        for bid in result.evidence_ids:
+            b = store.get(bid)
+            if b is not None and b not in cited:
+                cited.insert(0, b)
+            if b is not None:
+                evidence_texts.append(b.proposition)
+
+        if result.verdict == "present":
+            answer = "yes"
+            summary = (
+                f"Yes — settled by: "
+                f"{'; '.join(evidence_texts) or 'a current belief'}. "
+                f"({result.searched_n} current beliefs searched.)"
+            )
+        else:
+            answer = "no"
+            summary = result.render()
+        response = IntegratedResponse(
+            query=question,
+            strategy="absence",
+            prompt=summary,
+            answer=answer,
+            belief_ids=[b.id for b in cited],
+            source_proposition_ids=[b.source_proposition_id for b in cited],
+            tokens_in=0,  # zero LLM tokens — verdict by exhaustive scan
+            retrieval_result=BeliefQueryResult(
+                current=cited, history=[], tokens_in_summary=0,
+            ),
+        )
+        return Recall(
+            response, include_history=include_history,
+            absence_result=result,
+        )
+
+    def _absence_similarity_fn(self):
+        """Contrast-ranking hook: cosine over the Phase-1 embedder when
+        one is already loaded/loadable; None otherwise (the absence
+        verdict never depends on it)."""
+        retriever = self._phase1_retriever
+        if retriever is None:
+            return None
+
+        def fn(question: str, texts: list[str]) -> list[float]:
+            import numpy as np
+            embedder = retriever._embedder
+            if embedder is None:
+                from patha.models.embedder_st import (
+                    SentenceTransformerEmbedder,
+                )
+                embedder = retriever._embedder = SentenceTransformerEmbedder()
+            vecs = embedder.embed([question] + list(texts))
+            q, rest = np.asarray(vecs[0]), np.asarray(vecs[1:])
+            qn = q / (np.linalg.norm(q) or 1.0)
+            rn = rest / np.clip(
+                np.linalg.norm(rest, axis=1, keepdims=True), 1e-9, None,
+            )
+            return list(rn @ qn)
+
+        return fn
 
     def _try_narrative(self, question: str, at, include_history: bool):
         """Attempt the narrative songline-walk path. Returns a Recall or

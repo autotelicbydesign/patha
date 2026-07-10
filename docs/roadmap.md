@@ -217,7 +217,20 @@ trend-statement. Routing-theft guards: EvolutionEval routed stays 1.000,
 BeliefEval 347/347, plain-sum questions still route plain gaṇita.
 Deterministic run-to-run. Dogfood on a real store before claiming.
 
-## 4. Anupalabdhi — absence queries
+## 4. Anupalabdhi — absence queries — ✅ SHIPPED 2026-07-08
+
+**Status: live in `recall()`** (gate order: gaṇita → absence → narrative
+→ retrieval). AbsenceEval dev: **routed 1.000 · verdict 1.000 ·
+false_absence 0.000 · kind 1.000 · locus 1.000 · contrast 0.765**
+(stub floor was false_absence 1.000). RouterEval absence_plain 0.000 →
+**1.000** with zero theft from other routes (BeliefEval 347/347 guard
+green; full suite 995). Implementation notes vs the design below:
+no sidecar index in v1 (classify-inline during the exhaustive scan —
+identical semantics, documented in the module); evidence bars per
+scope: actuality for 'ever' (with presupposition triggers projecting
+through irrealis — "move abroad *again*" settles prior abroad-living),
+commitment verbs for 'yet', latest-assertion for 'still', first-person
+assignment for identity.
 
 **The question class**: "what have I *not* decided about the move?", "have
 I ever lived abroad?", "is there anything I haven't tried for the back
@@ -290,6 +303,12 @@ implementations.
   never as asserted). The provenance marking is the design's soul: inferred
   beliefs must carry `pramana: arthapatti` and lower confidence, and
   supersession from an asserted belief must always beat an inferred one.
+  **Verified 2026-07-08: this machinery already exists** — `Belief.pramana`
+  (auto-detected at ingest, overridable), `PRAMANA_STRENGTH` seeding
+  confidence, BADHITA sublation enforced in `store.py` resolution, JSONL
+  round-trip with backward-compatible load. Arthāpatti only needs to ingest
+  postulates with `pramana=Pramana.ARTHAPATTI` + a system-origin source_id
+  convention (e.g. `patha:arthapatti`); no schema change required.
 
 ## 6. Frontier Articulation Bridge run
 
