@@ -92,25 +92,33 @@ def route_from_strategy(strategy: str) -> str:
 # reports supported-gold accuracy separately so the two failure kinds
 # (wrong gate vs missing gate) never blur together.
 # History: ("retrieval", "synthesis", "narrative") until 2026-07-08;
-# "absence" added when the anupalabdhi gate shipped in recall().
-INTENT_ROUTER_COVERAGE = ("retrieval", "synthesis", "narrative", "absence")
+# "absence" added when the anupalabdhi gate shipped in recall();
+# "composition" added the same day when the time-series gate shipped.
+INTENT_ROUTER_COVERAGE = (
+    "retrieval", "synthesis", "narrative", "absence", "composition",
+)
 
 
 def intent_router(question: str) -> str:
     """Default router: recall()'s intent-gate order on the bare question.
 
-    Mirrors src/patha/__init__.py recall(): the synthesis gate
-    (detect_aggregation) is consulted first, then the absence gate
-    (detect_absence_question — anupalabdhi), then the narrative gate
-    (detect_narrative + a resolvable theme), else retrieval. The
-    store-dependent parts of the real gates (gaṇita only wins when
-    tuples match; the walk only wins with ≥2 beats) are intentionally
-    NOT modelled — this measures the routing decision on phrasing
-    alone. Pure regex; deterministic; no models."""
+    Mirrors src/patha/__init__.py recall(): the composition gate
+    (detect_composition — more specific than plain aggregation) is
+    consulted first, then the synthesis gate (detect_aggregation), then
+    the absence gate (detect_absence_question — anupalabdhi), then the
+    narrative gate (detect_narrative + a resolvable theme), else
+    retrieval. The store-dependent parts of the real gates (gaṇita only
+    wins when tuples match; composition needs ≥2 buckets; the walk only
+    wins with ≥2 beats) are intentionally NOT modelled — this measures
+    the routing decision on phrasing alone. Pure regex; deterministic;
+    no models."""
     from patha.belief.anupalabdhi import detect_absence_question
+    from patha.belief.composition import detect_composition
     from patha.belief.ganita import detect_aggregation
     from patha.belief.itihasa import detect_narrative, extract_theme
 
+    if detect_composition(question) is not None:
+        return "composition"
     if detect_aggregation(question) is not None:
         return "synthesis"
     if detect_absence_question(question) is not None:

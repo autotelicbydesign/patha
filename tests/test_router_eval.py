@@ -327,19 +327,29 @@ class TestIntentRouterAdapter:
         ) in ("synthesis", "retrieval")
 
     def test_documented_current_confusions(self):
-        # These pins DESCRIBE the pre-composition/analogy router — the
-        # baseline the remaining roadmap gates must move. Update them
-        # (with a re-reported confusion matrix) when the corresponding
-        # gate ships. (The absence line moved 2026-07-08 when the
-        # anupalabdhi gate shipped — see test_gate_order_hand_verified.)
+        # These pins DESCRIBE the pre-analogy router — the baseline the
+        # remaining roadmap gate must move. Update them (with a
+        # re-reported confusion matrix) when the analogy gate ships.
+        # (The absence and composition lines moved 2026-07-08 when
+        # their gates shipped — see test_gate_order_hand_verified.)
         #
-        # Composition-gold splits into narrative (evolution marker)…
-        assert intent_router(
-            "how has my spending on the bike evolved?") == "narrative"
-        # …or retrieval (no marker at all).
-        assert intent_router(
-            "show me my coffee spending over time") == "retrieval"
         # Analogy-gold: the 'most similar' superlative trips the
         # gaṇita 'most' (max) marker.
         assert intent_router(
             "what past project was most similar to this one?") == "synthesis"
+
+    def test_composition_gate_hand_verified(self):
+        # shipped 2026-07-08 — the confusions the gate moved:
+        assert intent_router(
+            "how has my spending on the bike evolved?") == "composition"
+        assert intent_router(
+            "show me my coffee spending over time") == "composition"
+        # …and the theft guards that keep neighbours safe:
+        assert intent_router(
+            "how has my thinking about budgeting evolved?") == "narrative"
+        # "changed my mind" is a revision idiom, not a quantity trend —
+        # it stays with its acceptable secondary (synthesis via 'how
+        # many times'), never composition
+        assert intent_router(
+            "how many times have I changed my mind about remote work?"
+        ) == "synthesis"

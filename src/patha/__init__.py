@@ -96,7 +96,7 @@ class Recall:
 
     __slots__ = (
         "answer", "summary", "current", "history", "strategy", "tokens",
-        "ganita", "narrative", "absence",
+        "ganita", "narrative", "absence", "composition",
     )
 
     def __init__(
@@ -106,6 +106,7 @@ class Recall:
         ganita_result=None,
         narrative_result=None,
         absence_result=None,
+        composition_result=None,
     ) -> None:
         self.answer: str | None = response.answer or None
         self.summary: str = response.prompt
@@ -114,6 +115,7 @@ class Recall:
         self.ganita = ganita_result  # GanitaResult | None
         self.narrative = narrative_result  # NarrativeResult | None
         self.absence = absence_result  # AbsenceResult | None
+        self.composition = composition_result  # CompositionResult | None
         rr = response.retrieval_result
         self.current = [
             {
@@ -446,6 +448,20 @@ class Memory:
         """
         at = at_time or datetime.now()
 
+        # ── Composition gate (time-series-of-sums) ────────────────
+        # BEFORE the plain gaṇita gate: "how has my spending on X
+        # evolved?" carries both an aggregation signal and a temporal
+        # shape — the more specific intent wins. Self-guarding: with
+        # fewer than 2 non-empty period buckets it returns None and the
+        # question falls through to plain gaṇita unchanged (a single
+        # month of data IS a scalar question).
+        if self._ganita_index is not None:
+            composition_recall = self._try_composition(
+                question, include_history,
+            )
+            if composition_recall is not None:
+                return composition_recall
+
         # ── Synthesis-intent gate ─────────────────────────────────
         # Detect first; if it's synthesis AND gaṇita can answer, skip
         # Phase 1 entirely and answer over the belief store directly.
@@ -599,6 +615,114 @@ class Memory:
             response, include_history=include_history,
             ganita_result=ganita_result,
         )
+
+    def _try_composition(self, question: str, include_history: bool):
+        """Attempt the composition (time-series-of-sums) path. Returns
+        a Recall or None (→ caller falls through to plain gaṇita).
+
+        Same defensive contract as the other gates: conservative
+        detection, any internal failure yields None."""
+        from patha.belief.composition import (
+            compose_scalar,
+            compose_series,
+            detect_composition,
+        )
+
+        intent = detect_composition(question)
+        if intent is None:
+            return None
+        store = self._patha.belief_layer.store
+        try:
+            result = compose_series(
+                question, intent, self._ganita_index, store=store,
+            )
+        except Exception:
+            return None
+        if result is None:
+            # Degradation contract: <2 buckets → answer as plain gaṇita
+            # over the same candidates (the plain gate's detector never
+            # fires on these phrasings, so without this the arithmetic
+            # answer would be lost to narrative/retrieval).
+            try:
+                scalar = compose_scalar(question, intent, self._ganita_index)
+            except Exception:
+                return None
+            if scalar is None:
+                return None
+            return self._build_ganita_recall(
+                question, scalar, include_history,
+            )
+
+        from patha.belief.layer import BeliefQueryResult
+        from patha.integrated import IntegratedResponse
+
+        store = self._patha.belief_layer.store
+        cited = []
+        seen: set[str] = set()
+        for b_ in result.buckets:
+            for bid in b_.contributing_belief_ids:
+                if bid in seen:
+                    continue
+                seen.add(bid)
+                bel = store.get(bid)
+                if bel is not None:
+                    cited.append(bel)
+        summary = result.render()
+        answer = "; ".join(
+            f"{b_.period}: {b_.value:g} {b_.unit}" for b_ in result.buckets
+        )
+        response = IntegratedResponse(
+            query=question,
+            strategy="composition",
+            prompt=summary,
+            answer=answer,
+            belief_ids=sorted(seen),
+            source_proposition_ids=[b.source_proposition_id for b in cited],
+            tokens_in=0,  # zero LLM tokens — both parents' contract
+            retrieval_result=BeliefQueryResult(
+                current=cited, history=[], tokens_in_summary=0,
+            ),
+        )
+        return Recall(
+            response, include_history=include_history,
+            composition_result=result,
+        )
+
+    def _build_ganita_recall(self, question, ganita_result, include_history):
+        """Wrap a GanitaResult into a plain-gaṇita Recall (used by the
+        composition degradation path; leaner than the main gaṇita
+        branch — no Phase-1 context enrichment)."""
+        from patha.belief.layer import BeliefQueryResult
+        from patha.integrated import IntegratedResponse
+
+        store = self._patha.belief_layer.store
+        contributing = []
+        for bid in ganita_result.contributing_belief_ids:
+            b = store.get(bid)
+            if b is not None:
+                contributing.append(b)
+        op = getattr(ganita_result.operator, "value", ganita_result.operator)
+        summary = (
+            f"Computed via gaṇita arithmetic (no LLM): "
+            f"{op} = {ganita_result.value} {ganita_result.unit}.\n"
+            f"{ganita_result.explanation}"
+        )
+        response = IntegratedResponse(
+            query=question,
+            strategy="ganita",
+            prompt=summary,
+            answer=f"{ganita_result.value} {ganita_result.unit}".strip(),
+            belief_ids=list(ganita_result.contributing_belief_ids),
+            source_proposition_ids=[
+                b.source_proposition_id for b in contributing
+            ],
+            tokens_in=0,
+            retrieval_result=BeliefQueryResult(
+                current=contributing, history=[], tokens_in_summary=0,
+            ),
+        )
+        return Recall(response, include_history=include_history,
+                      ganita_result=ganita_result)
 
     def _try_absence(self, question: str, include_history: bool):
         """Attempt the anupalabdhi absence path. Returns a Recall or

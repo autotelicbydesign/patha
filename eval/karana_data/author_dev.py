@@ -149,6 +149,14 @@ CASES = [
      "finished my ninth book of the year last night",
      [("book", ["book", "books", "reading"], 9.0, "item")],
      []),
+    # Found in the wild 2026-07-08 (CompositionEval cmp-004): the regex
+    # extractor parsed "$15.99 again" as a bare count of 99 with entity
+    # "again" — a decimal-boundary misparse that fabricates a tuple.
+    ("ka-dec-01", "decimal_boundary",
+     "the streaming subscription renewed at $15.99 again",
+     [("subscription", ["subscription", "streaming"], 15.99, "USD")],
+     [(99.0, "decimal tail '99' misread as a count"),
+      (15.0, "integer part misread as the amount")]),
 ]
 
 

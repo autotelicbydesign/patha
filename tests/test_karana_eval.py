@@ -151,7 +151,7 @@ def _load() -> list[dict]:
 class TestDataIntegrity:
     def test_shape_families_and_unique_ids(self):
         cases = _load()
-        assert len(cases) == 25
+        assert len(cases) == 26
         ids = [c["id"] for c in cases]
         assert len(set(ids)) == len(ids)
         fams = {c["family"] for c in cases}

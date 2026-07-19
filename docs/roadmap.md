@@ -175,7 +175,26 @@ published as-run. If the veto can't clear that without recall collapse,
 publish the trade-off curve and stop at the best point — that result is
 also shippable.
 
-## 3. Composition — time-series of sums
+## 3. Composition — time-series of sums — ✅ SHIPPED 2026-07-08
+
+**Status: live in `recall()`** (gate order: composition → gaṇita →
+absence → narrative → retrieval; "more specific wins").
+CompositionEval dev: **routed 0.810 — with every engaged content
+scorer perfect: bucket_periods / bucket_values / receipts / trend all
+1.000, degradation scalars 1.000**. RouterEval composition_plain
+0.000 → **1.000**, zero theft (EvolutionEval routed 1.000 guard green;
+suite 1004). The four unrouted rows are **extraction-bounded, not
+composition bugs** — measured and fed back into KaranaEval: the
+decimal-boundary misparse ("$15.99 again" → a fabricated (again, 99,
+item) tuple; now gold case ka-dec-01) and category aliasing
+(travel↔flights, charity↔food-bank, art-supplies↔brushes — the
+part_alias family). They flip when karaṇa v2 (item 1) lands: the
+dependency arrow this roadmap drew, now with row-level receipts.
+Implementation notes: count-series counts ASSERTIONS from the store
+(events carry no numbers); degradation answers the scalar inside the
+composition path (the plain gate's detector never fires on "how has X
+evolved" phrasings); "changed my mind" idiom-veto keeps revision
+questions off the route.
 
 **The question class**: "how has my spending on the bike evolved?" —
 narrative *shape* over synthesis *content*. Neither existing path alone:
