@@ -114,6 +114,9 @@ def _build_karana_extractor():
     if KARANA_MODE == "ollama":
         from patha.belief.karana import OllamaKaranaExtractor
         return OllamaKaranaExtractor()
+    if KARANA_MODE == "depparse":
+        from patha.belief.karana import DepParseKaranaExtractor
+        return DepParseKaranaExtractor()
     from patha.belief.karana import RegexKaranaExtractor
     return RegexKaranaExtractor()
 

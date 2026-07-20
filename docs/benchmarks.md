@@ -62,10 +62,22 @@ The synthesis-bounded gap motivates the v0.10 architectural distinction: **Patha
 - **Retrieval** (perception, *pratyakṣa*): "what did I say about the saddle?" → Phase 1 → Phase 2 → summary.
 - **Synthesis** (inference, *anumāna*): "how much have I spent on bikes total?" → gaṇita queries the belief store directly. Pure deterministic arithmetic over preserved tuples. No LLM call at recall.
 
-The architectural correctness is independent of extractor quality. Quality scales with the karaṇa extractor:
+The architectural correctness is independent of extractor quality. Quality scales with the karaṇa extractor — and as of 2026-07-08 that scaling is **measured, not assumed**:
 
-- `RegexKaranaExtractor` (default) — works on clean user assertions; misses on dense conversational text
-- `OllamaKaranaExtractor` / `HybridKaranaExtractor` with **≥14B local model or hosted LLM** — needed for the multi-session synthesis gap
+### KaranaEval — the first extractor head-to-head (2026-07-08)
+
+Tuple-level precision/recall on 26 hand-labeled dense-conversation cases across 15 failure families (`eval/karana_eval.py`; gold rules in `eval/karana_data/README.md`). `forbidden_hit` = fraction of cases where the extractor fabricated a value from a range, hypothetical, refund, colloquial quantity, or numeric distractor — lower is better.
+
+| config | precision | recall | F1 | forbidden_hit |
+|---|---|---|---|---|
+| regex (v0.11 default) | 0.560 | 0.719 | 0.768 | 0.636 |
+| ollama qwen2.5-14B | 0.750 | 0.912 | 0.892 | 0.333 |
+| hybrid-14B | 0.769 | 0.559 | 0.967 | 0.250 |
+| **depparse (new, zero-LLM)** | **1.000** | **1.000** | **1.000** | **0.000** |
+
+`DepParseKaranaExtractor` (karaṇa v2): dependency-parse attachment (amounts claim their nearest prep objects; copular subjects; charge-verbs prefer their subject) with **clause-level vetoes** — the regex extractor's forbidden_hit 0.636 was a character-window problem, and clauses are the right window. Two honest caveats: the depparse line was iterated against this dev set (read it as "no known misses", not "generalises" — the BeliefEval lesson); the LLM configs were NOT tuned, so their gap is honest. Even a 14B model fabricates facts from hypotheticals a third of the time; the parser vetoes them structurally.
+
+**The external gate, as-run** (`ganita_synthesis_smoke`, 8 synthesis-bounded LongMemEval questions the extractor has never seen): regex 0/8 → depparse **1/8 hits + 2 near**. The first run exposed assistant-speech contamination (advisory amounts — "free shipping over $75 is a great strategy" — summed into user totals); fixed by a speaker gate (karaṇa extracts from USER turns only; tuple noise fell 459 → 82 per store). NOTE the deliberate asymmetry with the Claim-D ingest fix below: belief INGESTION keeps both speakers (retrieval needs assistant answers — the 0.841 bug), while tuple EXTRACTION is user-only (assistant illustrations are nobody's spending). Remaining failure classes, named from the run artifacts: user-pasted third-party content ("rewrite this article…" bringing foreign numbers), cross-turn count semantics (cumulative "23 pieces" vs summed snapshots), and under-recall on dense turns. The ≥6/8 definition-of-done stays OPEN — depparse ships opt-in (`PATHA_KARANA=depparse`, `--karana depparse`), regex stays default until the gate clears.
 
 See `docs/innovations.md` for the full architectural explanation and `docs/phase_3_plan.md` for the end-to-end answer-evaluation plan.
 

@@ -54,7 +54,23 @@ under the hand-wave until a direct question exposed it.
 
 ---
 
-## 1. Karaṇa extraction v2
+## 1. Karaṇa extraction v2 — ⚙️ EXTRACTOR SHIPPED 2026-07-08; smoke gate OPEN
+
+**Status:** `DepParseKaranaExtractor` built + benchmarked. KaranaEval
+head-to-head (the table this section demanded): regex P 0.560 / R
+0.719 / forbidden_hit 0.636 → **depparse 1.000 / 1.000 / 0.000**,
+beating ollama-14B (0.750/0.912/0.333) and hybrid-14B with **zero
+LLMs**. Speaker gate added (karaṇa extracts from USER turns only —
+assistant advisory amounts are nobody's spending; tuple noise 459→82
+per store; note the deliberate asymmetry with belief ingestion, which
+keeps both speakers for retrieval). Ships opt-in (`PATHA_KARANA=
+depparse`); regex stays default until the smoke gate clears.
+**Gate as-run: 0/8 → 1/8 + 2 near. OPEN.** Remaining classes, named
+from run artifacts: user-pasted third-party content, cross-turn count
+semantics (cumulative vs snapshot), dense-turn under-recall. Each
+needs turn-level work against the LME-8 — the continuation point for
+the next session. 17 unit tests incl. the spaCy ephemeral-Token
+infinite-loop regression (compare `.i`, never identity).
 
 **Motivation (measured).** LongMemEval-S multi-session is the sole weak
 stratum (0.857) and `eval/multisession_diagnosis.py` proves it is

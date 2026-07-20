@@ -59,7 +59,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--data", default="data/longmemeval_s_cleaned.json")
     ap.add_argument("--qids", nargs="*", default=SYNTHESIS_QUESTIONS)
     ap.add_argument(
-        "--karana", choices=["regex", "ollama", "hybrid"], default="regex",
+        "--karana", choices=["regex", "ollama", "hybrid", "depparse"], default="regex",
         help="Karaṇa extractor: regex (zero-deps baseline), ollama "
              "(LLM extracts entities + values), hybrid (regex extracts "
              "every \\$X, LLM only labels — best recall on dense text).",
@@ -88,6 +88,9 @@ def main(argv: list[str] | None = None) -> None:
             model=args.ollama_model, host=args.ollama_host,
             timeout_s=90.0,
         )
+    elif args.karana == "depparse":
+        from patha.belief.karana import DepParseKaranaExtractor
+        karana = DepParseKaranaExtractor()
     else:
         karana = None  # patha.Memory's default RegexKaranaExtractor
 

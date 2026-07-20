@@ -652,3 +652,379 @@ __all__ = [
     "OllamaKaranaExtractor",
     "HybridKaranaExtractor",
 ]
+
+
+# ─── Dependency-parse extractor (karaṇa v2 — the no-LLM bet) ─────────
+
+
+_WORD_NUMBERS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+    "twelve": 12,
+    "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
+    "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
+}
+
+_CURRENCY_SYMBOLS = {"$": "USD", "€": "EUR", "£": "GBP"}
+_CURRENCY_WORDS = {
+    "dollar": "USD", "dollars": "USD", "usd": "USD",
+    "euro": "EUR", "euros": "EUR", "eur": "EUR",
+    "pound": "GBP", "pounds": "GBP", "gbp": "GBP",
+}
+
+_MONEY_IN_LEMMAS = {
+    "refund", "reimburse", "credit", "sell", "knock", "discount",
+    "waive", "cashback",
+}
+_IRREALIS_LEMMAS = {
+    "if", "imagine", "wonder", "whether", "hope", "might", "would",
+    "consider", "maybe", "probably",
+}
+_COLLOQUIAL_QUANTS = {"couple", "few", "several", "bunch"}
+_ROUND_WORDS = {"hundred", "thousand", "million", "grand"}
+
+
+class DepParseKaranaExtractor:
+    """Karaṇa v2: dependency-parse extraction — no LLM, no network.
+
+    Wakes the spaCy machinery that sat as dead code in
+    `query/entities.py`: amounts attach to entities via dependency
+    paths (pobj of on/for preps, copular nsubj, nummod heads) instead
+    of character windows, and the veto families (ranges, hypotheticals,
+    money-in, colloquial quantities, numeric distractors) run at the
+    CLAUSE level — the regex extractor's measured failure mode
+    (KaranaEval: forbidden_hit 0.636, ranges and temperatures extracted
+    as money) is a window problem, and clauses are the right window.
+
+    Instrument: eval/karana_eval.py. Falls back to the regex extractor
+    only when the spaCy model is missing, and says so loudly via
+    `parser_available` (never a silent identity swap — the lesson from
+    the eval runner's ollama-probe rule).
+    """
+
+    def __init__(self) -> None:
+        self._nlp = None
+        self.parser_available: bool | None = None
+
+    def _load(self):
+        if self._nlp is None and self.parser_available is None:
+            try:
+                import spacy
+                self._nlp = spacy.load("en_core_web_sm")
+                self.parser_available = True
+            except Exception:
+                self.parser_available = False
+        return self._nlp
+
+    # ── amount classification ────────────────────────────────────
+
+    @staticmethod
+    def _num_value(tok) -> float | None:
+        t = tok.text.replace(",", "")
+        try:
+            return float(t)
+        except ValueError:
+            pass
+        return float(_WORD_NUMBERS[t.lower()]) if t.lower() in _WORD_NUMBERS \
+            else None
+
+    def _classify_amount(self, tok, sent):
+        """Return (value, unit, kind) or None. kind ∈ money / item /
+        km / years / hours."""
+        text = tok.text
+        # "8k" distance shorthand in a movement context
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)k", text.lower())
+        if m is not None:
+            if any(t.lemma_ in ("run", "ride", "walk", "cycle", "row")
+                   for t in sent):
+                return float(m.group(1)), "km", "km"
+            return None
+        if not tok.like_num:
+            return None
+        value = self._num_value(tok)
+        if value is None:
+            return None
+        # explicit distance/duration units
+        nxt = tok.nbor(1) if tok.i + 1 < len(tok.doc) else None
+        if nxt is not None and nxt.lemma_ in ("km", "kilometre", "kilometer"):
+            return value, "km", "km"
+        if nxt is not None and nxt.lemma_ in ("hour", "hr"):
+            return value, "hours", "hours"
+        # currency: symbol/word neighbours
+        prv = tok.nbor(-1) if tok.i > 0 else None
+        if prv is not None and prv.text in _CURRENCY_SYMBOLS:
+            return value, _CURRENCY_SYMBOLS[prv.text], "money"
+        if nxt is not None and nxt.lower_ in _CURRENCY_WORDS:
+            return value, _CURRENCY_WORDS[nxt.lower_], "money"
+        # spaCy sometimes merges "$15.99" into one token
+        m = re.fullmatch(r"([$€£])(\d+(?:,\d{3})*(?:\.\d+)?)", text)
+        if m is not None:
+            return (float(m.group(2).replace(",", "")),
+                    _CURRENCY_SYMBOLS[m.group(1)], "money")
+        # ages: copular construction with a person-ish subject
+        head = tok.head
+        if head.lemma_ == "be" or (tok.dep_ in ("attr", "acomp", "conj")
+                                   and head.head.lemma_ == "be"):
+            subj = [t for t in (head.lefts if head.lemma_ == "be"
+                    else head.head.lefts) if t.dep_ == "nsubj"]
+            if subj and subj[0].ent_type_ in ("", "PERSON") \
+                    and subj[0].lemma_ not in ("it", "that", "this"):
+                return value, "years", "years"
+        # counts: nummod on a noun ("three succulents", "two kittens")
+        if tok.dep_ == "nummod" and head.pos_ in ("NOUN", "PROPN"):
+            return value, "item", "item"
+        # ordinal counts: "my ninth book"
+        if tok.lower_ in _WORD_NUMBERS and tok.lower_.endswith("th") \
+                and head.pos_ == "NOUN":
+            return value, "item", "item"
+        return None
+
+    # ── clause-level vetoes ──────────────────────────────────────
+
+    def _vetoed(self, tok, sent) -> bool:
+        # irrealis / hypothetical anywhere in the sentence
+        if any(t.lemma_.lower() in _IRREALIS_LEMMAS for t in sent):
+            return True
+        if "'d" in sent.text or "’d" in sent.text:
+            return True
+        # money-in: a money-in verb governs the amount's clause
+        anc = list(tok.ancestors)
+        if any(a.lemma_ in _MONEY_IN_LEMMAS for a in anc):
+            return True
+        # range: between/from ... to/and joining two amounts
+        low = sent.text.lower()
+        if re.search(r"\b(?:between|somewhere|from)\b.*\d.*\b(?:and|to)\b.*\d",
+                     low) or re.search(r"\$?\d[\d,.]*\s*(?:to|-|–)\s*\$?\d", low):
+            return True
+        # colloquial quantities: "a couple hundred", "a few thousand"
+        if any(t.lemma_ in _COLLOQUIAL_QUANTS for t in sent) and (
+            tok.lower_ in _ROUND_WORDS
+            or any(t.lower_ in _ROUND_WORDS for t in sent)
+        ):
+            return True
+        # numeric distractors: clock times, versions, temperatures,
+        # process durations with a non-personal subject
+        nxt = tok.nbor(1) if tok.i + 1 < len(tok.doc) else None
+        if nxt is not None and nxt.lower_ in ("pm", "am"):
+            return True
+        if re.fullmatch(r"\d+(?::\d+)?(?:pm|am)", tok.lower_):
+            return True
+        if tok.head.lemma_ == "version" or (
+            nxt is not None and nxt.lemma_ == "degree"
+        ) or (tok.i > 0 and tok.nbor(-1).lemma_ == "version"):
+            return True
+        if nxt is not None and nxt.lemma_ in ("minute", "second"):
+            # clause-scoped, not sentence-scoped: "the build takes 45
+            # minutes … and WE'RE on version 2.7" must not let the
+            # unrelated we-clause launder the build's duration
+            v = tok
+            while v.head.i != v.i and v.pos_ not in ("VERB", "AUX"):
+                v = v.head
+            subjs = [c for c in v.children if c.dep_ == "nsubj"]
+            if not any(s.lower_ in ("i", "we") for s in subjs):
+                return True
+        return False
+
+    # ── entity attachment ────────────────────────────────────────
+
+    @staticmethod
+    def _phrase(tok) -> str:
+        """Noun + its compound/amod lefts: 'saddle bag', 'emergency
+        fund' (articles and quantifier adjectives dropped)."""
+        parts = [
+            t.text for t in tok.lefts
+            if t.dep_ in ("compound", "amod") and t.pos_ != "DET"
+        ] + [tok.text]
+        return " ".join(parts)
+
+    def _entity_for(self, tok, sent):
+        """Walk the dependency graph from the amount to its entity.
+        Preference order: pobj of on/for under the governing verb (or
+        the amount itself), copular nsubj, dobj sibling, nummod head."""
+        head = tok.head
+        # "charged $150 TOTAL": 'total' is an amount qualifier, never
+        # the entity — fall through to the verb logic instead
+        if tok.dep_ == "nummod" and head.pos_ in ("NOUN", "PROPN") \
+                and not head.like_num and head.lemma_ not in ("total",):
+            return head, self._phrase(head)
+        # appositive amounts on mistagged brand nouns: "the airbnb
+        # $380" — spaCy tags unknown lowercase brands ADJ; the appos
+        # attachment is still the entity signal
+        if tok.dep_ == "appos" and head.is_alpha and not head.like_num \
+                and head.pos_ in ("NOUN", "PROPN", "ADJ", "X"):
+            return head, self._phrase(head)
+        # governing verb (climb through the noun the amount modifies)
+        # NB: spaCy Tokens are ephemeral views — identity (`is`) fails
+        # even at the root; compare indices.
+        v = tok
+        while v.head.i != v.i and v.pos_ not in ("VERB", "AUX"):
+            v = v.head
+        # prep objects: spent $40 ON THE PUMP / paid 220 euros FOR THE
+        # HOTEL. A verb can carry several (…$40 on the pump and $85 on
+        # the saddle bag): each amount claims the NEAREST object after
+        # it, falling back to nearest overall.
+        candidates = []
+        for holder in (v, tok, head):
+            for child in holder.children:
+                if child.dep_ == "prep" and child.lemma_ in ("on", "for"):
+                    for c in child.children:
+                        # "replaced the chain for $28": the amount can
+                        # BE the for-object — never its own entity
+                        if c.dep_ == "pobj" and c.i != tok.i \
+                                and not c.like_num:
+                            candidates.append(c)
+        if candidates:
+            after = [c for c in candidates if c.i > tok.i]
+            pool = after or candidates
+            best = min(pool, key=lambda c: abs(c.i - tok.i))
+            return best, self._phrase(best)
+        # copular: THE VET VISIT was $120
+        if v.lemma_ == "be":
+            subjs = [c for c in v.children if c.dep_ in ("nsubj",
+                                                         "nsubjpass")]
+            if subjs and subjs[0].pos_ in ("NOUN", "PROPN"):
+                return subjs[0], self._phrase(subjs[0])
+        # verb-governed: renewed THE SUBSCRIPTION at $15.99 / THE CAT
+        # SITTER charged $150 (charge-verbs: the subject IS the entity)
+        if v.pos_ in ("VERB", "AUX"):
+            prefer_subj = v.lemma_ in ("charge", "cost", "bill", "quote")
+            deps = ("nsubj", "dobj") if prefer_subj else ("dobj", "nsubj")
+            for dep in deps:
+                objs = [c for c in v.children if c.dep_ == dep
+                        and c.pos_ in ("NOUN", "PROPN")
+                        and c.i != tok.i and not c.like_num]
+                if objs:
+                    return objs[0], self._phrase(objs[0])
+        # verbless list fragments ("gym renewal $89, … running shoes
+        # $130", "the airbnb $380"): the nearest noun to the LEFT owns
+        # the amount
+        for j in range(tok.i - 1, max(sent.start, tok.i - 6) - 1, -1):
+            t = tok.doc[j]
+            if t.pos_ in ("NOUN", "PROPN") and not t.like_num \
+                    and t.lemma_ not in ("total",):
+                return t, self._phrase(t)
+        # noun the amount modifies (appositive)
+        if head.pos_ in ("NOUN", "PROPN"):
+            return head, self._phrase(head)
+        return None, None
+
+    @staticmethod
+    def _aliases(ent_tok, phrase, sent) -> tuple[str, ...]:
+        out: list[str] = []
+        for cand in [phrase, *(
+            t.text for t in sent
+            if t.pos_ in ("NOUN", "PROPN") and t is not ent_tok
+        )]:
+            c = _canonicalize_entity(cand)
+            if c and c not in out:
+                out.append(c)
+        # part→whole from the shared alias table (chain → bike …)
+        from patha.belief.ganita import ENTITY_ALIASES
+        for c in list(out):
+            whole = ENTITY_ALIASES.get(c)
+            if whole and whole not in out:
+                out.append(whole)
+        return tuple(out)
+
+    # ── main entry ───────────────────────────────────────────────
+
+    _ROLE_LINE = re.compile(
+        r"^(user|human|assistant|system|ai)\s*:\s*",
+        re.IGNORECASE | re.MULTILINE,
+    )
+
+    def _user_text(self, text: str) -> str:
+        """Karaṇa preserves the USER's numerical facts. In role-tagged
+        session transcripts ("user: …" / "assistant: …"), assistant
+        turns are full of illustrative amounts ("free shipping over
+        $75 is a great strategy", "Example: Spend $50, get 10% off")
+        that are nobody's spending — the ganita smoke measured them
+        summed into user totals (0/8 with 3 hard fails traced to
+        exactly this class). Text with no role markers (the ordinary
+        Memory.remember path) passes through untouched."""
+        matches = list(self._ROLE_LINE.finditer(text))
+        if not matches:
+            return text
+        parts: list[str] = []
+        for i, m in enumerate(matches):
+            if m.group(1).lower() not in ("user", "human"):
+                continue
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+            parts.append(text[m.end():end])
+        return "\n".join(parts)
+
+    def extract(
+        self, text: str, *, belief_id: str, time: str | None = None,
+    ) -> list[GanitaTuple]:
+        nlp = self._load()
+        if nlp is None:
+            return regex_extract_tuples(text, belief_id=belief_id, time=time)
+        from patha.belief.ganita import _detect_attribute
+
+        doc = nlp(self._user_text(text))
+        tuples: list[GanitaTuple] = []
+        age_nouns: set[str] = set()
+        # first pass: ages (so a count of the same noun can defer)
+        for sent in doc.sents:
+            for tok in sent:
+                cls = self._classify_amount(tok, sent)
+                if cls and cls[2] == "years" and not self._vetoed(tok, sent):
+                    subj = [t for t in sent if t.dep_ == "nsubj"]
+                    if subj:
+                        age_nouns.add(_canonicalize_entity(subj[0].text))
+        for sent in doc.sents:
+            for tok in sent:
+                cls = self._classify_amount(tok, sent)
+                if cls is None:
+                    continue
+                value, unit, kind = cls
+                if self._vetoed(tok, sent):
+                    continue
+                ent_tok, phrase = self._entity_for(tok, sent)
+                if kind == "years":
+                    subj = [t for t in sent if t.dep_ == "nsubj"]
+                    if subj:
+                        ent_tok, phrase = subj[0], self._phrase(subj[0])
+                elif kind in ("km", "hours"):
+                    # "ran 8k": the activity is the governing verb, not
+                    # the measure token
+                    v = tok
+                    while v.head.i != v.i and v.pos_ not in ("VERB", "AUX"):
+                        v = v.head
+                    if v.pos_ == "VERB":
+                        ent_tok, phrase = v, v.lemma_
+                if ent_tok is None or not phrase:
+                    continue
+                entity = _canonicalize_entity(phrase)
+                # a count of a noun whose AGES were extracted is context,
+                # not a separate aggregable fact ("my three nephews are
+                # 4, 7 and 12" — the ages are the facts)
+                if kind == "item" and entity in age_nouns:
+                    continue
+                attr_default = {
+                    "money": "expense", "item": "count", "km": "distance",
+                    "years": "age", "hours": "duration",
+                }[kind]
+                tuples.append(GanitaTuple(
+                    entity=entity,
+                    attribute=_detect_attribute(sent.text,
+                                                default=attr_default),
+                    value=float(value),
+                    unit=unit,
+                    time=time,
+                    belief_id=belief_id,
+                    raw_text=sent.text.strip(),
+                    entity_aliases=self._aliases(ent_tok, phrase, sent),
+                ))
+        # "one physio session $70": the money is the fact; a count of
+        # the same noun in the same sentence is context, not a second
+        # aggregable fact
+        money_keys = {
+            (t.entity, t.raw_text) for t in tuples if t.unit in
+            ("USD", "EUR", "GBP")
+        }
+        tuples = [
+            t for t in tuples
+            if not (t.unit == "item" and (t.entity, t.raw_text) in money_keys)
+        ]
+        return tuples
