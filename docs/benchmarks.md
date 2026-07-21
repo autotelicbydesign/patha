@@ -328,6 +328,26 @@ Three honest observations:
 
 **Protocol note.** Batch 2 is now spent as an unseen instrument (folded into dev for future work). Batch 3, when needed, gets authored fresh after the next fix wave ships.
 
+### full-stack-v10 — the precision program (2026-07-08; v7/v8/v9 frozen)
+
+`RefinementVetoDetector`, outermost wrapper, **veto-only** (can downgrade CONTRADICTS → NEUTRAL, never create an edge). Built from the 113 false claims harvested from rubric-v2 artifacts: fulfilled-intention ("thinking about making things with my hands" is *completed* by a craft, not contradicted), initiation→progress ("started running twice a week" → "signed up for a 10k"), and new-regime-facet classes ("sleep is now nine-to-four" is a facet of the current regime, not a superseded state) — each guarded by reversal-evidence KEEP overrides that run first (cessation / resumption / settlement / negation / explicit correction in the new belief is never vetoed; that is why "naps are now part of my day" still yields to "dropped the naps").
+
+**The full dev curve, including the iteration the guards killed:**
+
+| config | sup recall | sup precision | BeliefEval 300 | FP eval |
+|---|---|---|---|---|
+| v9 (shipped) | 0.885 † | 0.475 | 347/347 | 19/20 |
+| v10 + blanket locus veto | 0.750 | 0.693 | **329/347 ✗** | 19/20 |
+| **v10 final (marker vetoes only)** | **0.865** | **0.601** | **347/347** | **19/20** |
+
+† v9's recall included **wrong-reason credit**: the veto's decomposition exposed expected-old beats whose tag came from an edge to the WRONG newer belief (the gold pair was never detected). Part of v10's small recall cost is losing exactly that accidental credit.
+
+**Two findings the battery earned:**
+1. **A blanket similarity ("no shared locus") veto is impossible at this layer.** The measured separation on narrative-corpus texts (true ≥ 0.282, distractors ≤ 0.187) looked clean — and then BeliefEval showed atomic supersessions ("I live in Sydney" → "I moved to Sofia") scoring BELOW the distractor band. Embedding similarity cannot distinguish same-locus-different-surface from unrelated at atomic length. The veto was deleted; the marker vetoes alone suppress the harvested distractor claims on dev. A real locus representation (entity/frame level, not embedding) is batch-3-era work.
+2. **The 0.75 precision target was not reached — stopping anyway, per the discipline clause.** The surviving false-claim class is named: interim emotional/avoidance states in `perspective_shift` arcs ("the shame is loud", "I haven't opened the portfolio file since") tagged by later reframes. Every marker writable for it today is transparent dev-overfit; it needs discourse-level modelling. `progressive_revelation` false-claim questions fell 9 → 2 (residue: problem-state origins, same call).
+
+Guards at freeze: BeliefEval **347/347**; FP rate identical to v7/v8/v9 (the lone fc-07, zero new); EvolutionEval temporal core untouched (routed/ordering/origin 1.000). Held-out verdict awaits **batch 3**, authored fresh now that v10 is frozen.
+
 Reproduce:
 ```bash
 uv run python -m eval.evolution_eval \

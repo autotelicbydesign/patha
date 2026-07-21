@@ -122,7 +122,20 @@ config; LongMemEval-S multi-session stratum re-run ≥ 0.90 with the winning
 config (full battery: the other strata must not move); `_RANGE` /
 `_HYPOTHETICAL` / `_NEGATIVE` regression tests stay green.
 
-## 2. Supersession precision — the v0.12 program
+## 2. Supersession precision — ⚙️ v10 SHIPPED 2026-07-08 (target part-met, curve published)
+
+**Status:** `full-stack-v10` = v9 + `RefinementVetoDetector` (veto-only,
+outermost). Dev: precision **0.475 → 0.601** at recall **0.865** (v9's
+0.885 included wrong-reason credit), BeliefEval **347/347**, FP guard
+unchanged (lone fc-07), 10 unit tests. The 0.75 target was NOT reached
+— stopped per the discipline clause with the curve published, including
+the iteration the guards killed: a blanket embedding-similarity locus
+veto hit P 0.693 but broke atomic supersessions (BeliefEval 329/347 —
+"Sydney"→"Sofia" scores below the distractor band; embeddings cannot
+represent locus at atomic length). Remaining named classes for the
+next wave: ps interim-emotional states (needs discourse-level
+modelling), pr problem-state origins, distractor edges (needs a real
+entity/frame locus representation). Batch 3 seals AFTER this freeze.
 
 **Motivation (measured 2026-07-06).** Rubric v2's `supersession_precision`
 scorer: of the beats a timeline tags `revised-from`/`superseded`, the fraction

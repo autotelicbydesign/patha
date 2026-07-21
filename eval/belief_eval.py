@@ -515,7 +515,7 @@ def _make_detector(name: str) -> ContradictionDetector:
                 )
             )
         )
-    if name in ("full-stack-v8", "full-stack-v9"):
+    if name in ("full-stack-v8", "full-stack-v9", "full-stack-v10", "full-stack-v10"):
         # v0.8+: delegate to the shared factory (v9 = v8 + symmetric NLI
         # + revision patterns, the EvolutionEval held-out fixes).
         from patha.belief import make_detector as _shared_factory
@@ -608,7 +608,7 @@ def main(argv: list[str] | None = None) -> None:
             "stub", "nli", "hybrid",
             "adhyasa-nli", "adhyasa-hybrid",
             "live-ollama-hybrid", "full-stack", "full-stack-v7",
-            "full-stack-v8", "full-stack-v9",
+            "full-stack-v8", "full-stack-v9", "full-stack-v10",
         ],
         default="stub",
         help=(
