@@ -358,6 +358,19 @@ implementations.
   postulates with `pramana=Pramana.ARTHAPATTI` + a system-origin source_id
   convention (e.g. `patha:arthapatti`); no schema change required.
 
+## 5b. Distribution socket — Hermes Agent memory provider (noted 2026-07-08)
+
+Hermes Agent (Nous Research; the year's dominant open self-hosted
+agent, 175k stars) added **pluggable memory providers** in v0.7.0
+(April 2026). Its native memory is fact-storage + SQLite FTS5 lookup —
+the warehouse model Patha's epistemics critique. A `patha-hermes`
+provider (thin adapter: their provider interface → `Memory.remember`/
+`recall`) would put the belief layer inside the most popular agent
+runtime instead of competing with it. Effort: S–M (adapter + docs +
+their plugin registry). Value: distribution to exactly the local-first
+audience. Prereq: none technical; check their provider API stability
+first.
+
 ## 6. Frontier Articulation Bridge run
 
 Blocked only on credentials. When `ANTHROPIC_API_KEY` exists (env or

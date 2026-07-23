@@ -424,8 +424,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--data", type=Path, required=True)
     p.add_argument("--output", type=Path, default=None)
     p.add_argument(
-        "--answerer", default="stub", choices=sorted(ANSWERERS),
-        help="Which answerer to score. 'stub' is the random-session floor.",
+        "--answerer", default="stub",
+        help="Which answerer to score: a registry name ('stub', the "
+             "random-session floor) or a 'module:attr' dotted path to "
+             "an Answerer instance/class (absence_eval's pattern).",
     )
     p.add_argument(
         "--detector", default="stub",
@@ -453,7 +455,13 @@ def main(argv: list[str] | None = None) -> int:
         by_id = {s["id"]: s for s in scenarios}
         rows = rescore_rows(prior["rows"], by_id)
     else:
-        answerer = ANSWERERS[args.answerer]()
+        if args.answerer in ANSWERERS:
+            answerer = ANSWERERS[args.answerer]()
+        else:
+            import importlib
+            module, attr = args.answerer.rsplit(":", 1)
+            obj = getattr(importlib.import_module(module), attr)
+            answerer = obj() if isinstance(obj, type) else obj
         shared = None
         if getattr(answerer, "needs_memory", False):
             from patha.models.embedder_st import SentenceTransformerEmbedder

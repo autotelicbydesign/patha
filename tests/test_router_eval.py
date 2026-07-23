@@ -326,17 +326,17 @@ class TestIntentRouterAdapter:
             "have I ever spent more than 100 in one go on food?"
         ) in ("synthesis", "retrieval")
 
-    def test_documented_current_confusions(self):
-        # These pins DESCRIBE the pre-analogy router — the baseline the
-        # remaining roadmap gate must move. Update them (with a
-        # re-reported confusion matrix) when the analogy gate ships.
-        # (The absence and composition lines moved 2026-07-08 when
-        # their gates shipped — see test_gate_order_hand_verified.)
-        #
-        # Analogy-gold: the 'most similar' superlative trips the
-        # gaṇita 'most' (max) marker.
+    def test_analogy_gate_hand_verified(self):
+        # shipped 2026-07-08 — the LAST documented confusion moved:
+        # "most similar" no longer trips gaṇita's max marker (the
+        # similarity-frame lookahead in detect_aggregation) and routes
+        # analogy. All six gates live.
         assert intent_router(
-            "what past project was most similar to this one?") == "synthesis"
+            "what past project was most similar to this one?") == "analogy"
+        assert intent_router("what does this remind me of?") == "analogy"
+        # gaṇita's real max questions are untouched by the lookahead
+        assert intent_router(
+            "what's the most I've spent on a single dinner?") == "synthesis"
 
     def test_composition_gate_hand_verified(self):
         # shipped 2026-07-08 — the confusions the gate moved:

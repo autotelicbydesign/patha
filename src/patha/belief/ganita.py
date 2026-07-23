@@ -582,7 +582,12 @@ class GanitaIndex:
 _AGG_PATTERNS: list[tuple[AggOp, re.Pattern]] = [
     ("difference", re.compile(r"\b(?:how\s+much\s+more|how\s+much\s+less|difference|differs?)\b", re.I)),
     ("average", re.compile(r"\b(?:average|mean|on\s+average)\b", re.I)),
-    ("max", re.compile(r"\b(?:most|highest|maximum|max)\b", re.I)),
+    # negative lookahead: "most similar / most like / felt most like"
+    # are comparative-SIMILARITY frames (upamana territory), never a
+    # max-aggregation over stored values — on any store
+    ("max", re.compile(
+        r"\b(?:most(?!\s+(?:similar|like|alike))|highest|maximum|max)\b",
+        re.I)),
     ("min", re.compile(r"\b(?:least|lowest|minimum|min)\b", re.I)),
     ("sum", re.compile(r"\b(?:total|altogether|overall|sum|combined|how\s+much)\b", re.I)),
     ("count", re.compile(r"\b(?:how\s+many|count|number\s+of)\b", re.I)),

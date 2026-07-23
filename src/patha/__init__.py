@@ -96,7 +96,7 @@ class Recall:
 
     __slots__ = (
         "answer", "summary", "current", "history", "strategy", "tokens",
-        "ganita", "narrative", "absence", "composition",
+        "ganita", "narrative", "absence", "composition", "analogy",
     )
 
     def __init__(
@@ -107,6 +107,7 @@ class Recall:
         narrative_result=None,
         absence_result=None,
         composition_result=None,
+        analogy_result=None,
     ) -> None:
         self.answer: str | None = response.answer or None
         self.summary: str = response.prompt
@@ -116,6 +117,7 @@ class Recall:
         self.narrative = narrative_result  # NarrativeResult | None
         self.absence = absence_result  # AbsenceResult | None
         self.composition = composition_result  # CompositionResult | None
+        self.analogy = analogy_result  # AnalogyResult | None
         rr = response.retrieval_result
         self.current = [
             {
@@ -572,6 +574,16 @@ class Memory:
         if absence_recall is not None:
             return absence_recall
 
+        # ── Analogy path (upamāna) ────────────────────────────────
+        # "What does this remind me of?" wants the structurally-
+        # matching past EPISODE — same shape, different words — which
+        # is the one thing surface retrieval cannot do (the nearest
+        # text is the trap, not the analogue). Conservative detection;
+        # any failure degrades to the narrative/retrieval paths.
+        analogy_recall = self._try_analogy(question, include_history)
+        if analogy_recall is not None:
+            return analogy_recall
+
         # ── Narrative path (itihāsa) ──────────────────────────────
         # Between synthesis and retrieval: a narrative query ("how has my
         # thinking on X evolved?") wants a temporally-ordered thematic
@@ -687,6 +699,78 @@ class Memory:
             response, include_history=include_history,
             composition_result=result,
         )
+
+    def _try_analogy(self, question: str, include_history: bool):
+        """Attempt the upamāna analogical-recall path. Returns a Recall
+        or None (→ caller falls through to narrative/retrieval). Same
+        defensive contract as the other gates. Requires ≥2 candidate
+        episodes (you cannot claim an analogue from a single episode)."""
+        from patha.belief.upamana import (
+            detect_analogy_question,
+            rank_analogues,
+        )
+
+        if not detect_analogy_question(question):
+            return None
+        store = self._patha.belief_layer.store
+        try:
+            episodes: dict[str, list[str]] = {}
+            by_session: dict[str, list] = {}
+            for b in store.current():
+                sess = b.asserted_in_session or "default"
+                episodes.setdefault(sess, []).append(b.proposition)
+                by_session.setdefault(sess, []).append(b)
+            if len(episodes) < 2:
+                return None
+            embed_fn = self._analogy_embed_fn()
+            if embed_fn is None:
+                return None
+            result = rank_analogues(question, episodes, embed_fn=embed_fn)
+        except Exception:
+            return None
+        if not result.sessions:
+            return None
+
+        from patha.belief.layer import BeliefQueryResult
+        from patha.integrated import IntegratedResponse
+
+        top = by_session.get(result.sessions[0], [])
+        result.belief_ids = [b.id for b in top]
+        summary = result.render()
+        response = IntegratedResponse(
+            query=question,
+            strategy="analogy",
+            prompt=summary,
+            answer=result.sessions[0],
+            belief_ids=result.belief_ids,
+            source_proposition_ids=[b.source_proposition_id for b in top],
+            tokens_in=0,  # zero LLM tokens — ranking is embeddings+frames
+            retrieval_result=BeliefQueryResult(
+                current=top, history=[], tokens_in_summary=0,
+            ),
+        )
+        return Recall(
+            response, include_history=include_history,
+            analogy_result=result,
+        )
+
+    def _analogy_embed_fn(self):
+        """Batch embedder for episode pooling — the Phase-1 embedder
+        when available (lazy-created if needed)."""
+        retriever = self._phase1_retriever
+        if retriever is None:
+            return None
+
+        def fn(texts):
+            embedder = retriever._embedder
+            if embedder is None:
+                from patha.models.embedder_st import (
+                    SentenceTransformerEmbedder,
+                )
+                embedder = retriever._embedder = SentenceTransformerEmbedder()
+            return embedder.embed(list(texts))
+
+        return fn
 
     def _build_ganita_recall(self, question, ganita_result, include_history):
         """Wrap a GanitaResult into a plain-gaṇita Recall (used by the

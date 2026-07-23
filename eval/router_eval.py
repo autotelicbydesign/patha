@@ -93,9 +93,12 @@ def route_from_strategy(strategy: str) -> str:
 # (wrong gate vs missing gate) never blur together.
 # History: ("retrieval", "synthesis", "narrative") until 2026-07-08;
 # "absence" added when the anupalabdhi gate shipped in recall();
-# "composition" added the same day when the time-series gate shipped.
+# "composition" added the same day when the time-series gate shipped;
+# "analogy" added when the upamana gate shipped — full six-class
+# coverage.
 INTENT_ROUTER_COVERAGE = (
     "retrieval", "synthesis", "narrative", "absence", "composition",
+    "analogy",
 )
 
 
@@ -116,6 +119,7 @@ def intent_router(question: str) -> str:
     from patha.belief.composition import detect_composition
     from patha.belief.ganita import detect_aggregation
     from patha.belief.itihasa import detect_narrative, extract_theme
+    from patha.belief.upamana import detect_analogy_question
 
     if detect_composition(question) is not None:
         return "composition"
@@ -123,6 +127,8 @@ def intent_router(question: str) -> str:
         return "synthesis"
     if detect_absence_question(question) is not None:
         return "absence"
+    if detect_analogy_question(question):
+        return "analogy"
     if detect_narrative(question) is not None and extract_theme(question):
         return "narrative"
     return "retrieval"
